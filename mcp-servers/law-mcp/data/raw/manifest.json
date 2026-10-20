@@ -1,0 +1,245 @@
+{
+  "source": "https://github.com/legalize-kr/legalize-kr",
+  "laws": {
+    "subcontract_act": {
+      "path": "kr/하도급거래공정화에관한법률/법률.md",
+      "versions": [
+        {
+          "file": "data/raw/subcontract_act/2027-09-09_77058bd60e.md",
+          "effective": "2027-09-09",
+          "promulgated": "2026-09-08",
+          "commit": "77058bd60e68509aeae9d270f06579ecf563b9a2"
+        },
+        {
+          "file": "data/raw/subcontract_act/2026-10-02_f0a8225901.md",
+          "effective": "2026-10-02",
+          "promulgated": "2026-08-04",
+          "commit": "f0a8225901f45d2f41c6fefabf826ab5aaa20350"
+        },
+        {
+          "file": "data/raw/subcontract_act/2026-08-11_72a00e2bda.md",
+          "effective": "2026-08-11",
+          "promulgated": "2026-02-10",
+          "commit": "72a00e2bdabd2eab99b9594eab000906bbcc674e"
+        },
+        {
+          "file": "data/raw/subcontract_act/2025-12-17_c6307ac443.md",
+          "effective": "2025-12-17",
+          "promulgated": "2025-09-16",
+          "commit": "c6307ac44359d700261555d6bb179c22f1ca10da"
+        },
+        {
+          "file": "data/raw/subcontract_act/2025-04-01_7db064c532.md",
+          "effective": "2025-04-01",
+          "promulgated": "2025-04-01",
+          "commit": "7db064c53291b583d4a6953db91046e9d2d13c09"
+        },
+        {
+          "file": "data/raw/subcontract_act/2025-01-21_53ec817dfd.md",
+          "effective": "2025-01-21",
+          "promulgated": "2025-01-21",
+          "commit": "53ec817dfd67ecc4237f3e5b4470611f52a08383"
+        }
+      ]
+    },
+    "subcontract_decree": {
+      "path": "kr/하도급거래공정화에관한법률/시행령.md",
+      "versions": [
+        {
+          "file": "data/raw/subcontract_decree/2026-08-11_9dfd642b24.md",
+          "effective": "2026-08-11",
+          "promulgated": "2026-08-04",
+          "commit": "9dfd642b248477b4420b039fff0e366f5bb3ad35"
+        },
+        {
+          "file": "data/raw/subcontract_decree/2026-07-01_a6ce448a42.md",
+          "effective": "2026-07-01",
+          "promulgated": "2026-06-23",
+          "commit": "a6ce448a42062cec73575eebad4e1f1741ab185a"
+        },
+        {
+          "file": "data/raw/subcontract_decree/2025-10-01_f85ecea325.md",
+          "effective": "2025-10-01",
+          "promulgated": "2025-10-01",
+          "commit": "f85ecea325c79726ffd824afa17b40f1b6eca3d5"
+        },
+        {
+          "file": "data/raw/subcontract_decree/2024-12-27_74a250df7e.md",
+          "effective": "2024-12-27",
+          "promulgated": "2024-12-24",
+          "commit": "74a250df7e59509a21289ff14cab19dac97e5d99"
+        },
+        {
+          "file": "data/raw/subcontract_decree/2024-06-08_813044322d.md",
+          "effective": "2024-06-08",
+          "promulgated": "2024-06-04",
+          "commit": "813044322df83b622b901e21775d2fbd92c41c51"
+        },
+        {
+          "file": "data/raw/subcontract_decree/2024-05-28_08f9ffdfa3.md",
+          "effective": "2024-05-28",
+          "promulgated": "2024-05-28",
+          "commit": "08f9ffdfa34dbf3394f90091f2372143d860cc1b"
+        }
+      ]
+    },
+    "winwin_act": {
+      "path": "kr/대ㆍ중소기업상생협력촉진에관한법률/법률.md",
+      "versions": [
+        {
+          "file": "data/raw/winwin_act/2026-09-29_46dea95eac.md",
+          "effective": "2026-09-29",
+          "promulgated": "2026-09-29",
+          "commit": "46dea95eac0c69c491a691a1632ac5ec7ba7daec"
+        },
+        {
+          "file": "data/raw/winwin_act/2026-07-01_7cd450aadb.md",
+          "effective": "2026-07-01",
+          "promulgated": "2026-03-05",
+          "commit": "7cd450aadbf306fee6a1fa0799439615246a9fa0"
+        },
+        {
+          "file": "data/raw/winwin_act/2028-02-20_4be31e8d26.md",
+          "effective": "2028-02-20",
+          "promulgated": "2026-02-19",
+          "commit": "4be31e8d26a300a852949aa0c23c78f4ea29da40"
+        },
+        {
+          "file": "data/raw/winwin_act/2026-06-03_db3be730b7.md",
+          "effective": "2026-06-03",
+          "promulgated": "2025-12-02",
+          "commit": "db3be730b747ee8fb7ce4b4c479d7570c94845af"
+        },
+        {
+          "file": "data/raw/winwin_act/2026-01-02_fd7e0d5c01.md",
+          "effective": "2026-01-02",
+          "promulgated": "2025-10-01",
+          "commit": "fd7e0d5c012225af342945175260afb82e36bc92"
+        }
+      ]
+    },
+    "winwin_decree": {
+      "path": "kr/대ㆍ중소기업상생협력촉진에관한법률/시행령.md",
+      "versions": [
+        {
+          "file": "data/raw/winwin_decree/2026-07-01_c7ff9b2aa1.md",
+          "effective": "2026-07-01",
+          "promulgated": "2026-06-23",
+          "commit": "c7ff9b2aa1a34b839b8ae439707f56571f687c88"
+        },
+        {
+          "file": "data/raw/winwin_decree/2026-06-03_31c3b858b0.md",
+          "effective": "2026-06-03",
+          "promulgated": "2026-06-02",
+          "commit": "31c3b858b01792349dc3c1cabfea7c29a6c93b7a"
+        },
+        {
+          "file": "data/raw/winwin_decree/2025-12-23_94950c4392.md",
+          "effective": "2025-12-23",
+          "promulgated": "2025-12-23",
+          "commit": "94950c4392866d2ae9146412e93324bbcfb6e739"
+        },
+        {
+          "file": "data/raw/winwin_decree/2025-10-01_121b295873.md",
+          "effective": "2025-10-01",
+          "promulgated": "2025-10-01",
+          "commit": "121b295873357c85302c53de818ee6e562c43293"
+        },
+        {
+          "file": "data/raw/winwin_decree/2025-07-01_660296d9f4.md",
+          "effective": "2025-07-01",
+          "promulgated": "2025-04-15",
+          "commit": "660296d9f44b066d7311652cfd87290c763037dc"
+        },
+        {
+          "file": "data/raw/winwin_decree/2025-02-21_29e6172d74.md",
+          "effective": "2025-02-21",
+          "promulgated": "2025-02-07",
+          "commit": "29e6172d7423382c8a2706dfa96a65963e3f4dec"
+        }
+      ]
+    },
+    "sme_act": {
+      "path": "kr/중소기업기본법/법률.md",
+      "versions": [
+        {
+          "file": "data/raw/sme_act/2027-03-30_6932fb79fe.md",
+          "effective": "2027-03-30",
+          "promulgated": "2026-09-29",
+          "commit": "6932fb79fee084f5aa3b2031f286ee39e02b696e"
+        },
+        {
+          "file": "data/raw/sme_act/2027-01-01_b1a245261d.md",
+          "effective": "2027-01-01",
+          "promulgated": "2026-03-17",
+          "commit": "b1a245261d9688776438ad931840ffae58f2c6c5"
+        },
+        {
+          "file": "data/raw/sme_act/2026-02-19_9bfc04b671.md",
+          "effective": "2026-02-19",
+          "promulgated": "2026-02-19",
+          "commit": "9bfc04b67168ee8cd30e6f3fafdd50acc9b13aeb"
+        },
+        {
+          "file": "data/raw/sme_act/2026-07-01_97b529c374.md",
+          "effective": "2026-07-01",
+          "promulgated": "2025-12-30",
+          "commit": "97b529c374a1d9e7864f679da2b52fc654f80455"
+        },
+        {
+          "file": "data/raw/sme_act/2024-08-28_1e969a2c7d.md",
+          "effective": "2024-08-28",
+          "promulgated": "2024-02-27",
+          "commit": "1e969a2c7d600992ccbf0559db57a0eaf51b3f05"
+        },
+        {
+          "file": "data/raw/sme_act/2024-08-21_0212691f9b.md",
+          "effective": "2024-08-21",
+          "promulgated": "2024-02-20",
+          "commit": "0212691f9b2e0670e544226fb33b528d3bdb8e73"
+        }
+      ]
+    },
+    "sme_decree": {
+      "path": "kr/중소기업기본법/시행령.md",
+      "versions": [
+        {
+          "file": "data/raw/sme_decree/2026-01-02_8fb9fd7759.md",
+          "effective": "2026-01-02",
+          "promulgated": "2025-12-30",
+          "commit": "8fb9fd7759d58d02e39285c382e005c0621d58b9"
+        },
+        {
+          "file": "data/raw/sme_decree/2025-12-23_c2e97d44a1.md",
+          "effective": "2025-12-23",
+          "promulgated": "2025-12-23",
+          "commit": "c2e97d44a1f3b56e2c8bb43be125092e64ea144f"
+        },
+        {
+          "file": "data/raw/sme_decree/2025-10-01_803d2afc91.md",
+          "effective": "2025-10-01",
+          "promulgated": "2025-10-01",
+          "commit": "803d2afc916f134b118694482c7b078edc343e1a"
+        },
+        {
+          "file": "data/raw/sme_decree/2025-09-01_1d3f675493.md",
+          "effective": "2025-09-01",
+          "promulgated": "2025-09-01",
+          "commit": "1d3f675493e309dde306e87002786dc618bddae1"
+        },
+        {
+          "file": "data/raw/sme_decree/2024-08-21_70986199b8.md",
+          "effective": "2024-08-21",
+          "promulgated": "2024-08-20",
+          "commit": "70986199b854e25fa22ec04718b24c420369c912"
+        },
+        {
+          "file": "data/raw/sme_decree/2024-07-10_3e0cf700f8.md",
+          "effective": "2024-07-10",
+          "promulgated": "2024-07-02",
+          "commit": "3e0cf700f8d5bb742c2400f34b10fa160299ea0c"
+        }
+      ]
+    }
+  }
+}
