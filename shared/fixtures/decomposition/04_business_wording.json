@@ -1,0 +1,26 @@
+{
+  "note": "현업 표현을 법률 용어로 정규화하고, 원문은 original_text에 보존",
+  "query": "2차 업체 단가 일괄로 깎아도 돼?",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "2차 업체 단가 일괄로 깎아도 돼?",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "원사업자가 수급사업자의 하도급대금을 정당한 사유 없이 일률적인 비율로 인하하는 것이 허용되는지",
+        "original_text": "2차 업체 단가 일괄로 깎아도 돼?",
+        "intent": "law_check",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "law": "subcontract_act"
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

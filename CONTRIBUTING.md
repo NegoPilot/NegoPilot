@@ -70,6 +70,8 @@ mcp-servers/
   law-mcp/        하도급법·연동제 법령 조회·검색
   business-mcp/   협력사·완성차 정보, 협상안 법규 검사 (예정)
   mail-mcp/       메일 발송, 협상 문서 템플릿 (예정)
+shared/           컴포넌트 간 공용 계약 (쿼리 분해 스키마, intent 등록표, 예시)
+docs/contracts/   계약 문서 (형식을 바꾸면 shared/와 같은 PR에서 고치고 관련자 전원 승인)
 agent/            LangGraph Agent, Harness (예정)
 backend/          Spring Boot (예정)
 frontend/         Vue (예정)

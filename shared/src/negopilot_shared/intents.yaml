@@ -1,0 +1,111 @@
+# intent 등록표. 쿼리 분해와 Routing이 같이 읽는다.
+# intent를 추가하거나 바꾸면 docs/contracts/query-decomposition.md 도 함께 고치고, 관련자 전원 승인을 받는다.
+#
+# server/tools 가 없는 intent는 도구를 부르지 않고 Generation이 바로 처리한다 (grounding: none).
+# status: active = 지금 쓸 수 있음, planned = 서버가 아직 없음 (분해 결과에 나오면 Routing이 미지원으로 처리)
+
+- intent: rfq_lookup
+  server: business-mcp
+  tools: [list_rfqs]
+  grounding: required
+  status: active
+  description: 완성차가 낸 신차 부품 견적 요청(RFQ) 목록과 내용
+  entities: []
+  examples:
+    - 지금 들어와 있는 견적 요청 보여줘
+    - 이번 달 마감 RFQ 뭐 있어?
+
+- intent: supplier_search
+  server: business-mcp
+  tools: [search_suppliers]
+  grounding: required
+  status: active
+  description: 공정·소재·지역·인증·생산능력 조건으로 2차 협력사 후보 검색
+  entities: [process, material, region, iatf_required, min_monthly_capacity, top_n]
+  examples:
+    - 경남에 있는 프레스 협력사 찾아줘
+    - IATF 인증 있는 알루미늄 다이캐스팅 업체 목록
+
+- intent: supplier_detail
+  server: business-mcp
+  tools: [get_supplier]
+  grounding: required
+  status: active
+  description: 협력사 한 곳의 기본 정보, 품질·납기, 계약 조건, 생산능력, 재무, 최근 견적
+  entities: [supplier]
+  examples:
+    - SUP-0003 품질 실적 알려줘
+    - 서연이화 재무 상태 어때?
+
+- intent: supplier_ranking
+  server: business-mcp
+  tools: [rank_suppliers]
+  grounding: required
+  status: active
+  description: RFQ 하나에 맞는 2차 협력사 순위(가격·품질·납기 점수, 제외 사유 포함)
+  entities: [rfq_id, top_n]
+  examples:
+    - RFQ-2026-001 협력사 추천해줘
+
+- intent: offer_check
+  server: business-mcp
+  tools: [check_offer]
+  grounding: required
+  status: active
+  description: 구체적인 협상안(단가, 지급 기한, 연동 약정)이 하도급법 규칙에 어긋나는지 코드로 검사
+  entities: [supplier, rfq_id, unit_price, payment_days, price_linkage, raw_material_ratio, contract_days,
+             linkage_waived_by_agreement, buyer_is_small_business]
+  examples:
+    - SUP-0003에 RFQ-2026-001 단가 12,000원, 결제 75일로 제안해도 돼?
+
+- intent: law_check
+  server: law-mcp
+  tools: [search_regulation, get_article]
+  grounding: required
+  status: active
+  description: 협상 행위나 조건이 하도급법·연동제·중소기업기본법에서 어떻게 다뤄지는지 (구체적 숫자 협상안이 없을 때)
+  entities: [law, as_of, price_change_pct]
+  examples:
+    - 2차 협력사 단가를 일괄로 깎아도 돼?
+    - 하도급대금 지급 기한은 며칠이야?
+
+- intent: law_article
+  server: law-mcp
+  tools: [get_article]
+  grounding: required
+  status: active
+  description: 법령과 조문 번호가 정해진 조문 조회
+  entities: [law, article_no, as_of]
+  examples:
+    - 하도급법 제4조 보여줘
+
+- intent: draft_email
+  server: mail-mcp
+  tools: []
+  grounding: required
+  status: planned
+  description: 협력사에 보낼 견적 요청·협상 메일 초안 (mail-mcp 완성 후 활성화)
+  entities: [supplier, rfq_id]
+  examples:
+    - SUP-0003에 견적 요청 메일 써줘
+
+- intent: general_knowledge
+  server: null
+  tools: []
+  grounding: none
+  status: active
+  description: 조문·숫자·회사 정보가 필요 없는 개념 설명 (도구 없이 Generation이 답하고 '근거 없음'을 표시)
+  entities: []
+  examples:
+    - RFQ가 뭐야?
+    - IATF 16949는 무슨 인증이야?
+
+- intent: out_of_scope
+  server: null
+  tools: []
+  grounding: none
+  status: active
+  description: 협력사 협상 업무와 무관한 질문 (Generation이 정중히 거절)
+  entities: []
+  examples:
+    - 오늘 날씨 어때?

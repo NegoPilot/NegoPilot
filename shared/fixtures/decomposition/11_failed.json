@@ -1,0 +1,12 @@
+{
+  "note": "재시도 후에도 형식을 만들 수 없으면 추측하지 않고 failed",
+  "query": "ㅁㄴㅇㄹ 그거 저번처럼 해줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "failed",
+    "original_query": "ㅁㄴㅇㄹ 그거 저번처럼 해줘",
+    "sub_queries": [],
+    "clarification": null,
+    "assumptions": []
+  }
+}
