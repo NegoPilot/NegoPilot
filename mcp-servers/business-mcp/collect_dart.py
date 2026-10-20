@@ -1,9 +1,9 @@
 """OpenDART에서 자동차 부품 제조사의 기업 개황·재무·직원 수를 모은다.
 
 준비:  https://opendart.fss.or.kr 에서 인증키를 발급받고,
-       business-mcp 폴더의 .env 파일에  DART_API_KEY=발급받은키  한 줄을 넣는다.
-실행:  uv run python scripts/collect_dart.py            (상장사 전체를 훑어 자동차 부품 업종만 수집)
-       uv run python scripts/collect_dart.py --max 30   (30곳만 모으고 멈춤, 테스트용)
+       이 폴더의 .env 파일에  DART_API_KEY=발급받은키  한 줄을 넣는다.
+실행:  uv run python collect_dart.py            (상장사 전체를 훑어 자동차 부품 업종만 수집)
+       uv run python collect_dart.py --max 30   (30곳만 모으고 멈춤, 테스트용)
 
 결과:  data/dart_companies.csv, data/dart_financials.csv
        응답 원본은 data/dart_raw/ 에 캐시되어, 다시 실행하면 이미 받은 것은 건너뛴다.
@@ -27,8 +27,8 @@ import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent   # mcp-servers/business-mcp
-DATA = ROOT / "data"
+HERE = Path(__file__).parent
+DATA = HERE / "data"
 RAW = DATA / "dart_raw"
 BASE_URL = os.getenv("DART_BASE_URL", "https://opendart.fss.or.kr/api")
 AUTO_PARTS_KSIC = "303"
@@ -46,7 +46,7 @@ ACCOUNTS = {                      # account_nm → 저장할 열 이름
 
 def load_key():
     key = os.getenv("DART_API_KEY")
-    env = ROOT / ".env"
+    env = HERE / ".env"
     if not key and env.exists():
         for line in env.read_text(encoding="utf-8").splitlines():
             if line.strip().startswith("DART_API_KEY="):

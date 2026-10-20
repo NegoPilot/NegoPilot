@@ -5,7 +5,7 @@
 2) 나머지는 비상장 소규모 2차 협력사를 가상으로 만들어 N_SUPPLIERS 곳까지 채운다.  source = 'MOCK'
 3) 생산능력·품질·기존 계약·견적 이력·인증·RFQ는 공시에 없는 기업 내부/거래 데이터라 전부 가상으로 만든다.
 
-실행:  uv run python scripts/seed.py
+실행:  uv run python seed.py
 같은 seed(42)를 쓰므로 입력 CSV가 같으면 몇 번을 실행해도 같은 데이터가 만들어진다.
 """
 
@@ -18,8 +18,8 @@ from pathlib import Path
 import psycopg
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://agent:agent@localhost:5432/supplier_db")
-ROOT = Path(__file__).resolve().parent.parent   # mcp-servers/business-mcp
-DATA = ROOT / "data"
+HERE = Path(__file__).parent
+DATA = HERE / "data"
 N_SUPPLIERS = 150
 YEARS = [2023, 2024, 2025]
 
@@ -208,7 +208,7 @@ def main():
                 "total_assets", "total_liabilities", "total_equity"]
 
     with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
-        cur.execute((ROOT / "schema.sql").read_text(encoding="utf-8"))
+        cur.execute((HERE / "schema.sql").read_text(encoding="utf-8"))
         cur.executemany("INSERT INTO oems VALUES (%s,%s,%s)", OEMS)
         cur.executemany(f"INSERT INTO suppliers ({','.join(sup_cols)}, iatf16949, iso14001) "
                         f"VALUES ({','.join(['%s'] * (len(sup_cols) + 2))})", sup_rows)
@@ -236,7 +236,7 @@ def main():
     print(f"완료: 협력사 {len(suppliers)}곳 (DART {n_dart}, 가상 {len(suppliers) - n_dart}), 재무 {len(financials)}행, "
           f"생산능력 {len(caps)}건, 기존 계약 {len(contracts)}건, 견적 {len(quotes)}건, RFQ {len(RFQS)}건")
     if n_dart == 0:
-        print("참고: data/dart_companies.csv 가 없어 전부 가상 데이터로 채웠습니다. scripts/collect_dart.py 를 먼저 실행하세요.")
+        print("참고: data/dart_companies.csv 가 없어 전부 가상 데이터로 채웠습니다. collect_dart.py 를 먼저 실행하세요.")
 
 
 if __name__ == "__main__":
