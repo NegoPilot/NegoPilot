@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit 리뷰 설정. 사람 리뷰(승인 1명 필수)를 대신하지 않고, 1차 점검과 PR 요약에 쓴다.
+
+language: ko-KR
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+
+  # 리뷰에서 뺄 경로
+  path_filters:
+    - "!mcp-servers/**/data/**"
+    - "!**/uv.lock"
+
+  # 경로별로 특히 봐 줬으면 하는 점
+  path_instructions:
+    - path: "mcp-servers/**/*.py"
+      instructions: |
+        MCP 서버 코드다. 다음을 중점적으로 본다.
+        - 데이터를 바꾸지 않는 도구에 readOnlyHint, 데이터를 바꾸는 도구에 destructiveHint가 붙어 있는지
+        - 오류를 ToolError로 돌려주고, 메시지에 모델이 다음 호출을 고칠 수 있는 정보(가능한 값, 형식 예시)가 있는지
+        - 도구 docstring이 언제 쓰는 도구인지, 인자 형식이 무엇인지 설명하는지
+        - API 키나 비밀번호가 코드에 들어가 있지 않은지
+    - path: "**/tests/**"
+      instructions: |
+        MCP Client로 도구를 실제 호출하는 테스트인지, 오류 경우까지 다루는지 본다.
+
+  auto_review:
+    enabled: true
+    drafts: false
