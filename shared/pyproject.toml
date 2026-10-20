@@ -19,3 +19,7 @@ build-backend = "uv_build"
 dev = [
     "pytest>=9.1.1",
 ]
+
+[tool.pytest.ini_options]
+# 편집 설치(.pth)가 무시되는 환경(macOS 숨김 속성 등)에서도 테스트가 돌도록 경로를 직접 지정
+pythonpath = ["src"]
