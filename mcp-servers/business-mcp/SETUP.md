@@ -99,8 +99,8 @@ tools = await client.get_tools()
 npx @modelcontextprotocol/inspector $(which uv) run --directory $(pwd) python server.py
 ```
 
-연결되면 Tool 4개(`list_rfqs`, `search_suppliers`, `get_supplier`, `rank_suppliers`)와 Resource `business://catalog`가 보입니다.
-예: "RFQ-2026-001에 맞는 협력사 순위 보여줘" → `rank_suppliers`, "서연이화 재무 알려줘" → `get_supplier`
+연결되면 Tool 5개(`list_rfqs`, `search_suppliers`, `get_supplier`, `rank_suppliers`, `check_offer`)와 Resource `business://catalog`가 보입니다.
+예: "RFQ-2026-001에 맞는 협력사 순위 보여줘" → `rank_suppliers`, "서연이화 재무 알려줘" → `get_supplier`, "SUP-0034에 3,800원, 75일 결제, 연동 없이 제안해도 돼?" → `check_offer`
 
 ## 데이터 추가·갱신 방법
 
