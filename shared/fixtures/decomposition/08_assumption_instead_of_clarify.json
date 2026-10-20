@@ -1,0 +1,45 @@
+{
+  "note": "해석이 달라도 답이 크게 다르지 않으면 되묻지 않고 가정을 밝힌다. inputs로 앞 결과를 받는다",
+  "query": "최근 RFQ 협력사 추천해줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "최근 RFQ 협력사 추천해줘",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "견적 요청(RFQ) 목록",
+        "original_text": "최근 RFQ",
+        "intent": "rfq_lookup",
+        "grounding": "required",
+        "confidence": 0.8,
+        "entities": {},
+        "inputs": [],
+        "depends_on": []
+      },
+      {
+        "id": "q2",
+        "question": "선택된 RFQ에 맞는 2차 협력사 순위",
+        "original_text": "협력사 추천해줘",
+        "intent": "supplier_ranking",
+        "grounding": "required",
+        "confidence": 0.8,
+        "entities": {},
+        "inputs": [
+          {
+            "slot": "rfq_id",
+            "from": "q1",
+            "select": "top1"
+          }
+        ],
+        "depends_on": [
+          "q1"
+        ]
+      }
+    ],
+    "clarification": null,
+    "assumptions": [
+      "RFQ 목록의 첫 번째(마감이 가장 가까운) RFQ 기준"
+    ]
+  }
+}

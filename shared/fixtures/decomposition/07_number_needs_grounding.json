@@ -1,0 +1,26 @@
+{
+  "note": "일반 질문처럼 보여도 숫자가 답이면 근거가 필요하다",
+  "query": "하도급법상 대금 지급 기한은 며칠이야?",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "하도급법상 대금 지급 기한은 며칠이야?",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "하도급대금 지급 기한",
+        "original_text": "하도급법상 대금 지급 기한은 며칠이야?",
+        "intent": "law_check",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "law": "subcontract_act"
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

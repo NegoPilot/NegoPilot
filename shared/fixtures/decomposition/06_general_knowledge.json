@@ -1,0 +1,24 @@
+{
+  "note": "조문·숫자·회사 정보가 필요 없는 개념 설명은 도구 없이 답한다",
+  "query": "RFQ가 뭐야?",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "RFQ가 뭐야?",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "RFQ(견적 요청서)의 의미",
+        "original_text": "RFQ가 뭐야?",
+        "intent": "general_knowledge",
+        "grounding": "none",
+        "confidence": 0.95,
+        "entities": {},
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

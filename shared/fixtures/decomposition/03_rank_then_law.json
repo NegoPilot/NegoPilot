@@ -1,0 +1,40 @@
+{
+  "note": "문장으로는 이어져 있어도, 뒤 질문(법 검토)에 앞 결과가 도구 입력으로 필요 없으면 depends_on을 비워 병렬로 실행한다. 1등 업체 정보는 Generation이 두 결과를 합칠 때 쓴다",
+  "query": "RFQ-2026-001 협력사 추천해 주고, 1등 업체에 단가 5% 깎아도 되는지 알려줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "RFQ-2026-001 협력사 추천해 주고, 1등 업체에 단가 5% 깎아도 되는지 알려줘",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "RFQ-2026-001에 맞는 2차 협력사 순위",
+        "original_text": "RFQ-2026-001 협력사 추천해 주고",
+        "intent": "supplier_ranking",
+        "grounding": "required",
+        "confidence": 0.95,
+        "entities": {
+          "rfq_id": "RFQ-2026-001"
+        },
+        "inputs": [],
+        "depends_on": []
+      },
+      {
+        "id": "q2",
+        "question": "원사업자가 수급사업자에게 하도급대금 5% 인하를 요구할 때 하도급법상 제한",
+        "original_text": "1등 업체에 단가 5% 깎아도 되는지",
+        "intent": "law_check",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "law": "subcontract_act",
+          "price_change_pct": -5
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}
