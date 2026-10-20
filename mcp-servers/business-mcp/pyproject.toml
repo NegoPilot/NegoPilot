@@ -1,0 +1,8 @@
+[project]
+name = "business-mcp"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp>=4.1.1",
+    "psycopg[binary]>=3.1",
+]
