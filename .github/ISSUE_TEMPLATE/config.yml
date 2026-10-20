@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 협업 규칙 (CONTRIBUTING.md)
+    url: https://github.com/NegoPilot/NegoPilot/blob/main/CONTRIBUTING.md
+    about: 브랜치 이름, 커밋 메시지, PR·리뷰 규칙을 먼저 확인해 주세요.

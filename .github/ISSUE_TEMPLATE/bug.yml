@@ -1,0 +1,76 @@
+name: 버그 신고
+description: 기대와 다르게 동작하는 문제를 알릴 때 사용합니다.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: 컴포넌트
+      options:
+        - law-mcp
+        - business-mcp
+        - mail-mcp
+        - agent
+        - backend
+        - frontend
+        - infra
+        - 기타
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 현상
+      description: 무엇이 잘못됐는지 한두 문장으로 적어 주세요.
+      placeholder: 예) search_regulation에 '단가 인하'로 검색하면 관련 없는 조문이 1위로 나온다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 재현 방법
+      description: 누가 따라 해도 같은 현상이 나오도록 순서대로 적어 주세요.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대 결과
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 실제 결과와 로그
+      description: 오류 메시지나 로그를 붙여 넣어 주세요. API 키와 비밀번호는 지워 주세요.
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: 환경
+      placeholder: 예) macOS 15, Python 3.12, FastMCP 4.1.1, main@d7abfef
+    validations:
+      required: false
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: 심각도
+      options:
+        - 높음 (시연·개발이 막힘)
+        - 보통 (우회 방법 있음)
+        - 낮음 (사소한 문제)
+    validations:
+      required: true

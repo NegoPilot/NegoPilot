@@ -1,0 +1,78 @@
+name: 기능 개발
+description: 새 기능이나 도구를 만들 때 사용합니다.
+title: "[Feat] "
+labels: ["feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        이슈를 만든 뒤 `feat/이슈번호-짧은-설명` 브랜치에서 작업하고, PR 본문에 `Closes #이슈번호`를 적어 주세요.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: 컴포넌트
+      description: 작업하는 부분을 고르세요.
+      options:
+        - law-mcp
+        - business-mcp
+        - mail-mcp
+        - agent
+        - backend
+        - frontend
+        - infra
+        - 기타
+    validations:
+      required: true
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: 목적
+      description: 이 기능이 왜 필요한지, 어떤 문제를 해결하는지 적어 주세요.
+      placeholder: 예) 협상 담당자가 공정·지역·인증 조건으로 2차 협력사를 찾을 수 있어야 한다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: tasks
+    attributes:
+      label: 할 일
+      description: 작업을 체크리스트로 나눠 주세요.
+      value: |
+        - [ ]
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+
+  - type: textarea
+    id: done
+    attributes:
+      label: 완료 기준
+      description: 무엇이 되면 이 이슈를 닫을 수 있나요? 확인 방법까지 적어 주세요.
+      placeholder: |
+        예)
+        - search_suppliers 도구가 공정·지역 조건으로 결과를 반환한다
+        - MCP Client 테스트가 통과한다
+    validations:
+      required: true
+
+  - type: dropdown
+    id: size
+    attributes:
+      label: 예상 규모
+      options:
+        - S (반나절 이내)
+        - M (1~2일)
+        - L (3일 이상, 쪼갤 수 있는지 먼저 검토)
+    validations:
+      required: true
+
+  - type: textarea
+    id: references
+    attributes:
+      label: 참고 자료
+      description: 관련 이슈, 문서, 기획서 링크 등
+    validations:
+      required: false
