@@ -28,6 +28,7 @@
 | Tool | `search_suppliers(process, material?, region?, iatf_required?, min_monthly_capacity?, limit?)` | 조건으로 협력사 후보 검색, 불량률 낮은 순 |
 | Tool | `get_supplier(supplier)` | 협력사 한 곳의 기본 정보, 품질, 계약, 생산능력, 재무, 최근 견적 |
 | Tool | `rank_suppliers(rfq_id, w_price?, w_quality?, w_delivery?, top_n?)` | RFQ 기준 후보 순위와 제외 사유. 점수는 코드로 계산 |
+| Tool | `check_offer(supplier, rfq_id, unit_price, payment_days, price_linkage, raw_material_ratio?, contract_days?, linkage_waived_by_agreement?, buyer_is_small_business?)` | 협상안의 하도급법 검사. 위반·경고·참고와 근거 조문 |
 | Resource | `business://catalog` | 공정별 소재, 별칭, 지역, RFQ 목록, 출처별 협력사 수 |
 
 - 모든 Tool은 `readOnlyHint`가 붙은 조회 도구입니다.
@@ -37,7 +38,29 @@
   - `region`: `경상남도`, `울산광역시` → 경남, 울산
   - `supplier`: `SUP-0001`, `1`, 회사명(`서연이화`, `(주)서연이화`, 이름 일부)
 - 잘못된 값이 들어오면 `ToolError`로 사용 가능한 값이나 후보를 알려 줍니다. 예: `알 수 없는 공정 '용접'. 사용 가능: 다이캐스팅, 프레스, 사출, 단조, CNC가공`
-- `rank_suppliers`는 결제 기간 60일 초과 계약, 연동 약정 여부, 신규 후보 여부, 최근 영업적자, 부채비율 200% 초과를 `notes`로 함께 알려 줍니다.
+- `rank_suppliers`는 신규 후보 여부, 최근 영업적자, 부채비율 200% 초과 등을 `notes`(사람이 읽는 요약)로, 기존 계약의 법규 점검 결과를 `flags`로 함께 알려 줍니다.
+
+## 협상안 검사 (`check_offer`)
+
+법 조문을 찾아 인용하는 일은 law-mcp가, 협상안이 법에 어긋나는지 판정하는 일은 이 서버가 **코드 규칙으로** 합니다.
+결과 항목은 `{code, severity, message, law_refs}`이고, `law_refs`의 `{law, article_no}`를 law-mcp `get_article`에 그대로 넘기면 조문 원문과 `citation`을 받을 수 있습니다.
+
+| code | severity | 기준 | 근거 |
+| --- | --- | --- | --- |
+| `PAYMENT_DAYS_OVER_60` | violation | 지급 기한이 수령일부터 60일 초과 | 하도급법 제13조① |
+| `LINKAGE_TERMS_MISSING` | violation | 원재료 비중 10% 이상(주요 원재료)인데 연동 약정 없음 | 제2조⑯, 제3조②3 |
+| `LINKAGE_WAIVED_NEEDS_WRITTEN_REASON` | warning | 연동하지 않기로 합의함 → 취지·사유를 서면에 기재 | 제3조④4 |
+| `LINKAGE_EXEMPT` | info | 원사업자 소기업, 거래 90일 이내, 하도급대금 1억 원 이하 | 제3조④1~3 |
+| `RAW_MATERIAL_RATIO_UNKNOWN` | warning | 원재료 비중을 몰라 연동 대상 판단 불가 | 제2조⑯, 제3조 |
+| `PRICE_BELOW_MARKET` | warning | 같은 공정·소재 최근 견적 중앙값의 90% 미만 | 제4조 |
+| `PRICE_CUT_FROM_LAST_QUOTE` | warning | 그 협력사 직전 견적보다 5% 넘게 낮음 | 제4조②1·5 |
+| `SUBCONTRACT_ACT_APPLIES` / `SME_STATUS_CHECK` / `SME_STATUS_UNKNOWN` | info | 수급사업자(중소기업) 해당 가능성 (최근 매출 1,000억 원 기준) | 제2조③ |
+| `ABOVE_TARGET_PRICE`, `CERT_MISSING`, `CAPABILITY_MISSING`, `CAPACITY_SHORT` | info / warning | RFQ 목표 단가·인증·생산능력 (거래 조건) | - |
+
+- `verdict`는 violation이 있으면 `위반 소지 있음`, warning만 있으면 `확인 필요`, 없으면 `문제 없음`입니다.
+- 90%·5% 단가 기준은 팀 내부 기준이고, 법이 정한 수치가 아닙니다.
+- 거래 기간 90일·하도급대금 1억 원은 법률이 정한 상한이고 실제 값은 시행령으로 정합니다. 중소기업 매출 기준은 중소기업기본법 시행령 별표1인데 law-mcp 색인에 별표가 없어 확인이 필요합니다.
+- 판정은 위험 신호입니다. 예외(대등한 지위에서 정한 지급기일 등) 해당 여부의 최종 판단은 법무 검토로 확인합니다.
 
 ## 실행
 
