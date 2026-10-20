@@ -1,4 +1,6 @@
 .env
-data/
+data/*
+!data/dart_companies.csv
+!data/dart_financials.csv
 __pycache__/
 .venv/
