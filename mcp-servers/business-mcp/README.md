@@ -22,20 +22,15 @@ DART 회사의 공정은 공시에 없어서 업종 코드(KSIC 303xx)로 추정
 ```bash
 docker compose up -d                  # 1. PostgreSQL 띄우기 (Docker Desktop 필요)
 uv sync                               # 2. 패키지 설치
-uv run python collect_dart.py         # 3. (선택) DART 새로 수집. 레포 CSV를 쓰면 건너뜀, 인증키 필요
-uv run python seed.py                 # 4. 테이블 만들고 데이터 넣기 (다시 실행하면 처음부터 새로 만듦)
-uv run python server.py               # 5. MCP 서버 실행 (stdio)
+uv run python seed.py                 # 3. 테이블 만들고 데이터 넣기 (다시 실행하면 처음부터 새로 만듦)
+uv run python server.py               # 4. MCP 서버 실행 (stdio)
 uv run python server.py --http 9102   #    또는 Streamable HTTP: http://localhost:9102/mcp
 ```
 
-**OpenDART 인증키**는 `collect_dart.py`로 데이터를 새로 수집할 때만 필요하다. `seed.py`와 `server.py`는 키를 쓰지 않는다.
-필요하면 https://opendart.fss.or.kr 에서 회원가입 후 인증키를 신청한다.
-`.env.example`을 `.env`로 복사하고(`cp .env.example .env`) `DART_API_KEY=` 뒤에 키를 붙여 넣는다. `.env`는 git에 올라가지 않으며 다른 사람과 공유하지 않는다.
-수집은 상장사 중 업종 코드 303(자동차 신품 부품 제조업)인 회사를 모으고, 2023~2025 사업보고서 재무를 가져온다.
-응답은 `data/dart_raw/`에 캐시되어 중간에 끊겨도 다시 실행하면 이어서 받는다.
-팀원 모두 같은 seed 데이터로 작업하도록 수집 결과(`data/dart_companies.csv`, `data/dart_financials.csv`, 자동차 부품 상장사 30곳)를 레포에 포함한다.
-공시된 공공데이터라 팀에서 포함하기로 정했다. 그래서 인증키 없이 `collect_dart.py`를 건너뛰고 `seed.py`만 실행해도 모두 같은 DB가 만들어진다.
-`collect_dart.py`를 다시 실행하면 두 파일을 덮어쓰므로, 데이터를 바꿀 때만 실행하고 바뀐 CSV를 PR로 올린다.
+팀원 모두 같은 seed 데이터로 작업하도록 DART 수집 결과(`data/dart_companies.csv`, `data/dart_financials.csv`, 자동차 부품 상장사 30곳)를 레포에 포함한다.
+`collect_dart.py`가 상장사 중 업종 코드 303(자동차 신품 부품 제조업)인 회사를 모으고 2023~2025 사업보고서 재무를 가져와 만든 파일이다.
+공시된 공공데이터라 팀에서 포함하기로 정했다. `seed.py`가 이 CSV를 읽으므로 인증키 없이 모두 같은 DB가 만들어진다.
+회사를 더 넣거나 최신 공시로 바꾸는 절차는 [SETUP.md의 데이터 추가·갱신 방법](SETUP.md#데이터-추가갱신-방법)을 본다.
 
 Docker 없이 PostgreSQL을 직접 설치했다면 DB와 계정만 만든 뒤
 `DATABASE_URL` 환경변수로 접속 정보를 바꾸면 된다.
