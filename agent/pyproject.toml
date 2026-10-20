@@ -1,0 +1,31 @@
+[project]
+name = "negopilot-agent"
+version = "0.1.0"
+description = "NegoPilot Agent: 쿼리 분해, Routing, Generation (LangGraph)"
+authors = [
+    { name = "dohyeong", email = "daniel010309@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=1.15.0",
+    "langgraph>=1.2.16",
+    "negopilot-shared",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.31,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+negopilot-shared = { path = "../shared", editable = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+# 편집 설치(.pth)가 무시되는 환경(macOS 숨김 속성 등)에서도 테스트가 돌도록 경로를 직접 지정
+pythonpath = ["src", "../shared/src"]
