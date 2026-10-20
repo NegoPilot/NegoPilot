@@ -21,9 +21,17 @@ from fastmcp.exceptions import ToolError
 from psycopg.rows import dict_row
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://agent:agent@localhost:5432/supplier_db")
-PAYMENT_DAYS_LIMIT = 60          # 하도급법 지급 기한
 DEBT_RATIO_WARN = 2.0           # 부채비율 200% 초과 시 경고
 GRADE_SCORE = {"A": 1.0, "B": 0.67, "C": 0.33, "D": 0.0}
+
+# 협상안 검사 기준. 근거 조문은 law-mcp(law_key, 조문 번호)로 확인·인용한다.
+PAYMENT_DAYS_LIMIT = 60          # 하도급법 제13조①: 수령일부터 60일 이내 지급
+MAJOR_MATERIAL_RATIO = 0.10      # 하도급법 제2조⑯: 비용이 하도급대금의 10% 이상이면 주요 원재료
+LINKAGE_EXEMPT_DAYS = 90         # 하도급법 제3조④2: 거래 기간 90일 이내 (법률 상한, 시행령 값 확인)
+LINKAGE_EXEMPT_AMOUNT = 100_000_000   # 하도급법 제3조④3: 하도급대금 1억 원 이하 (법률 상한, 시행령 값 확인)
+MARKET_PRICE_FLOOR = 0.90        # 시장 중앙값의 90% 미만이면 제4조(부당한 하도급대금 결정) 위험으로 본다 (내부 기준)
+LAST_QUOTE_CUT = 0.05            # 직전 견적보다 5% 넘게 낮으면 인하 근거 확인 (내부 기준)
+SME_REVENUE_EOK = 1000           # 중소기업기본법 시행령 별표1 자동차 제조업 평균매출 기준(억 원). law-mcp 색인에 별표가 없어 확인 필요
 
 PROCESSES = ["다이캐스팅", "프레스", "사출", "단조", "CNC가공"]   # schema.sql의 CHECK와 같다
 
@@ -159,6 +167,53 @@ def get_rfq(rfq_id: str) -> dict:
     return rfq[0]
 
 
+def finding(code: str, severity: str, message: str, *refs: tuple[str, str]) -> dict:
+    """검사 결과 한 건. law_refs는 law-mcp get_article(law, article_no)로 그대로 넘길 수 있다."""
+    return {"code": code, "severity": severity, "message": message,
+            "law_refs": [{"law": law, "article_no": no} for law, no in refs]}
+
+
+def linkage_findings(raw_material_ratio: float | None, price_linkage: bool, contract_amount: int | None,
+                     contract_days: int | None, waived: bool = False, buyer_is_small_business: bool = False) -> list[dict]:
+    """주요 원재료 연동 약정(하도급법 제3조②3·④, 제2조⑯) 검사."""
+    if price_linkage:
+        return []
+    if raw_material_ratio is None:
+        return [finding("RAW_MATERIAL_RATIO_UNKNOWN", "warning",
+                        "원재료 비중을 몰라 연동 약정 대상인지 판단할 수 없다. 원재료 비용이 하도급대금의 10% 이상이면 "
+                        "연동 사항을 서면에 적어야 한다", ("subcontract_act", "제2조"), ("subcontract_act", "제3조"))]
+    if raw_material_ratio < MAJOR_MATERIAL_RATIO:
+        return []
+    pct = f"{raw_material_ratio * 100:.0f}%"
+    exemptions = []
+    if buyer_is_small_business:
+        exemptions.append("원사업자가 소기업")
+    if contract_days is not None and contract_days <= LINKAGE_EXEMPT_DAYS:
+        exemptions.append(f"거래 기간 {contract_days}일(90일 이내)")
+    if contract_amount is not None and contract_amount <= LINKAGE_EXEMPT_AMOUNT:
+        exemptions.append(f"하도급대금 {contract_amount:,}원(1억 원 이하)")
+    if exemptions:
+        return [finding("LINKAGE_EXEMPT", "info",
+                        f"원재료 비중 {pct}로 연동 대상이지만 예외에 해당할 수 있다: {', '.join(exemptions)}. "
+                        "기간·금액 기준은 시행령 값을 확인한다", ("subcontract_act", "제3조"))]
+    if waived:
+        return [finding("LINKAGE_WAIVED_NEEDS_WRITTEN_REASON", "warning",
+                        f"원재료 비중 {pct}로 연동 대상인데 연동하지 않기로 합의했다. 그 취지와 사유를 서면에 분명하게 "
+                        "적어야 하고, 거래상 지위를 남용해 합의를 유도하면 안 된다", ("subcontract_act", "제3조"))]
+    return [finding("LINKAGE_TERMS_MISSING", "violation",
+                    f"원재료 비중 {pct}로 주요 원재료(10% 이상)에 해당하는데 연동 약정이 없다. 연동 대상 원재료, 조정요건, "
+                    "기준 지표, 산식 등을 서면에 적어야 한다", ("subcontract_act", "제2조"), ("subcontract_act", "제3조"))]
+
+
+def payment_findings(payment_days: int) -> list[dict]:
+    if payment_days > PAYMENT_DAYS_LIMIT:
+        return [finding("PAYMENT_DAYS_OVER_60", "violation",
+                        f"지급 기한 {payment_days}일: 목적물 수령일부터 {PAYMENT_DAYS_LIMIT}일 이내로 정해야 한다 "
+                        "(대등한 지위에서 정했거나 업종 특수성이 인정되는 예외 제외). 초과 기간에는 지연이자가 붙는다",
+                        ("subcontract_act", "제13조"))]
+    return []
+
+
 def minmax(value, values, higher_is_better=True):
     lo, hi = min(values), max(values)
     if hi == lo:
@@ -255,7 +310,9 @@ def rank_suppliers(rfq_id: str, w_price: float = 0.5, w_quality: float = 0.3,
     top_n: ranked에 담을 최대 개수
     점수 = 가격(최근 견적 단가) × w_price + 품질(불량률·감사 등급) × w_quality + 납기 준수율 × w_delivery
     인증이 없거나 생산 능력이 모자란 곳은 순위에서 빼고 excluded에 제외 사유를 담는다.
-    notes의 하도급법 지급 기한·연동 약정 내용은 law-mcp로 조문을 확인해 인용한다.
+    notes는 사람이 읽는 요약이고, flags는 기존 계약 조건의 법규 점검 결과다
+    ({code, severity, message, law_refs}). law_refs를 law-mcp get_article로 넘겨 조문을 인용한다.
+    새 협상안을 검사하려면 check_offer를 쓴다.
     """
     rfq = get_rfq(rfq_id)
     needed_monthly = -(-rfq["annual_volume"] // 12)   # 올림
@@ -263,7 +320,7 @@ def rank_suppliers(rfq_id: str, w_price: float = 0.5, w_quality: float = 0.3,
     rows = query("""
         SELECT o.supplier_id, o.source, o.name, o.region, o.iatf16949, c.monthly_capacity,
                o.defect_ppm, o.on_time_rate, o.audit_grade, o.years_dealing,
-               o.payment_days, o.price_linkage, o.fin_year, o.operating_margin, o.debt_ratio,
+               o.payment_days, o.price_linkage, o.raw_material_ratio, o.fin_year, o.operating_margin, o.debt_ratio,
                (SELECT unit_price FROM quotes q
                  WHERE q.supplier_id = o.supplier_id AND q.process = c.process AND q.material = c.material
                  ORDER BY quoted_at DESC LIMIT 1) AS last_price
@@ -305,6 +362,9 @@ def rank_suppliers(rfq_id: str, w_price: float = 0.5, w_quality: float = 0.3,
             if c["price_linkage"]:
                 notes.append("납품대금 연동 약정 있음: 원재료 변동분은 연동 공식으로 반영")
             c["notes"] = notes
+            # 기존 계약 조건의 법규 점검 결과. law_refs를 law-mcp get_article로 넘겨 조문을 인용한다
+            c["flags"] = (payment_findings(c["payment_days"]) if c["payment_days"] else []) + (
+                linkage_findings(c["raw_material_ratio"], c["price_linkage"], None, None) if c["years_dealing"] else [])
         candidates.sort(key=lambda c: c["total_score"], reverse=True)
 
     return {
@@ -314,6 +374,110 @@ def rank_suppliers(rfq_id: str, w_price: float = 0.5, w_quality: float = 0.3,
         "ranked": candidates[:top_n],
         "candidate_count": len(candidates),
         "excluded": excluded,
+    }
+
+
+@mcp.tool(annotations={"readOnlyHint": True})
+def check_offer(supplier: str, rfq_id: str, unit_price: int, payment_days: int, price_linkage: bool,
+                raw_material_ratio: float | None = None, contract_days: int = 365,
+                linkage_waived_by_agreement: bool = False, buyer_is_small_business: bool = False) -> dict:
+    """협상안(단가·지급 기한·연동 약정)이 하도급법에 어긋나는지 코드 규칙으로 검사한다.
+
+    supplier: 협상 상대 협력사 (SUP-0001, 회사명 등. get_supplier와 같은 입력)
+    rfq_id: 협상안이 대응하는 RFQ (RFQ-2026-001 등)
+    unit_price: 제시할 개당 단가(원)
+    payment_days: 목적물 수령일부터 대금 지급까지 일수
+    price_linkage: 납품대금 연동 약정을 넣는지
+    raw_material_ratio: 단가 중 원재료 비용 비중(0~1). 생략하면 그 협력사와의 기존 계약 값을 쓴다
+    contract_days: 거래 기간(일). 하도급대금은 RFQ 연간 물량 × 단가 × 기간/365로 계산한다
+    linkage_waived_by_agreement: 연동하지 않기로 협력사와 합의했는지
+    buyer_is_small_business: 우리(원사업자)가 중소기업기본법상 소기업인지
+
+    결과의 각 항목은 {code, severity(violation/warning/info), message, law_refs}이다.
+    violation은 법 위반 소지, warning은 확인이 필요한 위험, info는 참고다.
+    law_refs의 {law, article_no}를 law-mcp get_article로 넘겨 조문 원문을 인용한다.
+    판정은 이 도구가 하고, 법 해석이나 예외 해당 여부의 최종 판단은 법무 검토로 확인한다.
+    """
+    if unit_price <= 0 or payment_days <= 0 or contract_days <= 0:
+        raise ToolError("unit_price, payment_days, contract_days 는 0보다 커야 한다")
+    if raw_material_ratio is not None and not 0 <= raw_material_ratio <= 1:
+        raise ToolError("raw_material_ratio 는 0~1 사이 비율로 입력한다 (예: 40% → 0.4)")
+    sid = resolve_supplier_id(supplier)
+    rfq = get_rfq(rfq_id)
+    s = query("SELECT * FROM supplier_overview WHERE supplier_id = %s", (sid,))[0]
+    cap = query("SELECT monthly_capacity FROM capabilities WHERE supplier_id = %s AND process = %s AND material = %s",
+                (sid, rfq["process"], rfq["material"]))
+    last = query("SELECT unit_price FROM quotes WHERE supplier_id = %s AND process = %s AND material = %s "
+                 "ORDER BY quoted_at DESC LIMIT 1", (sid, rfq["process"], rfq["material"]))
+    market = query("""
+        SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY unit_price) AS median, count(*) AS n
+        FROM (SELECT DISTINCT ON (supplier_id) unit_price FROM quotes
+              WHERE process = %s AND material = %s ORDER BY supplier_id, quoted_at DESC) latest
+    """, (rfq["process"], rfq["material"]))[0]
+
+    ratio = raw_material_ratio if raw_material_ratio is not None else s["raw_material_ratio"]
+    contract_amount = round(rfq["annual_volume"] * unit_price * contract_days / 365)
+    needed_monthly = -(-rfq["annual_volume"] // 12)
+    findings = payment_findings(payment_days)
+    findings += linkage_findings(ratio, price_linkage, contract_amount, contract_days,
+                                 linkage_waived_by_agreement, buyer_is_small_business)
+
+    # 단가: 일반적으로 지급되는 대가보다 낮은지 (제4조①, ②5 일방적으로 낮은 단가, ②1 일률적 인하)
+    if market["median"] and unit_price < market["median"] * MARKET_PRICE_FLOOR:
+        findings.append(finding(
+            "PRICE_BELOW_MARKET", "warning",
+            f"단가 {unit_price:,}원이 같은 공정·소재 최근 견적 중앙값 {market['median']:,.0f}원({market['n']}곳)의 "
+            f"{unit_price / market['median'] * 100:.0f}%다. 일반적으로 지급되는 대가보다 낮게 정하면 부당한 하도급대금 "
+            "결정이 될 수 있으니 원가 근거와 협의 기록을 남긴다", ("subcontract_act", "제4조")))
+    if last and unit_price < last[0]["unit_price"] * (1 - LAST_QUOTE_CUT):
+        findings.append(finding(
+            "PRICE_CUT_FROM_LAST_QUOTE", "warning",
+            f"이 협력사의 직전 견적 {last[0]['unit_price']:,}원보다 {(1 - unit_price / last[0]['unit_price']) * 100:.1f}% 낮다. "
+            "정당한 사유 없는 일률적 인하나 일방적으로 낮은 단가 결정이 되지 않도록 인하 근거를 확인한다",
+            ("subcontract_act", "제4조")))
+    if unit_price > rfq["target_price"]:
+        findings.append(finding("ABOVE_TARGET_PRICE", "info",
+                                f"단가가 RFQ 목표 단가 {rfq['target_price']:,}원보다 "
+                                f"{(unit_price / rfq['target_price'] - 1) * 100:.1f}% 높다"))
+
+    # 하도급법 적용 대상(수급사업자 = 중소기업자)인지
+    if s["revenue_eok"] is None:
+        findings.append(finding("SME_STATUS_UNKNOWN", "info",
+                                "매출 정보가 없어 수급사업자(중소기업자) 해당 여부를 판단할 수 없다",
+                                ("subcontract_act", "제2조")))
+    elif s["revenue_eok"] <= SME_REVENUE_EOK:
+        findings.append(finding("SUBCONTRACT_ACT_APPLIES", "info",
+                                f"최근 매출 {s['revenue_eok']:,}억 원으로 중소기업일 가능성이 높아 하도급법상 수급사업자로 "
+                                "보고 검사했다 (중소기업 기준은 중소기업기본법 시행령 별표1로 확인)",
+                                ("subcontract_act", "제2조")))
+    else:
+        findings.append(finding("SME_STATUS_CHECK", "info",
+                                f"최근 매출 {s['revenue_eok']:,}억 원으로 중소기업이 아닐 수 있다. 수급사업자 해당 여부를 "
+                                "확인하고, 중견기업이면 지급 조항 확대 적용 대상인지 본다",
+                                ("subcontract_act", "제2조"), ("subcontract_act", "제13조")))
+
+    # RFQ 요건 (법규가 아닌 거래 조건)
+    if rfq["required_cert"] == "IATF16949" and not s["iatf16949"]:
+        findings.append(finding("CERT_MISSING", "warning", "RFQ 필수 인증 IATF 16949가 없다"))
+    if not cap:
+        findings.append(finding("CAPABILITY_MISSING", "warning",
+                                f"{rfq['process']}·{rfq['material']} 생산 능력이 등록되어 있지 않다"))
+    elif cap[0]["monthly_capacity"] < needed_monthly:
+        findings.append(finding("CAPACITY_SHORT", "warning",
+                                f"월 생산능력 {cap[0]['monthly_capacity']:,}개 < 필요 {needed_monthly:,}개"))
+
+    by = {k: [f for f in findings if f["severity"] == k] for k in ("violation", "warning", "info")}
+    refs = list(dict.fromkeys((r["law"], r["article_no"]) for f in findings for r in f["law_refs"]))
+    return {
+        "verdict": "위반 소지 있음" if by["violation"] else "확인 필요" if by["warning"] else "문제 없음",
+        "supplier": {"supplier_id": sid, "name": s["name"], "source": s["source"], "revenue_eok": s["revenue_eok"]},
+        "rfq": {k: rfq[k] for k in ("rfq_id", "part_name", "process", "material", "annual_volume", "target_price")},
+        "offer": {"unit_price": unit_price, "payment_days": payment_days, "price_linkage": price_linkage,
+                  "raw_material_ratio": ratio, "contract_days": contract_days, "contract_amount": contract_amount},
+        "violations": by["violation"],
+        "warnings": by["warning"],
+        "info": by["info"],
+        "law_refs": [{"law": law, "article_no": no} for law, no in refs],
     }
 
 
