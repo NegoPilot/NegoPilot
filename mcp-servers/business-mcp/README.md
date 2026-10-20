@@ -32,8 +32,9 @@ uv run python server.py --http 9102   #    또는 Streamable HTTP: http://localh
 `.env.example`을 `.env`로 복사하고(`cp .env.example .env`) `DART_API_KEY=` 뒤에 키를 붙여 넣는다. `.env`는 git에 올라가지 않으며 다른 사람과 공유하지 않는다.
 수집은 상장사 중 업종 코드 303(자동차 신품 부품 제조업)인 회사를 모으고, 2023~2025 사업보고서 재무를 가져온다.
 응답은 `data/dart_raw/`에 캐시되어 중간에 끊겨도 다시 실행하면 이어서 받는다.
-수집 결과(`data/`)는 실제 회사 정보라 레포에 올리지 않는다(CONTRIBUTING.md 규칙). 각자 인증키로 수집한다.
-`collect_dart.py`를 건너뛰면 `seed.py`가 150곳 전부 가상 데이터로 채운다.
+팀원 모두 같은 seed 데이터로 작업하도록 수집 결과(`data/dart_companies.csv`, `data/dart_financials.csv`, 자동차 부품 상장사 30곳)를 레포에 포함한다.
+공시된 공공데이터라 팀에서 포함하기로 정했다. 그래서 인증키 없이 `collect_dart.py`를 건너뛰고 `seed.py`만 실행해도 모두 같은 DB가 만들어진다.
+`collect_dart.py`를 다시 실행하면 두 파일을 덮어쓰므로, 데이터를 바꿀 때만 실행하고 바뀐 CSV를 PR로 올린다.
 
 Docker 없이 PostgreSQL을 직접 설치했다면 DB와 계정만 만든 뒤
 `DATABASE_URL` 환경변수로 접속 정보를 바꾸면 된다.
