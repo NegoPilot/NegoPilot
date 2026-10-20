@@ -28,7 +28,7 @@ def test_tools_are_listed_and_read_only():
         async with Client(mcp) as client:
             return await client.list_tools()
     tools = {t.name: t for t in run(go())}
-    assert {"list_rfqs", "search_suppliers", "get_supplier", "rank_suppliers"} <= set(tools)
+    assert {"list_rfqs", "search_suppliers", "get_supplier", "rank_suppliers", "check_offer"} <= set(tools)
     assert all(t.annotations and t.annotations.read_only_hint for t in tools.values())
 
 
@@ -105,3 +105,76 @@ def test_catalog_resource():
     data = json.loads(run(go())[0].text)
     assert set(data["processes"]) == {"다이캐스팅", "프레스", "사출", "단조", "CNC가공"}
     assert len(data["rfqs"]) == 6
+
+
+# ---------- check_offer ----------
+
+def top_candidate(rfq_id="RFQ-2026-001"):
+    return run(call("rank_suppliers", {"rfq_id": rfq_id, "top_n": 1}))["ranked"][0]["supplier_id"]
+
+
+def offer(**kw):
+    args = {"supplier": top_candidate(), "rfq_id": "RFQ-2026-001", "unit_price": 3800,
+            "payment_days": 60, "price_linkage": True, "raw_material_ratio": 0.4}
+    args.update(kw)
+    return run(call("check_offer", args))
+
+
+def codes(result, key):
+    return [f["code"] for f in result[key]]
+
+
+def test_clean_offer_has_no_violation():
+    out = offer()
+    assert out["verdict"] == "문제 없음"
+    assert out["violations"] == [] and out["warnings"] == []
+    assert out["offer"]["contract_amount"] == 120000 * 3800
+
+
+def test_payment_over_60_days_is_a_violation_with_law_ref():
+    out = offer(payment_days=75)
+    assert "PAYMENT_DAYS_OVER_60" in codes(out, "violations")
+    assert {"law": "subcontract_act", "article_no": "제13조"} in out["law_refs"]
+
+
+def test_missing_linkage_for_major_material_is_a_violation():
+    out = offer(price_linkage=False)
+    assert "LINKAGE_TERMS_MISSING" in codes(out, "violations")
+    assert {"law": "subcontract_act", "article_no": "제3조"} in out["law_refs"]
+
+
+def test_linkage_waived_by_agreement_needs_written_reason():
+    out = offer(price_linkage=False, linkage_waived_by_agreement=True)
+    assert out["violations"] == []
+    assert "LINKAGE_WAIVED_NEEDS_WRITTEN_REASON" in codes(out, "warnings")
+
+
+def test_minor_material_does_not_need_linkage():
+    out = offer(price_linkage=False, raw_material_ratio=0.05)
+    assert out["violations"] == []
+
+
+def test_short_contract_is_linkage_exempt():
+    out = offer(price_linkage=False, contract_days=60)
+    assert out["violations"] == []
+    assert "LINKAGE_EXEMPT" in codes(out, "info")
+
+
+def test_price_far_below_market_is_a_warning():
+    out = offer(unit_price=2500)
+    assert "PRICE_BELOW_MARKET" in codes(out, "warnings")
+    assert {"law": "subcontract_act", "article_no": "제4조"} in out["law_refs"]
+
+
+def test_invalid_ratio_is_a_clear_error():
+    with pytest.raises(ToolError, match="0~1"):
+        offer(raw_material_ratio=40)
+
+
+def test_rank_suppliers_flags_have_law_refs():
+    out = run(call("rank_suppliers", {"rfq_id": "RFQ-2026-004", "top_n": 50}))
+    flags = [f for c in out["ranked"] for f in c["flags"]]
+    assert all({"code", "severity", "message", "law_refs"} <= set(f) for f in flags)
+    for c in out["ranked"]:
+        if c["payment_days"] and c["payment_days"] > 60:
+            assert "PAYMENT_DAYS_OVER_60" in [f["code"] for f in c["flags"]]
