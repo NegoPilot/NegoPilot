@@ -22,6 +22,7 @@ from negopilot_agent.decomposition import (
     QueryDecomposer,
     make_decompose_node,
 )
+from negopilot_agent.decomposition.backends import OllamaBackend
 from negopilot_agent.decomposition.prompt import EXAMPLES, build_system_prompt
 
 FIXTURES = sorted((Path(__file__).resolve().parents[2] / "shared" / "fixtures" / "decomposition").glob("*.json"))
@@ -54,7 +55,7 @@ class FakeClaude:
         client = anthropic.AsyncAnthropic(
             api_key="test-key", max_retries=0,
             http_client=anthropic.DefaultAsyncHttpxClient(transport=httpx2.MockTransport(self.handler)))
-        return QueryDecomposer(client=client, settings=DecomposerSettings(**settings))
+        return QueryDecomposer(client=client, settings=DecomposerSettings(**{"backend": "anthropic", **settings}))
 
 
 def fixture(name: str) -> dict:
@@ -185,3 +186,69 @@ async def test_langgraph_node():
 
     assert isinstance(state["decomposition"], DecompositionResult)
     assert state["decomposition"].parallel_groups() == [["q1", "q2"]]
+
+
+class FakeOllama:
+    """Ollama /api/chat 응답을 흉내 낸다."""
+
+    def __init__(self, *contents: str, done_reason: str = "stop"):
+        self.contents = list(contents)
+        self.done_reason = done_reason
+        self.requests: list[httpx2.Request] = []
+
+    def handler(self, request: httpx2.Request) -> httpx2.Response:
+        self.requests.append(request)
+        return httpx2.Response(200, json={"model": "llama3.1:8b", "done": True, "done_reason": self.done_reason,
+                                          "message": {"role": "assistant", "content": self.contents.pop(0)}})
+
+    def decomposer(self) -> QueryDecomposer:
+        http = httpx2.AsyncClient(transport=httpx2.MockTransport(self.handler))
+        backend = OllamaBackend("llama3.1:8b", http_client=http)
+        return QueryDecomposer(settings=DecomposerSettings(backend="ollama", model="llama3.1:8b"), backend=backend)
+
+
+async def test_ollama_backend_request_and_parse():
+    data = fixture("08")
+    fake = FakeOllama(json.dumps(data["expected"], ensure_ascii=False))
+    result = await fake.decomposer().decompose(data["query"])
+
+    assert result == DecompositionResult.model_validate(data["expected"])
+    body = json.loads(fake.requests[0].content)
+    assert fake.requests[0].url.path == "/api/chat"
+    assert body["model"] == "llama3.1:8b" and body["stream"] is False
+    assert body["messages"][0]["role"] == "system" and body["messages"][1]["role"] == "user"
+    assert body["options"]["temperature"] == 0
+    # 로컬 모델용 스키마에는 $ref 가 남아 있지 않아야 한다
+    assert "$ref" not in json.dumps(body["format"]) and "$defs" not in body["format"]
+
+
+async def test_ollama_retry_and_truncation():
+    data = fixture("01")
+    fake = FakeOllama("{\"status\": \"ok\"}", json.dumps(data["expected"], ensure_ascii=False))
+    assert (await fake.decomposer().decompose(data["query"])).status == "ok"
+    assert len(fake.requests) == 2
+
+    cut = FakeOllama("{\"schema_version\": ", done_reason="length")
+    assert (await cut.decomposer().decompose(data["query"])).status == "failed"
+
+
+def test_unknown_backend():
+    with pytest.raises(ValueError, match="알 수 없는 백엔드"):
+        QueryDecomposer(settings=DecomposerSettings(backend="gpt"))
+
+
+async def test_dependency_without_inputs_is_dropped():
+    data = fixture("03")
+    with_dep = json.loads(json.dumps(data["expected"]))
+    with_dep["sub_queries"][1]["depends_on"] = ["q1"]     # 값을 받지 않는데 의존만 건 경우
+    fake = FakeClaude(message_json(json.dumps(with_dep, ensure_ascii=False)))
+    result = await fake.decomposer().decompose(data["query"])
+    assert result.sub_queries[1].depends_on == []
+    assert result.parallel_groups() == [["q1", "q2"]]
+
+
+async def test_dependency_with_inputs_is_kept():
+    data = fixture("08")
+    fake = FakeClaude(message_json(json.dumps(data["expected"], ensure_ascii=False)))
+    result = await fake.decomposer().decompose(data["query"])
+    assert result.sub_queries[1].depends_on == ["q1"]

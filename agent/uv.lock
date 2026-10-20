@@ -543,6 +543,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
+    { name = "httpx2" },
     { name = "langgraph" },
     { name = "negopilot-shared" },
 ]
@@ -556,6 +557,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=1.15.0" },
+    { name = "httpx2", specifier = ">=2.15.1" },
     { name = "langgraph", specifier = ">=1.2.16" },
     { name = "negopilot-shared", editable = "../shared" },
 ]

@@ -35,19 +35,19 @@ LAW_KEYS = {
 # fixtures 와 다른 질문으로 만든 예시
 EXAMPLES = [
     {
-        "query": "RFQ-2026-002에서 상위 3곳 순위 보여주고, 경남 사출 업체도 따로 찾아줘",
+        "query": "RFQ-2026-002랑 RFQ-2026-003 각각 협력사 순위 보여줘",
         "result": {
             "schema_version": SCHEMA_VERSION, "status": "ok",
-            "original_query": "RFQ-2026-002에서 상위 3곳 순위 보여주고, 경남 사출 업체도 따로 찾아줘",
+            "original_query": "RFQ-2026-002랑 RFQ-2026-003 각각 협력사 순위 보여줘",
             "sub_queries": [
-                {"id": "q1", "question": "RFQ-2026-002에 맞는 2차 협력사 상위 3곳 순위",
-                 "original_text": "RFQ-2026-002에서 상위 3곳 순위 보여주고", "intent": "supplier_ranking",
+                {"id": "q1", "question": "RFQ-2026-002에 맞는 2차 협력사 순위",
+                 "original_text": "RFQ-2026-002", "intent": "supplier_ranking",
                  "grounding": "required", "confidence": 0.95,
-                 "entities": {"rfq_id": "RFQ-2026-002", "top_n": 3}, "inputs": [], "depends_on": []},
-                {"id": "q2", "question": "경남 지역 사출 공정 2차 협력사 후보",
-                 "original_text": "경남 사출 업체도 따로 찾아줘", "intent": "supplier_search",
-                 "grounding": "required", "confidence": 0.93,
-                 "entities": {"process": "사출", "region": "경남"}, "inputs": [], "depends_on": []},
+                 "entities": {"rfq_id": "RFQ-2026-002"}, "inputs": [], "depends_on": []},
+                {"id": "q2", "question": "RFQ-2026-003에 맞는 2차 협력사 순위",
+                 "original_text": "RFQ-2026-003", "intent": "supplier_ranking",
+                 "grounding": "required", "confidence": 0.95,
+                 "entities": {"rfq_id": "RFQ-2026-003"}, "inputs": [], "depends_on": []},
             ],
             "clarification": None, "assumptions": [],
         },
@@ -131,15 +131,20 @@ def build_system_prompt() -> str:
 2. 하위 질문은 최대 {MAX_SUB_QUERIES}개. 그보다 많이 필요하면 status를 clarify로 하고 범위를 좁혀 달라고 묻는다.
 3. depends_on에는 앞 하위 질문의 결과가 이 하위 질문의 **도구 입력**으로 필요할 때만 그 id를 넣는다.
    문장으로 이어져 있어도 도구 입력이 필요 없으면 비워서 병렬로 실행되게 한다.
+   **inputs가 비어 있으면 depends_on도 반드시 빈 목록이다.**
 4. 앞 결과에서 값을 받아야 하면 inputs에 {{"slot": 엔티티 이름, "from": 앞 id, "select": 선택어}}를 넣고 그 id를 depends_on에도 넣는다.
    선택어는 top1, top(n), all, by_name("이름") 중 하나만 쓴다. 도구 응답 구조는 몰라도 된다.
-5. entities에는 해당 intent가 허용한 엔티티 이름만 쓴다. price_change_pct(인하는 음수)는 모든 intent에 쓸 수 있다.
+5. 엔티티 한 칸에는 값 하나만 넣는다. 대상이 여러 개면(협력사 2곳, RFQ 2건) **대상마다 하위 질문을 따로** 만들고 서로 의존하지 않게 둔다.
+   품질·재무 같은 관점으로 나누지 말고 대상으로 나눈다. 관점은 question에 적는다.
+6. entities에는 해당 intent가 허용한 엔티티 이름만 쓴다. price_change_pct(인하는 음수)는 모든 intent에 쓸 수 있다.
    rfq_id는 RFQ-YYYY-NNN, article_no는 "제N조" 또는 "제N조의M", 날짜는 YYYY-MM-DD, 금액은 원 단위 정수다.
-   질문에 없는 값을 지어내서 채우지 않는다.
-6. grounding은 intent 목록에 적힌 값을 그대로 쓴다.
-7. question은 아래 용어 사전으로 법률·코드 용어로 바꿔 쓰고, 원문의 해당 부분은 original_text에 그대로 둔다.
-8. 단가·지급 일수처럼 숫자가 정해진 협상안이면 offer_check, 숫자 없이 어떤 행위가 허용되는지 묻는 질문이면 law_check다.
-9. original_query에는 사용자 질문을 한 글자도 바꾸지 않고 그대로 넣는다. schema_version은 "{SCHEMA_VERSION}"이다.
+   질문에 없는 값을 지어내서 채우지 않는다. 특히 top_n 같은 숫자는 질문에 숫자가 있을 때만 넣는다. 예시의 값을 따라 하지 않는다.
+7. grounding은 intent 목록에 적힌 값을 그대로 쓴다.
+8. question은 아래 용어 사전으로 법률·코드 용어로 바꿔 쓰고, 원문의 해당 부분은 original_text에 그대로 둔다.
+   question에는 현업 표현(단가, 2차 업체, 깎다)을 남기지 않는다.
+   예: "2차 업체 대금 90일 뒤에 줘도 돼?" → "원사업자가 수급사업자에게 하도급대금을 목적물 수령 후 90일에 지급해도 되는지"
+9. 단가·지급 일수처럼 숫자가 정해진 협상안이면 offer_check, 숫자 없이 어떤 행위가 허용되는지 묻는 질문이면 law_check다.
+10. original_query에는 사용자 질문을 한 글자도 바꾸지 않고 그대로 넣는다. schema_version은 "{SCHEMA_VERSION}"이다.
 
 # 근거와 되묻기 규칙 (할루시네이션 방지)
 - 우리 데이터(RFQ, 협력사, 단가, 계약)나 법 내용이 필요하면 grounding이 required인 intent로 보낸다.

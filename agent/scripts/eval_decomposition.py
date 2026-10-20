@@ -4,7 +4,7 @@ API를 실제로 호출하므로 비용이 든다. 실행 전에 질문 수(--li
 
     uv run python scripts/eval_decomposition.py
     uv run python scripts/eval_decomposition.py --limit 3 --effort medium
-    NEGOPILOT_DECOMPOSER_MODEL=claude-sonnet-5-5 uv run python scripts/eval_decomposition.py
+    uv run python scripts/eval_decomposition.py --backend ollama --model llama3.1:8b   # 로컬, 비용 없음
 
 결과는 eval_results/<시각>.json 에 저장한다. 프롬프트·모델·effort를 바꾸면 다시 돌려 전후를 비교한다.
 """
@@ -12,6 +12,7 @@ API를 실제로 호출하므로 비용이 든다. 실행 전에 질문 수(--li
 import argparse
 import asyncio
 import json
+import os
 import sys
 import time
 from collections import Counter
@@ -27,6 +28,19 @@ from negopilot_shared import DecompositionResult  # noqa: E402
 from negopilot_agent.decomposition import DecomposerSettings, QueryDecomposer  # noqa: E402
 
 FIXTURES = sorted((ROOT.parent / "shared" / "fixtures" / "decomposition").glob("*.json"))
+
+
+def load_dotenv(path: Path) -> None:
+    """agent/.env 가 있으면 환경 변수로 읽는다. 이미 설정된 값은 덮어쓰지 않는다."""
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if value.strip():
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
 def score(expected: DecompositionResult, actual: DecompositionResult) -> dict:
@@ -53,28 +67,45 @@ def score(expected: DecompositionResult, actual: DecompositionResult) -> dict:
 async def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, help="앞에서부터 이 개수만 평가")
-    parser.add_argument("--effort", help="low / medium / high ... (기본: 설정값)")
+    parser.add_argument("--effort", help="low / medium / high ... (기본: 설정값, anthropic 전용)")
+    parser.add_argument("--backend", choices=["anthropic", "ollama"], help="기본: 설정값")
+    parser.add_argument("--model", help="기본: 백엔드별 기본 모델")
     args = parser.parse_args()
 
+    load_dotenv(ROOT / ".env")
+    if args.backend:
+        os.environ["NEGOPILOT_DECOMPOSER_BACKEND"] = args.backend
     settings = DecomposerSettings()
+    if args.model:
+        settings = replace(settings, model=args.model)
     if args.effort:
         settings = replace(settings, effort=args.effort)
     decomposer = QueryDecomposer(settings=settings)
     cases = FIXTURES[: args.limit] if args.limit else FIXTURES
-    print(f"모델 {settings.model} · effort {settings.effort} · 질문 {len(cases)}개")
+    effort = f" · effort {settings.effort}" if settings.backend == "anthropic" else ""
+    print(f"백엔드 {settings.backend} · 모델 {settings.model}{effort} · 질문 {len(cases)}개")
 
     rows = []
     for path in cases:
         data = json.loads(path.read_text(encoding="utf-8"))
         expected = DecompositionResult.model_validate(data["expected"])
         started = time.perf_counter()
-        actual = await decomposer.decompose(data["query"])
+        try:
+            actual = await decomposer.decompose(data["query"])
+        except Exception as err:  # 한 질문의 오류(시간 초과 등)로 평가 전체가 멈추지 않게 오답으로 기록한다
+            elapsed = time.perf_counter() - started
+            rows.append({"case": path.stem, "query": data["query"], "seconds": round(elapsed, 2),
+                         **{k: 0 for k in ("status", "count", "intents", "entities", "dependencies", "exact")},
+                         "error": f"{type(err).__name__}: {err}"[:300], "actual": None})
+            print(f"! {path.stem:<38} {elapsed:5.1f}s  오류 {type(err).__name__}", flush=True)
+            continue
         elapsed = time.perf_counter() - started
         s = score(expected, actual)
         rows.append({"case": path.stem, "query": data["query"], "seconds": round(elapsed, 2), **s,
                      "actual": actual.model_dump(mode="json", by_alias=True)})
         mark = "✓" if s["exact"] else "✗"
-        print(f"{mark} {path.stem:<38} {elapsed:5.1f}s  " + " ".join(f"{k}={v}" for k, v in s.items() if k != "exact"))
+        print(f"{mark} {path.stem:<38} {elapsed:5.1f}s  " + " ".join(f"{k}={v}" for k, v in s.items() if k != "exact"),
+              flush=True)
 
     keys = ["status", "count", "intents", "entities", "dependencies", "exact"]
     summary = {k: round(sum(r[k] for r in rows) / len(rows), 3) for k in keys}
@@ -83,7 +114,7 @@ async def main() -> None:
     out_dir = ROOT / "eval_results"
     out_dir.mkdir(exist_ok=True)
     out = out_dir / f"{datetime.now():%Y%m%d-%H%M%S}.json"
-    out.write_text(json.dumps({"model": settings.model, "effort": settings.effort, "summary": summary,
+    out.write_text(json.dumps({"backend": settings.backend, "model": settings.model, "effort": settings.effort, "summary": summary,
                                "rows": rows}, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"저장: {out.relative_to(ROOT)}")
 
