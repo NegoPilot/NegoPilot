@@ -22,13 +22,14 @@ DART 회사의 공정은 공시에 없어서 업종 코드(KSIC 303xx)로 추정
 ```bash
 docker compose up -d                  # 1. PostgreSQL 띄우기 (Docker Desktop 필요)
 uv sync                               # 2. 패키지 설치
-uv run python collect_dart.py         # 3. DART 수집 (OpenDART 인증키 필요, 선택)
+uv run python collect_dart.py         # 3. (선택) DART 새로 수집. 레포 CSV를 쓰면 건너뜀, 인증키 필요
 uv run python seed.py                 # 4. 테이블 만들고 데이터 넣기 (다시 실행하면 처음부터 새로 만듦)
 uv run python server.py               # 5. MCP 서버 실행 (stdio)
 uv run python server.py --http 9102   #    또는 Streamable HTTP: http://localhost:9102/mcp
 ```
 
-**OpenDART 인증키**: https://opendart.fss.or.kr 에서 회원가입 후 인증키를 신청한다.
+**OpenDART 인증키**는 `collect_dart.py`로 데이터를 새로 수집할 때만 필요하다. `seed.py`와 `server.py`는 키를 쓰지 않는다.
+필요하면 https://opendart.fss.or.kr 에서 회원가입 후 인증키를 신청한다.
 `.env.example`을 `.env`로 복사하고(`cp .env.example .env`) `DART_API_KEY=` 뒤에 키를 붙여 넣는다. `.env`는 git에 올라가지 않으며 다른 사람과 공유하지 않는다.
 수집은 상장사 중 업종 코드 303(자동차 신품 부품 제조업)인 회사를 모으고, 2023~2025 사업보고서 재무를 가져온다.
 응답은 `data/dart_raw/`에 캐시되어 중간에 끊겨도 다시 실행하면 이어서 받는다.

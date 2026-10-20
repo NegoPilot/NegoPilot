@@ -8,7 +8,7 @@
 | 준비물 | 확인 방법 | 비고 |
 | --- | --- | --- |
 | uv | `uv --version` | 없으면 `brew install uv`. Python 3.12가 없어도 uv가 알아서 받는다 |
-| Docker Desktop | `docker --version` | 설치 후 앱을 **실행해 둔 상태**여야 한다 |
+| Docker Desktop | `docker --version` | 설치 후 앱을 **실행해 둔 상태**여야 한다. PostgreSQL을 직접 설치했다면 없어도 된다 |
 | OpenDART 인증키 | https://opendart.fss.or.kr | 데이터를 새로 수집할 때만 필요. 레포의 CSV를 쓰면 없어도 된다 |
 
 ## 1. 폴더로 이동
@@ -19,23 +19,7 @@
 cd mcp-servers/business-mcp
 ```
 
-## 2. OpenDART 인증키 넣기
-
-`.env.example`을 `.env`로 복사한 뒤, `DART_API_KEY=` 뒤에 키를 붙여 넣는다 (따옴표·공백 없이).
-
-```bash
-cp .env.example .env
-```
-
-```
-DART_API_KEY=발급받은키
-```
-
-`.env`는 이름이 점(.)으로 시작하는 숨김 파일이라 Finder에서 바로 안 보인다.
-Finder에서 `⌘ + Shift + .` 를 누르거나, VS Code로 폴더를 열면 보인다.
-**`.env`는 `.gitignore`에 들어 있다. 다른 사람과 공유하거나 git에 올리지 않는다.**
-
-## 3. 패키지 설치
+## 2. 패키지 설치
 
 ```bash
 uv sync
@@ -44,38 +28,32 @@ uv sync
 이 폴더에 `.venv`가 만들어지고 `uv.lock`에 적힌 버전 그대로 설치된다.
 이후 모든 파이썬 명령은 `uv run python ...`으로 실행하면 이 환경을 쓴다 (가상환경 activate 불필요).
 
-## 4. PostgreSQL 띄우기
+## 3. PostgreSQL 띄우기
 
 ```bash
 docker compose up -d
 docker ps          # supplier_db 컨테이너가 Up 이면 성공
 ```
 
-## 5. DART 데이터 수집 (선택)
-
-레포에 수집 결과(`data/dart_companies.csv`, `data/dart_financials.csv`)가 들어 있으므로 **보통은 건너뛰고 6단계로 가면 된다.** (팀 전원이 같은 seed 데이터를 쓰기 위해 포함)
-데이터를 새로 받고 싶을 때만 실행한다. 실행하면 두 파일을 덮어쓰니, 바뀐 CSV는 PR로 올린다.
+Homebrew 등으로 PostgreSQL을 이미 설치해 5432를 쓰고 있다면 Docker 대신 그 서버에 계정과 DB만 만든다.
 
 ```bash
-uv run python collect_dart.py --max 30    # 처음엔 30곳만 받아 보며 테스트
-uv run python collect_dart.py             # 전체 수집
+psql -d postgres -c "CREATE ROLE agent LOGIN PASSWORD 'agent';"
+createdb -O agent supplier_db
 ```
 
-- 고유번호 목록에는 업종 정보가 없다. 그래서 종목코드가 있는 회사 약 4,000곳(상장폐지 회사 포함)의 개황을 한 번씩 조회해 자동차 부품 상장사를 골라낸다.
-  첫 실행은 몇 분 걸리고, 200곳마다 진행 상황이 출력된다. `--max 30`이어도 자동차 부품사가 목록 뒤쪽에 있으면 거의 끝까지 훑는다.
-- 응답은 `data/dart_raw/`에 저장되어, 중간에 끊겨도(Ctrl+C) 다시 실행하면 이어서 받고, 두 번째부터는 빠르다.
-- 두 CSV 파일이 없는 상태에서 이 단계를 건너뛰면 다음 단계에서 150곳 전부 가상 데이터로 채운다.
-
-## 6. DB에 데이터 넣기
+## 4. DB에 데이터 넣기
 
 ```bash
 uv run python seed.py
 ```
 
-`완료: 협력사 150곳 (DART n, 가상 m) ...` 이 나오면 성공.
+레포의 DART 수집 결과(`data/dart_companies.csv`, `data/dart_financials.csv`)를 읽어 넣으므로 **OpenDART 인증키가 필요 없다.**
+
+`완료: 협력사 150곳 (DART 30, 가상 120) ...` 이 나오면 성공. 팀원 모두 같은 데이터가 만들어진다.
 다시 실행하면 테이블을 지우고 처음부터 새로 만든다. 넣은 데이터는 `data/*.csv`로도 저장된다.
 
-## 7. MCP 서버 연결
+## 5. MCP 서버 연결
 
 두 가지 방식이 있다. 경로는 각자 컴퓨터의 **절대 경로**로 바꾼다.
 
@@ -120,6 +98,40 @@ npx @modelcontextprotocol/inspector $(which uv) run --directory $(pwd) python se
 연결되면 `list_rfqs`, `search_suppliers`, `get_supplier`, `rank_suppliers` 도구 4개가 보인다.
 예: "RFQ-2026-001에 맞는 협력사 순위 보여줘" → `rank_suppliers` 호출.
 
+## (선택) DART 데이터 새로 수집하기
+
+레포의 CSV로 충분하면 이 절은 건너뛴다. 회사를 늘리거나 최신 공시로 바꾸고 싶을 때만 필요하다.
+실행하면 `data/dart_*.csv` 두 파일을 덮어쓰니, 바뀐 CSV는 PR로 올려 팀원과 맞춘다. 그다음 `seed.py`를 다시 실행한다.
+
+### 인증키 넣기
+
+https://opendart.fss.or.kr 에서 회원가입 후 인증키를 신청한다.
+`.env.example`을 `.env`로 복사한 뒤, `DART_API_KEY=` 뒤에 키를 붙여 넣는다 (따옴표·공백 없이).
+
+```bash
+cp .env.example .env
+```
+
+```
+DART_API_KEY=발급받은키
+```
+
+`.env`는 이름이 점(.)으로 시작하는 숨김 파일이라 Finder에서 바로 안 보인다.
+Finder에서 `⌘ + Shift + .` 를 누르거나, VS Code로 폴더를 열면 보인다.
+**`.env`는 `.gitignore`에 들어 있다. 다른 사람과 공유하거나 git에 올리지 않는다.**
+
+### 수집
+
+```bash
+uv run python collect_dart.py --max 30    # 처음엔 30곳만 받아 보며 테스트
+uv run python collect_dart.py             # 전체 수집
+```
+
+- 고유번호 목록에는 업종 정보가 없다. 그래서 종목코드가 있는 회사 약 4,000곳(상장폐지 회사 포함)의 개황을 한 번씩 조회해 자동차 부품 상장사를 골라낸다.
+  첫 실행은 몇 분 걸리고, 200곳마다 진행 상황이 출력된다. `--max 30`이어도 자동차 부품사가 목록 뒤쪽에 있으면 거의 끝까지 훑는다.
+- 응답은 `data/dart_raw/`에 저장되어, 중간에 끊겨도(Ctrl+C) 다시 실행하면 이어서 받고, 두 번째부터는 빠르다.
+- 두 CSV 파일이 아예 없으면 `seed.py`는 150곳 전부 가상 데이터로 채운다.
+
 ## 끄기 / 다시 켜기
 
 ```bash
@@ -139,7 +151,7 @@ docker compose down -v    # 컨테이너와 데이터까지 삭제 (다시 쓰�
 | `role "agent" does not exist` | 컨테이너가 아니라 컴퓨터에 직접 설치된 PostgreSQL(예: Homebrew)이 5432를 쓰고 있음 → 그 서버에 계정·DB를 만든다: `psql -d postgres -c "CREATE ROLE agent LOGIN PASSWORD 'agent';"` 후 `createdb -O agent supplier_db` (이 경우 `docker compose`는 필요 없음) |
 | `spawn python ENOENT` / `spawn uv ENOENT` (MCP 연결) | MCP 클라이언트(다른 앱)는 터미널의 PATH·alias를 모름 → `command`에 `which uv`로 확인한 **uv의 절대 경로**를 넣고 `--directory`에 이 폴더의 절대 경로를 준다 |
 | `connection refused` (seed.py / MCP) | DB가 안 떠 있음 → `docker compose up -d`, 막 띄운 직후면 몇 초 뒤 재시도 |
-| `DART_API_KEY가 없습니다` | `.env`에 키가 없음 → 2단계 확인 |
+| `DART_API_KEY가 없습니다` | `collect_dart.py`를 실행했는데 `.env`에 키가 없음 → (선택) DART 데이터 새로 수집하기의 인증키 넣기 확인. 레포 CSV만 쓸 거면 `collect_dart.py`는 실행하지 않아도 된다 |
 | `OpenDART 오류 010` / `011` | 인증키가 틀렸거나 아직 승인 전 → 키 다시 확인 |
 | `일일 호출 한도를 넘었습니다` | 하루 20,000건 초과 → 다음 날 다시 실행하면 이어서 수집 |
 | `Address already in use` (9102) | 이미 HTTP 서버가 떠 있음 → 기존 서버를 끄거나 다른 포트 사용 |
