@@ -47,11 +47,13 @@ graph.add_node("decompose_query", make_decompose_node())   # 상태: query, hist
 | 안전 분류기 거절 | 서버 측 대체 모델(`fallbacks: "default"`)로 다시 실행. `NEGOPILOT_DECOMPOSER_FALLBACKS=0`으로 끈다 |
 | API 장애 | SDK 재시도 후에도 실패하면 예외를 그대로 올린다 (Harness의 Recovery가 처리) |
 
+분해와 Generation의 Ollama 백엔드는 `prepare_ollama_schema`를 공유합니다. Ollama에 보내는 스키마 사본에서 subquery의 `id`와 `rfq_id` 및 `article_no`와 `as_of`에 쓰이는 네 숫자 pattern의 `\d`만 `[0-9]`로 바꿔 이 네 필드에 생성하는 숫자를 ASCII `0`부터 `9`로 제한합니다. `pattern` 제약과 `format`의 JSON 스키마 전달은 유지합니다. 공용 Pydantic 모델과 후검증 및 Anthropic과 OpenAI용 스키마는 변경하지 않습니다.
+
 ### 설정 (`.env.example`)
 
 | 환경 변수 | 기본값 | 설명 |
 | --- | --- | --- |
-| `NEGOPILOT_DECOMPOSER_BACKEND` | `anthropic` | `anthropic`, `ollama`, `openai` |
+| `NEGOPILOT_DECOMPOSER_BACKEND` | `anthropic` | `anthropic` 또는 `ollama` 또는 `openai` |
 | `NEGOPILOT_DECOMPOSER_MODEL` | `claude-opus-5-5` / `llama3.1:8b` / `gpt-4.1-mini` | 백엔드별 기본 모델 |
 | `NEGOPILOT_DECOMPOSER_EFFORT` | `low` | Claude 전용. 분류에 가까운 작업이라 low로 시작. 평가 결과를 보고 조정 |
 | `NEGOPILOT_DECOMPOSER_FALLBACKS` | `1` | Claude 전용. 거절 시 대체 모델 사용 |
@@ -144,7 +146,7 @@ graph.add_node("generate", make_generate_node())   # 상태: decomposition, rout
 4. 그래도 남으면 그 값을 `[확인 필요]`로 가립니다 (`verification.masked`)
 5. `[E3]` → `[1]` 번호로 바꾸고 `citations`에 출처 목록을 담습니다
 
-`Answer.evidence`와 `Answer.verification`은 화면에 쓰지 않고 평가·디버깅용으로 남깁니다.
+`Answer.evidence`와 `Answer.verification`은 평가와 디버깅에 사용할 근거 및 검증 정보입니다. 아래 v2 HTTP 응답에서도 이 정보를 보존하므로 클라이언트가 확인할 수 있습니다.
 
 테스트는 [`shared/fixtures/routing`](../shared/fixtures/routing/) 11개(실제 MCP 서버로 Routing한 결과)를 입력으로 씁니다. 모델은 가짜 백엔드로 바꿔서 비용이 없고 MCP 서버도 필요 없습니다.
 
@@ -152,10 +154,12 @@ graph.add_node("generate", make_generate_node())   # 상태: decomposition, rout
 
 | 환경 변수 | 기본값 |
 | --- | --- |
-| `NEGOPILOT_GENERATOR_BACKEND` | `anthropic` (또는 `ollama`, `openai`) |
-| `NEGOPILOT_GENERATOR_MODEL` | anthropic `claude-opus-5-5`, ollama `llama3.1:8b`, openai `gpt-4.1-mini` |
+| `NEGOPILOT_GENERATOR_BACKEND` | `anthropic`. `ollama`와 `openai`도 선택 가능 |
+| `NEGOPILOT_GENERATOR_MODEL` | anthropic은 `claude-opus-5-5`. ollama는 `llama3.1:8b`. openai는 `gpt-4.1-mini` |
 | `NEGOPILOT_GENERATOR_EFFORT` | `medium` |
 | `NEGOPILOT_GENERATOR_FALLBACKS` | `1` |
+
+OpenAI를 선택한 Generation도 `OPENAI_API_KEY`를 사용합니다. 분해와 Generation은 서로 다른 백엔드를 선택할 수 있습니다. EFFORT와 FALLBACKS는 Claude 전용 설정입니다.
 
 ## 실행
 
@@ -183,9 +187,11 @@ uv run python scripts/eval_decomposition.py --limit 3          # Claude 평가 (
 
 ## Python 내부 HTTP API (`negopilot_agent.api`)
 
-FastAPI 진입점은 `negopilot_agent.api.app:app`입니다. [쿼리 실행 HTTP 계약 v0.1](../docs/contracts/agent-http.md)과 [협력사 대화 HTTP 계약 v0.2](../docs/contracts/supplier-chat.md)의 Python 내부 경로를 제공합니다. 브라우저는 Spring의 공개 API를 호출하고 Spring이 내부 키를 붙여 Python에 요청합니다.
+FastAPI 진입점은 `negopilot_agent.api.app:app`입니다. [쿼리 실행 HTTP 계약 v0.1](../docs/contracts/agent-http.md)과 [협력사 대화 HTTP 계약 v0.2](../docs/contracts/supplier-chat.md) 및 [Generation HTTP 계약 v0.3](../docs/contracts/agent-generation.md)의 Python 내부 경로를 제공합니다. 브라우저는 Spring의 공개 API를 호출하고 Spring이 내부 키를 붙여 Python에 요청합니다.
 
-기존 Generation과 전체 그래프는 위에서 설명한 코어 기능입니다. HTTP v0.1은 `QueryDecomposer`와 `Router`를 실행해 구조화된 결과를 반환합니다. HTTP v0.2는 fixture를 조회해 정해진 템플릿으로 표시할 내용을 반환합니다. 두 HTTP 경로 모두 `AnswerGenerator`와 전체 그래프를 호출하지 않습니다. 응답의 `generation_status: NOT_IMPLEMENTED`는 이 HTTP 응답 범위를 뜻하며 코어 Generation의 구현 여부와 별개입니다.
+기존 v0.1의 `/internal/v1/query-executions`는 `QueryDecomposer`와 `Router`를 실행해 구조화된 결과를 반환합니다. 기존 v0.2의 `/internal/v1/chat/responses`는 fixture를 조회해 템플릿 응답을 반환합니다. 이 두 기존 실행 경로는 `AnswerGenerator`와 전체 그래프를 호출하지 않으므로 `generation_status: NOT_IMPLEMENTED`를 유지합니다. 이 값은 코어 Generation의 구현 여부와 별개입니다.
+
+새 `/internal/v2/query-executions`는 실제 `build_graph`와 `AnswerGenerator`를 실행하고 `schema_version: "0.3"` 응답에 최종 `Answer`를 포함합니다. 생성 답변을 사용할 클라이언트는 Spring의 `/api/v2/agent/queries` 또는 `/api/v2/conversations` 경로를 사용합니다. 기존 v0.1과 v0.2 경로 및 응답 형식은 호환성을 위해 유지합니다.
 
 ### stub 서버 시작
 
@@ -222,6 +228,7 @@ curl --fail-with-body http://127.0.0.1:9200/internal/v1/query-executions \
 | 양쪽 | `AGENT_EXECUTION_MODE` | `live` | fixture 검증은 양쪽 모두 `stub`을 명시 |
 | 양쪽 | `AGENT_INTERNAL_API_KEY` | 빈 값 | Python 내부 경로에서 검증할 공통 키 |
 | Python | `AGENT_REQUEST_TIMEOUT_SECONDS` | `30` | 처리 제한 시간. 양의 유한한 초 단위 값 |
+| Python | `OPENAI_API_KEY` | 미설정 | live 분해나 Generation에서 `openai`를 선택하면 필요한 API 키 |
 | Spring | `AGENT_BASE_URL` | `http://127.0.0.1:9200` | Python origin. URL 경로를 붙이지 않음 |
 | Spring | `AGENT_CONNECT_TIMEOUT_SECONDS` | `2` | 연결 및 연결 풀 대기 제한 시간 |
 | Spring | `AGENT_RESPONSE_TIMEOUT_SECONDS` | `35` | 응답 및 소켓 읽기 대기 제한 시간 |
@@ -291,7 +298,7 @@ Python 직접 호출에서는 `request_id`와 `conversation_id` 및 `query`와 `
 
 ### live 설정과 검증 범위
 
-`AGENT_EXECUTION_MODE=live`에서는 v0.1 경로가 기존 QueryDecomposer와 실제 McpToolCaller를 연결합니다. 위의 분해 및 Routing 환경 변수를 재사용합니다. 현재 기본 모델은 [DecomposerSettings](src/negopilot_agent/decomposition/decomposer.py)의 `DEFAULT_MODELS`에 정의돼 있습니다. `anthropic`은 `claude-opus-5-5`이며 `ollama`는 `llama3.1:8b`입니다. [모델 백엔드](src/negopilot_agent/decomposition/backends.py)는 이 설정을 받아 호출합니다.
+`AGENT_EXECUTION_MODE=live`에서는 v0.1 경로가 기존 QueryDecomposer와 실제 McpToolCaller를 연결합니다. 위의 분해 및 Routing 환경 변수를 재사용합니다. 현재 기본 모델은 [DecomposerSettings](src/negopilot_agent/decomposition/decomposer.py)의 `DEFAULT_MODELS`에 정의돼 있습니다. `anthropic`은 `claude-opus-5-5`입니다. `ollama`는 `llama3.1:8b`이며 `openai`는 `gpt-4.1-mini`입니다. [모델 백엔드](src/negopilot_agent/decomposition/backends.py)는 이 설정을 받아 호출합니다.
 
 기본 모델을 사용하려면 `NEGOPILOT_DECOMPOSER_MODEL`을 설정하지 않아야 합니다. `.env.example`의 `NEGOPILOT_DECOMPOSER_MODEL=`을 그대로 불러오면 빈 문자열이 선택됩니다. 이 경우 HTTP 경로는 503 `UPSTREAM_UNAVAILABLE`을 반환합니다. 기본 모델을 선택할 때는 환경 파일에서 해당 줄을 제거하거나 환경 파일을 불러온 뒤 아래 명령을 실행합니다.
 
@@ -299,7 +306,9 @@ Python 직접 호출에서는 `request_id`와 `conversation_id` 및 `query`와 `
 unset NEGOPILOT_DECOMPOSER_MODEL
 ```
 
-Claude에는 유효한 인증이 필요합니다. Ollama에는 해당 모델과 실행 중인 Ollama 서버가 필요합니다. Routing에는 `BUSINESS_MCP_URL`과 `LAW_MCP_URL`에 지정한 서버가 필요합니다. HTTP 경로는 SDK의 전송 오류 재시도를 끕니다. 분해 코어의 출력 형식 오류 재시도는 기존 규칙을 유지합니다. Generation 환경 변수는 이 HTTP 실행에 사용하지 않습니다.
+Claude에는 유효한 인증이 필요합니다. Ollama에는 해당 모델과 실행 중인 Ollama 서버가 필요합니다. OpenAI에는 Python 서버 환경의 `OPENAI_API_KEY`가 필요합니다. 이 키는 Spring이나 프런트엔드에 전달하지 않습니다. Routing에는 `BUSINESS_MCP_URL`과 `LAW_MCP_URL`에 지정한 서버가 필요합니다.
+
+HTTP 경로는 SDK의 전송 오류 재시도를 끕니다. OpenAI 클라이언트도 `AsyncOpenAI(max_retries=0)`으로 만들고 요청 종료 시 제한 시간 안에서 `await client.close()`를 수행합니다. SDK의 재시도와 비동기 자원 해제 방식은 [공식 Python SDK 문서](https://developers.openai.com/api/reference/python)를 참고합니다. 분해 코어의 출력 형식 오류 재시도는 기존 규칙을 유지합니다. Generation 환경 변수는 기존 v0.1 실행과 v0.2 템플릿 경로에 사용하지 않습니다. 새 v2 전체 그래프 경로에서는 Generation 설정도 사용합니다.
 
 비용 없는 단위 테스트는 저장소 루트에서 다음 명령으로 실행합니다. 테스트는 가짜 모델과 ToolCaller 및 ASGI 전송을 사용합니다.
 
@@ -308,6 +317,110 @@ cd agent
 uv run --locked python -m pytest tests/test_api.py tests/test_supplier_chat.py tests/test_http_openapi_contract.py -q
 ```
 
-이 검사는 실제 LLM 연결과 실제 MCP 서버 및 메일 발송과 DB seed를 검증하지 않습니다. 전체 그래프 실행이나 live 모델 호출 결과도 별도 확인이 필요합니다. 로그인과 승인 및 영구 대화 저장은 이 HTTP 범위에 포함하지 않습니다.
+위 명령은 기존 v0.1과 v0.2 HTTP 계약을 검사합니다. 실제 LLM 연결과 실제 MCP 서버 및 메일 발송과 DB seed를 검증하지 않습니다. v2 전체 그래프 검사는 아래 안내를 따릅니다. 로그인과 승인 및 영구 대화 저장은 이 HTTP 범위에 포함하지 않습니다.
 
 실제 Spring과 Python을 임시 포트에서 함께 실행하는 검사는 [HTTP 통합 검증 안내](../scripts/integration/README.md)를 따릅니다. 이 검사도 stub 응답을 사용합니다.
+
+### v2 전체 그래프 실행과 schema v0.3
+
+`POST /internal/v2/query-executions`는 최신 `build_graph`의 분해와 Routing 및 Generation을 한 번 실행합니다. 최종 답변은 실제 `AnswerGenerator`가 만듭니다. 기본 모드는 `live`이며 모델이나 MCP 연결 실패를 숨기거나 `stub` 응답으로 자동 전환하지 않습니다. 내부 키와 `AGENT_REQUEST_TIMEOUT_SECONDS` 설정을 재사용하며 전체 그래프에 하나의 처리 제한 시간을 적용합니다.
+
+요청의 `request_id`는 필수 UUID입니다. `query`는 공백만 있는 값을 제외한 1..4000 code point이며 입력 원문을 보존합니다. `history`는 생략하면 빈 배열이며 최대 20개입니다. `context`는 생략하면 `{"selected_supplier_ids":[]}`입니다. 정의되지 않은 필드와 명시적인 null은 거절합니다.
+
+`context.selected_supplier_ids`는 기업 ID를 최대 한 개 받습니다. ID 형식은 `^[A-Za-z0-9_-]{1,100}$`입니다. 기업의 재무 수치나 상세 정보를 context에 넣지 않습니다. context는 분해 프롬프트의 별도 JSON 데이터 영역으로 전달됩니다. 원래 질문과 이력을 재작성하지 않습니다. 질문에 다른 기업을 명시하면 선택값으로 덮어쓰지 않습니다. live 모드의 기업 사실은 실제 도구 결과로 확인합니다.
+
+stub 검증은 위의 서버 시작 명령에서 `AGENT_EXECUTION_MODE=stub`을 지정합니다. 모델 백엔드와 ToolCaller의 입출력만 가짜로 바꿉니다. 실제 `build_graph`와 `QueryDecomposer` 및 `Router`와 `AnswerGenerator`를 연결하므로 근거 펼치기와 인용 연결 및 답변 검증도 실행됩니다. fixture 응답을 사용한 검증은 실제 모델이나 MCP의 연결 검증과 구분합니다.
+
+| stub 질문 | 선택 문맥 | 기대 `execution_status` |
+| --- | --- | --- |
+| 하도급법 제4조 보여줘 | 생략 가능 | `COMPLETED` |
+| 그 업체 괜찮아? | 생략 가능 | `NEEDS_INPUT` |
+| ㅁㄴㅇㄹ 그거 저번처럼 해줘 | 생략 가능 | `FAILED` |
+| 이 회사에 대해 알려줘 | `SUP-0034` | `COMPLETED` |
+| 이 회사의 재무 상태를 알려줘 | `SUP-0034` | `COMPLETED` |
+| 납기와 품질은 어때? | `SUP-0034` | `COMPLETED` |
+| 이 회사의 재무 상태와 납기 지표를 알려줘 | `SUP-0034` | `COMPLETED` |
+
+첫 세 질문은 기존 분해 fixture 01과 09 및 11을 사용합니다. 기업 질문과 별칭은 supplier-chat fixture의 가상 기업 데이터를 사용합니다. 지원하는 stub 질문의 범위가 live 모델의 일반 질문 처리 범위를 뜻하지는 않습니다.
+
+Python 서버가 stub으로 실행 중일 때 다음 요청으로 기업 문맥을 포함한 v2 응답을 확인합니다.
+
+```bash
+export AGENT_INTERNAL_API_KEY='replace-with-a-local-test-key'
+curl --fail-with-body http://127.0.0.1:9200/internal/v2/query-executions \
+  -H "X-Internal-Api-Key: ${AGENT_INTERNAL_API_KEY}" \
+  -H 'Content-Type: application/json' \
+  --data '{"request_id":"44444444-4444-4444-8444-444444444444","query":"이 회사에 대해 알려줘","history":[],"context":{"selected_supplier_ids":["SUP-0034"]}}'
+```
+
+응답은 `schema_version: "0.3"`과 요청 ID 및 `mode`와 실행 상태를 포함합니다. 확정된 `context`와 공용 `decomposition` 및 `routing`도 반환합니다. `answer`에는 코어 Answer의 `kind`와 `text` 및 `citations`와 `options` 및 `grounded`와 `notices` 및 `evidence`와 `verification`을 보존합니다. Python property인 `verification.ok`를 별도 JSON 필드로 추가하지 않습니다.
+
+| `answer.kind` | `execution_status` | `generation_status` | 최상위 error |
+| --- | --- | --- | --- |
+| `answer` | `COMPLETED` | `COMPLETED` | null |
+| `clarify` | `NEEDS_INPUT` | `COMPLETED` | null |
+| `refusal` 또는 `no_result` | `COMPLETED` | `COMPLETED` | null |
+| 분해가 failed인 `failed` | `FAILED` | `FAILED` | `DECOMPOSITION_FAILED` |
+| 그 밖의 `failed` | `FAILED` | `FAILED` | `GENERATION_FAILED` |
+
+일부 Routing 오류가 있어도 코어가 답변을 만들면 완료로 처리합니다. 부분 실패는 `routing`과 `answer.notices`에 남깁니다. 고정 안내도 Generation이 처리한 결과이므로 `COMPLETED`가 항상 모델 호출이나 모든 도구의 성공을 뜻하지는 않습니다. `verification.masked: true`와 검증 오류 목록이 함께 있는 보정 결과도 보존합니다.
+
+대화 저장이 필요하면 Spring의 `/api/v2/conversations`를 사용합니다. Python의 v2 실행 자체는 상태를 저장하지 않습니다. Spring은 같은 대화의 요청을 직렬로 처리하고 최신 20개 메시지를 전달합니다. 저장된 긴 assistant 본문은 유지하며 모델에 전달할 때만 4000 code point로 제한합니다. HTTP 오류나 `execution_status: FAILED`에서는 기존 메시지와 문맥을 유지합니다. 메모리 저장은 재시작하면 초기화됩니다.
+
+### v2 live 모델 선택과 비용 없는 검사
+
+분해와 Generation의 백엔드는 독립적으로 설정합니다. 각 단계에서 `anthropic` 또는 `ollama` 또는 `openai`를 선택할 수 있습니다. 백엔드를 지정하지 않으면 기존 기본값인 `anthropic`을 사용합니다.
+
+| 환경 변수 | 기본값 |
+| --- | --- |
+| `NEGOPILOT_DECOMPOSER_BACKEND` | `anthropic` |
+| `NEGOPILOT_DECOMPOSER_MODEL` | anthropic은 `claude-opus-5-5`. ollama는 `llama3.1:8b`. openai는 `gpt-4.1-mini` |
+| `NEGOPILOT_GENERATOR_BACKEND` | `anthropic` |
+| `NEGOPILOT_GENERATOR_MODEL` | anthropic은 `claude-opus-5-5`. ollama는 `llama3.1:8b`. openai는 `gpt-4.1-mini` |
+| `NEGOPILOT_DECOMPOSER_EFFORT` | `low` |
+| `NEGOPILOT_GENERATOR_EFFORT` | `medium` |
+| `NEGOPILOT_DECOMPOSER_FALLBACKS` | `1` |
+| `NEGOPILOT_GENERATOR_FALLBACKS` | `1` |
+
+기본 모델을 사용하려면 두 MODEL 환경 변수를 빈 문자열로 지정하지 않고 미설정으로 둡니다. 환경 파일을 불러온 뒤 아래 명령으로 제거할 수 있습니다. FALLBACKS는 기존 Claude 서버 측 대체 모델 설정이며 HTTP 실행 모드를 stub으로 전환하는 설정이 아닙니다.
+
+```bash
+unset NEGOPILOT_DECOMPOSER_MODEL NEGOPILOT_GENERATOR_MODEL
+```
+
+두 단계 모두 OpenAI 기본 모델을 선택하려면 Python 서버를 시작할 셸에서 아래 값을 설정합니다. `OPENAI_API_KEY`에는 유효한 키를 지정해야 합니다. 위의 서버 시작 예시에서 실행 모드를 `live`로 바꾸고 서버를 시작합니다.
+
+```bash
+export AGENT_EXECUTION_MODE=live
+export OPENAI_API_KEY='replace-with-your-openai-api-key'
+export NEGOPILOT_DECOMPOSER_BACKEND=openai
+export NEGOPILOT_GENERATOR_BACKEND=openai
+unset NEGOPILOT_DECOMPOSER_MODEL NEGOPILOT_GENERATOR_MODEL
+```
+
+한 단계만 OpenAI로 바꾸려면 해당 BACKEND 변수만 `openai`로 지정하고 해당 MODEL 변수만 제거합니다. 다른 단계의 설정은 그대로 사용합니다. 예를 들어 분해는 OpenAI를 쓰고 Generation은 Ollama를 쓸 수 있습니다. 실제 유료 모델 호출은 이 문서 갱신 과정에서 검사하지 않았습니다.
+
+Ollama의 `qwen3:8b`를 분해와 생성에 선택하려면 환경 변수로 명시합니다. 아래는 저장소 루트에서 시작하는 실행 예시입니다. 기본 모델은 변경하지 않습니다. 해당 모델을 설치한 Ollama 서버와 필요한 MCP 서버를 별도로 준비해야 합니다. 이 모델의 응답과 연결 상태는 별도로 검증해야 합니다.
+
+```bash
+cd agent
+uv sync --locked
+export AGENT_EXECUTION_MODE=live
+export AGENT_INTERNAL_API_KEY='replace-with-a-local-test-key'
+export NEGOPILOT_DECOMPOSER_BACKEND=ollama
+export NEGOPILOT_DECOMPOSER_MODEL=qwen3:8b
+export NEGOPILOT_GENERATOR_BACKEND=ollama
+export NEGOPILOT_GENERATOR_MODEL=qwen3:8b
+export OLLAMA_BASE_URL=http://localhost:11434
+uv run uvicorn negopilot_agent.api.app:app --host 127.0.0.1 --port 9200
+```
+
+모델 설정이나 연결 실패는 503 `UPSTREAM_UNAVAILABLE`입니다. 전체 처리 제한 시간 초과는 504 `UPSTREAM_TIMEOUT`입니다. live 실패에 테스트 답변을 반환하지 않습니다.
+
+가짜 의존성을 사용하는 전체 단위 검사는 저장소 루트에서 다음 명령으로 실행합니다. v2 stub 검사는 실제 그래프와 AnswerGenerator의 검증 흐름을 확인합니다. 실제 LLM과 MCP 연결 결과는 별도로 확인해야 합니다.
+
+```bash
+cd agent
+uv sync --locked
+uv run --locked python -m pytest -q
+```

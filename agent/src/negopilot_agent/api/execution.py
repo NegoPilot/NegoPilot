@@ -5,6 +5,7 @@ from typing import Any, Protocol
 
 import anthropic
 import httpx2
+import openai
 
 from negopilot_shared import DecompositionResult, RouteResult
 from negopilot_agent.routing import McpToolCaller, Router
@@ -63,6 +64,7 @@ def public_routing(result: RouteResult) -> RouteResult:
 def make_live_decomposer() -> Decomposer:
     # Construction is deliberately lazy so health and stub never need model credentials.
     from negopilot_agent.decomposition import DecomposerSettings, QueryDecomposer
+    from negopilot_agent.decomposition.backends import OpenAIBackend
 
     settings = DecomposerSettings()
     try:
@@ -72,8 +74,12 @@ def make_live_decomposer() -> Decomposer:
             # Do not retry a transport failure at the HTTP boundary.
             client = anthropic.AsyncAnthropic(max_retries=0)
             return QueryDecomposer(settings=settings, client=client)
+        if settings.backend == "openai":
+            client = openai.AsyncOpenAI(max_retries=0)
+            backend = OpenAIBackend(client, settings.model, settings.max_tokens)
+            return QueryDecomposer(settings=settings, backend=backend)
         return QueryDecomposer(settings=settings)
-    except (ValueError, anthropic.AnthropicError, httpx2.HTTPError, httpx2.InvalidURL):
+    except (ValueError, anthropic.AnthropicError, openai.OpenAIError, httpx2.HTTPError, httpx2.InvalidURL):
         raise ModelUnavailable() from None
 
 
@@ -83,10 +89,13 @@ async def close_live_decomposer(decomposer: Decomposer) -> None:
         # After an execution timeout the enclosing task is already cancelling.
         # A second deadline bounds cleanup instead of delaying the 504 forever.
         async with asyncio.timeout(CLIENT_CLOSE_TIMEOUT_SECONDS):
-            if isinstance(getattr(backend, "client", None), anthropic.AsyncAnthropic):
-                await backend.client.close()
-            elif isinstance(getattr(backend, "http", None), httpx2.AsyncClient):
-                await backend.http.aclose()
+            close = getattr(getattr(backend, "client", None), "close", None)
+            if close is not None:
+                await close()
+            else:
+                aclose = getattr(getattr(backend, "http", None), "aclose", None)
+                if aclose is not None:
+                    await aclose()
     except Exception:
         # Cleanup errors must not expose SDK internals or replace a completed result.
         pass

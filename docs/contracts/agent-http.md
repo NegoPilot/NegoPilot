@@ -1,6 +1,6 @@
 # Spring과 Python 내부 HTTP 계약 v0.1
 
-기준 main 커밋은 `8d48d7b2b200c88f0ccfe33c3177057811e38cae`입니다. 이 문서는 Spring의 공개 API와 후속 Python HTTP 어댑터 사이의 요청과 응답을 정의합니다. 이번 PR에는 Spring 백엔드와 HTTP 계약 및 가상 데이터만 포함합니다. Python HTTP 어댑터는 포함하지 않습니다. 내부 경로가 이 PR만으로 실행된다는 의미가 아닙니다.
+기준 main 커밋은 `8d48d7b2b200c88f0ccfe33c3177057811e38cae`입니다. 이 문서는 Spring의 공개 API와 Python HTTP 어댑터 사이의 기존 v0.1 요청과 응답을 정의합니다. 두 구현은 저장소에 함께 있습니다. 생성 답변은 별도 [Generation HTTP 계약 v0.3](agent-generation.md)의 v2 경로를 사용합니다.
 
 분해와 Routing은 기존 공용 스키마를 사용합니다. Routing의 기준은 [공용 모델](../../shared/src/negopilot_shared/routing.py)과 [Routing 계약](routing.md)입니다. 이 문서는 공용 모델이나 Router의 의미를 변경하지 않습니다. 이전 로컬 통합의 완료 기록이나 검사 수치는 이 기준 커밋의 저장소 기능 완료를 뜻하지 않습니다.
 
@@ -24,7 +24,7 @@ JSON 필드 이름은 snake_case입니다. 정의되지 않은 요청 필드는 
 | history.role | user 또는 assistant |
 | history.content | 공백만 있는 값 금지. 길이 1부터 4000 |
 
-Spring은 입력을 검증한 뒤 같은 request_id를 내부 API에 전달합니다. 후속 Python HTTP 어댑터는 요청에 전달받은 이력만 사용해야 합니다. 이 계약은 대화 저장이나 체크포인트 재개를 제공하지 않습니다.
+Spring은 입력을 검증한 뒤 같은 request_id를 내부 API에 전달합니다. Python HTTP 어댑터는 요청에 전달받은 이력만 사용해야 합니다. 이 계약은 대화 저장이나 체크포인트 재개를 제공하지 않습니다.
 
 ## 정상 처리 응답
 
@@ -73,7 +73,7 @@ HTTP 응답의 routing은 공용 모델을 기본 필드까지 포함해 직렬�
 
 DECOMPOSITION_FAILED와 ROUTING_FAILED의 retryable은 false입니다. 기존 Router가 오류 원인을 구조화하지 않으므로 문자열로 재시도 가능 여부를 추정하지 않습니다.
 
-후속 Python HTTP 어댑터는 오류 원문을 HTTP 응답으로 보내기 전에 정제해야 합니다. Spring도 upstream의 원본 구조를 검증한 다음 공개 응답 사본을 정제합니다. 앞 단계가 정제했다고 가정해 원문을 그대로 전달하지 않습니다.
+Python HTTP 어댑터는 오류 원문을 HTTP 응답으로 보내기 전에 정제해야 합니다. Spring도 upstream의 원본 구조를 검증한 다음 공개 응답 사본을 정제합니다. 앞 단계가 정제했다고 가정해 원문을 그대로 전달하지 않습니다.
 
 | 정제 대상 | 공개 응답 규칙 |
 | --- | --- |
@@ -104,7 +104,7 @@ Spring은 분해 상태와 clarification 및 sub_queries의 조합을 확인합�
 
 ## 설정
 
-후속 Python HTTP 어댑터의 연동 주소는 `127.0.0.1:9200`입니다. Spring은 `127.0.0.1:8080`을 기본 주소로 사용합니다. 양쪽 HTTP 서비스는 `GET /health`에서 `{status: "ok"}`를 반환하는 계약입니다. health는 외부 의존 서비스의 준비 완료를 보장하지 않습니다. 이번 PR에 Python 서버의 기동 진입점은 포함하지 않습니다.
+Python HTTP 어댑터의 연동 주소는 `127.0.0.1:9200`입니다. Spring은 `127.0.0.1:8080`을 기본 주소로 사용합니다. 양쪽 HTTP 서비스는 `GET /health`에서 `{status: "ok"}`를 반환하는 계약입니다. health는 외부 의존 서비스의 준비 완료를 보장하지 않습니다. Python 서버는 `agent` 디렉터리에서 `uv run --locked uvicorn negopilot_agent.api.app:app --host 127.0.0.1 --port 9200`으로 실행합니다. 자세한 설정은 [Agent README](../../agent/README.md)를 참고합니다.
 
 Python의 `AGENT_INTERNAL_API_KEY`와 Spring의 `AGENT_INTERNAL_API_KEY`에 같은 값을 설정합니다. Spring은 `X-Internal-Api-Key` 헤더로만 이 값을 전달합니다. Python 내부 요청에는 키 검증을 적용합니다. 키가 없는 상태에서는 실행 API를 사용할 수 없습니다. health는 인증 없이 확인할 수 있습니다. 예제에 실제 키를 넣지 않습니다.
 
@@ -112,7 +112,7 @@ Spring의 `AGENT_BASE_URL` 기본값은 `http://127.0.0.1:9200`입니다. 연결
 
 ## 후속 어댑터의 실행 모드와 검증 조건
 
-이번 PR의 백엔드 검증은 가짜 Python HTTP 응답으로 요청 전달과 응답 검증을 확인합니다. 실제 모델과 MCP 및 DB를 호출하지 않습니다. 아래 모드는 후속 Python HTTP 어댑터가 제공할 연동 계약입니다. 이 문서에 모드가 정의돼 있다는 사실은 Python 서버 구현이나 두 프로세스 통합 검증이 이 PR에 포함됐다는 의미가 아닙니다.
+백엔드 단위 검사는 가짜 Python HTTP 응답으로 요청 전달과 응답 검증을 확인합니다. 두 프로세스 통합 검사는 [통합 검사 가이드](../../scripts/integration/README.md)를 따릅니다. 가짜 의존성을 사용하는 검사와 실제 모델 및 MCP를 사용하는 검사의 결과를 구분합니다. 아래 모드는 Python HTTP 어댑터의 동작입니다.
 
 `AGENT_EXECUTION_MODE=stub`에서는 모델과 MCP에 접속하지 않아야 합니다. 아래 기존 분해 fixture와 테스트용 ToolCaller를 사용할 때도 Router 자체는 최신 공용 계약을 따르는 실제 코드로 연결합니다. 법령 결과는 테스트용 데이터라고 표시합니다.
 
@@ -124,8 +124,8 @@ Spring의 `AGENT_BASE_URL` 기본값은 `http://127.0.0.1:9200`입니다. 연결
 
 stub에서 다른 질문은 400 VALIDATION_ERROR로 거절하고 지원하는 테스트 질문을 문서로 안내합니다. 테스트용 질문을 일반 질문 처리 능력으로 설명하지 않습니다.
 
-`AGENT_EXECUTION_MODE=live`는 기존 QueryDecomposer와 Router 및 McpToolCaller를 연결할 모드입니다. 기존 Claude 또는 Ollama 설정을 재사용하며 이 envelope에서는 Generation을 실행하지 않습니다. 기본 모드는 live로 두고 stub 사용은 명시적으로 켜게 합니다. 실제 모델 연결이나 전체 그래프의 HTTP 노출은 이 PR의 검증 범위가 아닙니다.
+`AGENT_EXECUTION_MODE=live`는 기존 QueryDecomposer와 Router 및 McpToolCaller를 연결하는 모드입니다. 기존 Claude와 Ollama 및 OpenAI 설정을 재사용하며 이 envelope에서는 Generation을 실행하지 않습니다. 기본 모드는 live로 두고 stub 사용은 명시적으로 켜게 합니다. 전체 그래프와 Generation은 이 v0.1 경로가 아닌 v2 경로에서 실행합니다.
 
 HTTP 명세의 Routing 호환성은 `shared/fixtures/routing/`의 최신 예제를 읽어 검증합니다. 저장된 예제를 검증하는 과정은 모델이나 MCP를 다시 호출하지 않습니다. 공용 Routing 모델과 fixture 자체를 HTTP 명세에 맞춰 수정하지 않습니다.
 
-이번 PR은 로그인과 승인 및 DB 저장과 메일 발송을 구현하지 않습니다. 공개 API라는 표현은 클라이언트가 호출할 경계를 뜻하며 사용자 인증이 구현됐다는 의미가 아닙니다.
+이 HTTP 기능에는 로그인과 승인 및 DB 저장과 메일 발송이 포함되지 않습니다. 공개 API라는 표현은 클라이언트가 호출할 경계를 뜻하며 사용자 인증이 구현됐다는 의미가 아닙니다.

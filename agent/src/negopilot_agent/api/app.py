@@ -6,14 +6,18 @@ from uuid import UUID
 
 import anthropic
 import httpx2
+import openai
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
 from negopilot_agent.routing.router import ToolCaller
+from negopilot_agent.decomposition.backends import Backend
 
 from .execution import Decomposer, ModelUnavailable, QueryExecutor
+from .generation_api import add_generation_routes
+from .generation_execution import ContextDecomposer
 from .models import ErrorDetail, ErrorResponse, QueryExecutionRequest, QueryExecutionResponse
 from .settings import ApiSettings
 from .stubs import UnsupportedStubQuery
@@ -45,7 +49,10 @@ class AuthenticationFailed(Exception):
 
 def create_app(settings: ApiSettings | None = None, decomposer: Decomposer | None = None,
                caller: ToolCaller | None = None,
-               supplier_chat_service: SupplierChatService | None = None) -> FastAPI:
+               supplier_chat_service: SupplierChatService | None = None,
+               generation_decomposer: ContextDecomposer | None = None,
+               generation_caller: ToolCaller | None = None,
+               generation_backend: Backend | None = None) -> FastAPI:
     settings = settings or ApiSettings.from_env()
     executor = QueryExecutor(settings, decomposer=decomposer, caller=caller)
     application = FastAPI(title="NegoPilot internal execution API", version="0.1")
@@ -103,15 +110,18 @@ def create_app(settings: ApiSettings | None = None, decomposer: Decomposer | Non
                 return JSONResponse(content=result.model_dump(mode="json", by_alias=True))
         except UnsupportedStubQuery:
             return error_response(400, body.request_id, "VALIDATION_ERROR", "Unsupported stub query. See agent/README.md.")
-        except (TimeoutError, httpx2.TimeoutException, anthropic.APITimeoutError):
+        except (TimeoutError, httpx2.TimeoutException, anthropic.APITimeoutError, openai.APITimeoutError):
             return error_response(504, body.request_id, "UPSTREAM_TIMEOUT", "Execution timed out.", True)
-        except (ModelUnavailable, httpx2.HTTPError, httpx2.InvalidURL, anthropic.APIError):
+        except (ModelUnavailable, httpx2.HTTPError, httpx2.InvalidURL, anthropic.APIError, openai.OpenAIError):
             return error_response(503, body.request_id, "UPSTREAM_UNAVAILABLE", "Model service is unavailable.", True)
         except Exception:
             return error_response(500, body.request_id, "INTERNAL_ERROR", "Unexpected server error.")
 
     add_supplier_chat_routes(application, settings, authenticate, error_response, extract_request_id,
                              service=supplier_chat_service)
+    add_generation_routes(application, settings, authenticate, error_response,
+                          decomposer=generation_decomposer, caller=generation_caller,
+                          backend=generation_backend)
     return application
 
 

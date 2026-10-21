@@ -15,6 +15,7 @@ from negopilot_agent.decomposition.decomposer import QueryDecomposer
 class DecompositionState(TypedDict):
     query: str                                   # 이번 사용자 질문
     history: NotRequired[list[dict]]             # [{"role": "user"|"assistant", "content": str}, ...]
+    context: NotRequired[dict[str, list[str]]]    # 선택 기업 문맥. HTTP층에서 ID 형식을 검증한다
     decomposition: NotRequired[DecompositionResult]
 
 
@@ -25,7 +26,12 @@ def make_decompose_node(decomposer: QueryDecomposer | None = None):
     async def decompose_query(state: DecompositionState) -> dict:
         if "d" not in holder:
             holder["d"] = decomposer or QueryDecomposer()
-        result = await holder["d"].decompose(state["query"], state.get("history"))
+        context = state.get("context")
+        if context is None:
+            # 문맥이 없는 기존 호출과 두 인자만 받는 테스트 대역의 계약을 유지한다.
+            result = await holder["d"].decompose(state["query"], state.get("history"))
+        else:
+            result = await holder["d"].decompose(state["query"], state.get("history"), context=context)
         return {"decomposition": result}
 
     return decompose_query

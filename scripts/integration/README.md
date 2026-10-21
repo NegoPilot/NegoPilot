@@ -1,5 +1,7 @@
 # Spring과 Python HTTP 통합 검증
 
+최신 Generation 경로는 `generation_smoke.py`로 검사합니다. [Generation HTTP 계약](../../docs/contracts/agent-generation.md)의 공개 v2 경로와 내부 v2 경로를 연결합니다. 실제 `build_graph`와 `QueryDecomposer` 및 `AnswerGenerator`를 실행하며 모델 backend와 도구 입출력에 fake를 주입합니다.
+
 `supplier_chat_smoke.py`는 실제 Spring 서버와 Python HTTP 어댑터를 자식 프로세스로 시작해 공급사 조회와 메모리 대화를 검사합니다. 두 서버에 `AGENT_EXECUTION_MODE=stub`를 지정합니다. 마지막에는 `http_smoke.py`의 v0.1 회귀 검사도 실행합니다.
 
 이 검사는 [v0.1 HTTP 계약](../../docs/contracts/agent-http.md)과 [공급사 대화 계약](../../docs/contracts/supplier-chat.md)의 로컬 HTTP 연동을 확인합니다. Python live 환경이나 모델 인증 키 및 MCP 서버를 준비할 필요가 없습니다. 실제 모델과 MCP 및 DB를 호출하지 않으며 메일도 보내지 않습니다.
@@ -29,6 +31,8 @@ Python과 Spring의 상세 설정은 [agent 안내](../../agent/README.md)와 [b
 
 ```bash
 python3 -B -m unittest discover -s tests/integration -p 'test_*.py' -v
+python3 -B scripts/integration/generation_smoke.py \
+  --report /tmp/negopilot-generation-results.json
 python3 -B scripts/integration/supplier_chat_smoke.py \
   --report /tmp/negopilot-supplier-chat-results.json
 ```
@@ -52,6 +56,20 @@ python3 -B scripts/integration/http_smoke.py \
   --jar backend/target/negopilot-backend-0.1.0-SNAPSHOT.jar \
   --report /tmp/negopilot-http-results.json
 ```
+
+## Generation 검증
+
+Generation 검사는 실제 FastAPI 서버와 Spring 서버를 임시 포트에서 실행합니다. 내장 stub과 검사 전용 fake backend를 사용하며 최종 Answer 객체는 실제 Generator가 만듭니다. HTTP 응답을 저장된 `agent-generation.openapi.json`과 대조합니다. 앱이 실행 중 생성한 OpenAPI를 기대값으로 사용하지 않습니다.
+
+답변과 추가 입력 및 거절과 결과 없음과 실패를 구분합니다. 일부 Routing 오류가 있어도 최종 답변이 만들어지면 COMPLETED를 유지하는지 검사합니다. citations와 evidence 및 verification을 보존하며 보정된 답변의 masked=true를 실패로 바꾸지 않는지도 확인합니다.
+
+공개 대화 경로에서는 선택 문맥과 이력 전달을 확인합니다. 문맥 변경과 실패 시 저장 보존을 검사합니다. 응답의 decomposition.original_query가 전달한 질문과 다르면 거절해야 합니다. 긴 assistant 답변은 원문으로 저장하고 다음 요청 이력에서만 4000 code point로 제한해야 합니다. 앞부분을 자른 결과가 공백만이면 전송용 이력의 앞 공백을 제외하고 다시 제한합니다. 모델 이력은 최신 20개이며 저장 메시지는 최대 100개를 쌍 단위로 유지합니다.
+
+검사 중 주입한 응답 손상과 HTTP 오류는 저장 경계 검사용입니다. 이 결과를 실제 모델 실패나 실제 도구 응답으로 표시하지 않습니다. 임시 내부 키는 출력하지 않습니다. 결과 본문과 로그를 저장할 때는 `/tmp` 경로를 사용합니다.
+
+실제 모델 검증은 위 fake 검사와 별도로 수행합니다. 기존 로컬 Ollama 모델을 사용할 때는 분해와 생성의 backend를 모두 `ollama`로 지정하고 양쪽 model을 같은 설치된 모델명으로 설정합니다. 예를 들어 `qwen3:8b`가 이미 설치돼 있다면 `NEGOPILOT_DECOMPOSER_MODEL`과 `NEGOPILOT_GENERATOR_MODEL`에 지정합니다. `NEGOPILOT_DECOMPOSER_BACKEND`와 `NEGOPILOT_GENERATOR_BACKEND`도 모두 설정합니다. Python의 `AGENT_REQUEST_TIMEOUT_SECONDS`는 180초 등 모델 지연을 수용할 값으로 두고 Spring의 `AGENT_RESPONSE_TIMEOUT_SECONDS`는 Python 응답 정리 시간을 포함하도록 설정합니다.
+
+실제 모델 확인은 일반 지식 질문 한 건부터 순차 실행합니다. HTTP 성공 여부와 실제 분해 모델 호출 및 생성 모델 호출을 각각 기록합니다. 답변 대신 추가 입력이나 실패가 나오면 실제 생성 성공으로 세지 않습니다. MCP가 준비되지 않은 환경의 일반 지식 검증은 실제 기업 정보나 법령 근거 조회의 성공을 의미하지 않습니다.
 
 ## 검증 범위
 
@@ -86,4 +104,4 @@ v0.1의 세 고정 질문은 분해 fixture와 가짜 ToolCaller를 실제 Route
 
 일반 질문 처리 능력을 검증하지 않습니다. 이력 검사는 Python HTTP 경계까지 전달됐음을 확인하며 live 모델이 이력을 활용했음을 뜻하지 않습니다.
 
-프로젝트에는 Generation 구현이 있지만 이 HTTP 경로는 Generation을 호출하지 않습니다. `generation_status=NOT_IMPLEMENTED`는 이 HTTP 응답의 범위를 나타냅니다. v0.1의 `COMPLETED`는 분해와 Routing 처리 완료이며 v0.2의 `COMPLETED`는 템플릿 응답 준비 완료입니다. 최종 자연어 생성이나 live 모델의 품질을 검증한 결과로 해석하지 않습니다.
+기존 v0.1과 공급사 v0.2 경로는 Generation을 호출하지 않습니다. 이 경로의 `generation_status=NOT_IMPLEMENTED`는 HTTP 응답의 범위를 나타냅니다. v0.1의 `COMPLETED`는 분해와 Routing 처리 완료이며 v0.2의 `COMPLETED`는 템플릿 응답 준비 완료입니다. 최신 Generation v2 경로의 실행 결과와 구분합니다. fake backend를 사용한 Generation 검사는 live 모델의 품질을 검증한 결과로 해석하지 않습니다.

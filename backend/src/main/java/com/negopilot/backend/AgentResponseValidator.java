@@ -55,7 +55,7 @@ public final class AgentResponseValidator {
         }
     }
 
-    private static void validateDecomposition(JsonNode decomposition) {
+    static void validateDecomposition(JsonNode decomposition) {
         object(decomposition, "schema_version", "status", "original_query", "sub_queries",
                 "clarification", "assumptions");
         equalsText(decomposition.get("schema_version"), "0.1");
@@ -115,7 +115,7 @@ public final class AgentResponseValidator {
         }
     }
 
-    private static void validateRouting(JsonNode routing, JsonNode decomposition) {
+    static void validateRouting(JsonNode routing, JsonNode decomposition) {
         object(routing, "schema_version", "status", "outcomes", "halted", "halt_reason");
         equalsText(routing.get("schema_version"), "0.1");
         String status = oneOf(routing.get("status"), Set.of("routed", "not_routed"));

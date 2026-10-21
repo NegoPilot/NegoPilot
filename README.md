@@ -43,9 +43,9 @@ Agent는 이 내용을 보고 law-mcp에서 해당 조문을 찾아 근거로 �
 | [`mcp-servers/law-mcp`](mcp-servers/law-mcp) | 하도급법, 상생협력법(연동제), 중소기업기본법의 조문을 조회하고 검색합니다. 로컬 색인 파일만 읽습니다 | 완료 |
 | [`mcp-servers/business-mcp`](mcp-servers/business-mcp) | 협력사 150곳(OpenDART 공시 기업 30곳, 가상 기업 120곳)과 완성차, RFQ 데이터를 조회하고 RFQ별 후보 순위를 계산합니다 | 완료 |
 | `mcp-servers/mail-mcp` | 메일 발송과 협상 문서 템플릿 | 예정 |
-| [`agent`](agent) | LangGraph Agent입니다. 지금은 쿼리 분해 노드(Claude, Ollama)와 평가 스크립트가 있습니다 | 쿼리 분해 완료, Routing과 Generation 진행 예정 |
+| [`agent`](agent) | 분해와 Routing 및 Generation을 실행하는 LangGraph Agent와 내부 HTTP API | 구현 |
 | [`shared`](shared) | 컴포넌트끼리 같이 쓰는 계약입니다. 분해 결과 스키마, intent 등록표, 예시 11개가 들어 있습니다 | 완료 |
-| `backend/` | Spring Boot API와 인증(실무자, 팀장) | 예정 |
+| [`backend`](backend) | Agent 공개 API와 응답 검증 및 메모리 대화 저장 | HTTP 연동 구현. 인증과 영구 저장은 예정 |
 | `frontend/` | Vue 화면 | 예정 |
 
 ### MCP 서버
@@ -95,6 +95,14 @@ NegoPilot/
 ├── .coderabbit.yaml           CodeRabbit 자동 리뷰 설정
 └── CONTRIBUTING.md            협업 규칙
 ```
+
+## Spring과 Agent HTTP 연동
+
+Spring은 `POST /api/v2/agent/queries`를 Python의 `POST /internal/v2/query-executions`로 전달합니다. Python이 최신 그래프의 분해와 Routing 및 Generation을 실행하면 Spring이 답변과 인용 및 검증 정보를 확인해 반환합니다. 선택 기업과 대화 이력은 `/api/v2/conversations`에서 관리합니다.
+
+기본 모드는 `live`입니다. Claude나 Ollama 또는 OpenAI 설정과 조회에 필요한 MCP 서버를 준비합니다. `stub`은 모델과 도구 입출력을 테스트용으로 바꾸면서 실제 그래프와 생성기의 근거 검사를 실행합니다. 기존 v1의 fixture 조회와 템플릿 대화는 호환성 확인용으로 유지합니다. 프런트엔드 화면 연결과 사용자 인증 및 영구 저장은 별도 작업입니다.
+
+실행 방법은 [Backend README](backend/README.md)와 [Agent README](agent/README.md)에 있습니다. 요청 형식은 [Generation HTTP 계약](docs/contracts/agent-generation.md)과 [OpenAPI](docs/contracts/agent-generation.openapi.json)를 확인합니다. 검증 명령은 [통합 검사 가이드](scripts/integration/README.md)를 따릅니다.
 
 ## 빠른 시작
 
