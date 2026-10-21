@@ -19,6 +19,7 @@ import openai
 from pydantic import ValidationError
 
 from negopilot_shared import DecompositionResult, load_intents
+from negopilot_shared.decomposition import SELECT_RE
 
 from negopilot_agent.decomposition.backends import AnthropicBackend, Backend, OpenAIBackend, OllamaBackend
 from negopilot_agent.decomposition.prompt import build_system_prompt, build_user_message
@@ -90,7 +91,8 @@ class QueryDecomposer:
             try:
                 # 스키마 형식은 모델 쪽 구조화 출력이 맞추고, 필드 사이 규칙은 여기서 검증한다
                 cleaned = drop_redundant_as_of(
-                    clean_entity_values(drop_disallowed_entities(drop_disallowed_inputs(fill_original_query(text, query)))),
+                    clean_entity_values(drop_disallowed_entities(drop_disallowed_inputs(
+                        normalize_select(fill_original_query(text, query))))),
                     today)
                 result = DecompositionResult.model_validate_json(cleaned)
             except ValidationError as err:
@@ -119,6 +121,33 @@ def fill_original_query(text: str, query: str) -> str:
         return text
     data["original_query"] = query
     return json.dumps(data, ensure_ascii=False)
+
+
+_LOOSE_TOP = re.compile(r"^\s*top[\s_-]*\(?\s*([1-9]\d*)\s*\)?\s*$", re.IGNORECASE)
+
+
+def normalize_select(text: str) -> str:
+    """inputs.select의 뜻이 분명한 표기 차이를 계약 형식으로 고친다 (#99).
+
+    모델이 "top3", "top 3", "TOP(3)"처럼 쓰면 계약(top1, top(n))에 맞지 않아 재시도한다. 숫자 하나만 뜻하므로
+    top(3)으로 바꾸고, 1이면 top1로 쓴다. 이미 맞는 값이나 뜻이 분명하지 않은 값은 그대로 둬 검증이 판단하게 한다.
+    """
+    try:
+        data = json.loads(text)
+        sub_queries = data["sub_queries"]
+    except (ValueError, TypeError, KeyError):
+        return text
+    changed = False
+    for sq in sub_queries if isinstance(sub_queries, list) else []:
+        for ref in sq.get("inputs", []) if isinstance(sq, dict) and isinstance(sq.get("inputs"), list) else []:
+            select = ref.get("select") if isinstance(ref, dict) else None
+            if not isinstance(select, str) or SELECT_RE.match(select) or not (m := _LOOSE_TOP.match(select)):
+                continue
+            fixed = "top1" if m.group(1) == "1" else f"top({m.group(1)})"
+            log.info("%s의 select %r → %r", sq.get("id"), select, fixed)
+            ref["select"] = fixed
+            changed = True
+    return json.dumps(data, ensure_ascii=False) if changed else text
 
 
 def drop_disallowed_inputs(text: str) -> str:
