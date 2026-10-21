@@ -1,0 +1,151 @@
+{
+  "note": "협력사 상세: 재무와 계약 조건",
+  "query": "SUP-0020 매출이랑 결제 조건 알려 줘",
+  "decomposition": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "SUP-0020 매출이랑 결제 조건 알려 줘",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "SUP-0020의 재무 정보와 결제 조건",
+        "original_text": "SUP-0020 매출이랑 결제 조건 알려 줘",
+        "intent": "supplier_detail",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "supplier": "SUP-0020"
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  },
+  "routing": {
+    "schema_version": "0.1",
+    "status": "routed",
+    "outcomes": [
+      {
+        "id": "q1",
+        "intent": "supplier_detail",
+        "status": "ok",
+        "calls": [
+          {
+            "server": "business-mcp",
+            "tool": "get_supplier",
+            "args": {
+              "supplier": "SUP-0020"
+            },
+            "result": {
+              "supplier_id": "SUP-0020",
+              "source": "DART",
+              "corp_code": "00359623",
+              "stock_code": "072470",
+              "induty_code": "303",
+              "name": "우리산업홀딩스(주)",
+              "region": "경기",
+              "employees": 14,
+              "revenue_eok": 7050,
+              "founded_year": 1989,
+              "biz_no_masked": "135-81-*****",
+              "iatf16949": false,
+              "iso14001": false,
+              "defect_ppm": 783,
+              "on_time_rate": 0.958,
+              "audit_grade": "C",
+              "years_dealing": 2,
+              "payment_days": 45,
+              "price_linkage": false,
+              "raw_material_ratio": 0.5,
+              "auto_renewal": true,
+              "fin_year": 2025,
+              "operating_margin": 0.049,
+              "debt_ratio": 1.41,
+              "capabilities": [
+                {
+                  "process": "다이캐스팅",
+                  "material": "A380",
+                  "monthly_capacity": 20000
+                },
+                {
+                  "process": "다이캐스팅",
+                  "material": "ADC12",
+                  "monthly_capacity": 12000
+                }
+              ],
+              "financials": [
+                {
+                  "bsns_year": 2023,
+                  "fs_div": "CFS",
+                  "source": "DART",
+                  "revenue": 575273528400,
+                  "operating_income": 21263010301,
+                  "net_income": 15174927692,
+                  "total_assets": 478748647962,
+                  "total_liabilities": 282337228973,
+                  "total_equity": 196411418989
+                },
+                {
+                  "bsns_year": 2024,
+                  "fs_div": "CFS",
+                  "source": "DART",
+                  "revenue": 645259102794,
+                  "operating_income": 15025930892,
+                  "net_income": 1328333380,
+                  "total_assets": 489040138516,
+                  "total_liabilities": 290849708346,
+                  "total_equity": 198190430170
+                },
+                {
+                  "bsns_year": 2025,
+                  "fs_div": "CFS",
+                  "source": "DART",
+                  "revenue": 705003098505,
+                  "operating_income": 34240369035,
+                  "net_income": 18970302428,
+                  "total_assets": 509891987640,
+                  "total_liabilities": 298319400408,
+                  "total_equity": 211572587232
+                }
+              ],
+              "recent_quotes": [
+                {
+                  "process": "다이캐스팅",
+                  "material": "A380",
+                  "unit_price": 3890,
+                  "quoted_at": "2026-09-19"
+                },
+                {
+                  "process": "다이캐스팅",
+                  "material": "ADC12",
+                  "unit_price": 3320,
+                  "quoted_at": "2026-02-26"
+                },
+                {
+                  "process": "다이캐스팅",
+                  "material": "A380",
+                  "unit_price": 3720,
+                  "quoted_at": "2025-05-14"
+                },
+                {
+                  "process": "다이캐스팅",
+                  "material": "ADC12",
+                  "unit_price": 3390,
+                  "quoted_at": "2025-03-06"
+                }
+              ]
+            },
+            "error": null
+          }
+        ],
+        "referenced_articles": [],
+        "missing": [],
+        "message": null
+      }
+    ],
+    "halted": false,
+    "halt_reason": null
+  }
+}

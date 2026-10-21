@@ -1,6 +1,11 @@
-"""Generation을 평가한다. 입력은 shared/fixtures/routing(실제 MCP 결과), 정답은 eval_data/generation_gold.json.
+"""Generation을 평가한다. MCP 서버는 필요 없다. 분해·Routing 결과를 파일에서 그대로 읽으므로 Generation만의 실력을 잰다.
 
-MCP 서버는 필요 없다. 분해·Routing 결과를 fixture에서 그대로 읽으므로 Generation만의 실력을 잰다.
+| 세트 (--set) | 입력 (실제 MCP 결과) | 정답 | 쓰임 |
+| --- | --- | --- | --- |
+| dev (기본) | shared/fixtures/routing | eval_data/generation_gold.json | 오답을 보고 프롬프트를 고친다 |
+| validation | eval_data/generation_validation/ | eval_data/generation_validation_gold.json | 점수만 본다. 오답을 보고 프롬프트를 고치지 않는다 |
+
+검증 세트 입력은 scripts/route_generation_set.py로 실제 MCP 서버를 불러 만든다.
 
 | 지표 | 뜻 | 모델 호출 |
 | --- | --- | --- |
@@ -17,6 +22,7 @@ MCP 서버는 필요 없다. 분해·Routing 결과를 fixture에서 그대로 �
     uv run python scripts/eval_generation.py --backend openai           # gpt-4.1-mini 생성 + 채점 (OPENAI_API_KEY)
     uv run python scripts/eval_generation.py --backend openai --repeat 3 --report eval_reports/2026-10-21_generation.md
     uv run python scripts/eval_generation.py --backend openai --no-judge --only 05 07
+    uv run python scripts/eval_generation.py --backend openai --repeat 3 --set validation
 
 채점은 OpenAI(--judge-model, 기본 gpt-4.1-mini)로 한다. 결과 원본은 eval_results/(git 제외)에 저장한다.
 """
@@ -41,7 +47,10 @@ from negopilot_agent.generation.answer import Answer, Evidence  # noqa: E402
 from negopilot_agent.generation.prompt import build_user_message  # noqa: E402
 
 FIXTURES = ROOT.parent / "shared" / "fixtures"
-GOLD = ROOT / "eval_data" / "generation_gold.json"
+SETS = {   # 이름 → (정답 파일, 입력 폴더)
+    "dev": (ROOT / "eval_data" / "generation_gold.json", FIXTURES / "routing"),
+    "validation": (ROOT / "eval_data" / "generation_validation_gold.json", ROOT / "eval_data" / "generation_validation"),
+}
 CHARS_PER_TOKEN = 1.7   # 한국어 위주 텍스트의 대략값. 비교용이라 정확할 필요는 없다
 
 JUDGE_SYSTEM = """\
@@ -80,10 +89,13 @@ def load_dotenv(path: Path, skip: tuple[str, ...] = ()) -> None:
             os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
-def load_case(name: str) -> tuple[str, DecompositionResult, RouteResult]:
-    data = json.loads((FIXTURES / "routing" / f"{name}.json").read_text(encoding="utf-8"))
-    dec = json.loads((FIXTURES / data["decomposition"]).read_text(encoding="utf-8"))
-    return data["query"], DecompositionResult.model_validate(dec["expected"]), RouteResult.model_validate(data["routing"])
+def load_case(name: str, input_dir: Path = FIXTURES / "routing") -> tuple[str, DecompositionResult, RouteResult]:
+    data = json.loads((input_dir / f"{name}.json").read_text(encoding="utf-8"))
+    if "decomposition" in data and isinstance(data["decomposition"], dict):   # 검증 세트: 한 파일에 모두 있다
+        dec = data["decomposition"]
+    else:                                                                       # 개발 세트: 분해 fixture 경로
+        dec = json.loads((FIXTURES / data["decomposition"]).read_text(encoding="utf-8"))["expected"]
+    return data["query"], DecompositionResult.model_validate(dec), RouteResult.model_validate(data["routing"])
 
 
 def evidence_of(dec: DecompositionResult, routing: RouteResult) -> list[Evidence]:
@@ -123,8 +135,9 @@ async def judge(client, model: str, item: dict, answer: Answer) -> dict:
             "unsupported_claims": result.get("unsupported_claims", [])}
 
 
-async def run_case(gen: AnswerGenerator | None, judge_client, judge_model: str, item: dict) -> dict:
-    query, dec, routing = load_case(item["fixture"])
+async def run_case(gen: AnswerGenerator | None, judge_client, judge_model: str, item: dict,
+                   input_dir: Path = FIXTURES / "routing") -> dict:
+    query, dec, routing = load_case(item["fixture"], input_dir)
     row = {"fixture": item["fixture"], "query": query, **offline_metrics(item, dec, routing)}
     if gen is None:
         return row
@@ -194,6 +207,8 @@ def summarize(runs: list[list[dict]]) -> str:
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--offline", action="store_true", help="모델 없이 근거 지표만 계산 (비용 없음)")
+    parser.add_argument("--set", choices=list(SETS), default="dev",
+                        help="dev: 개발 세트(기본), validation: 검증 세트 (오답을 보고 프롬프트를 고치지 않는다)")
     parser.add_argument("--backend", choices=["openai", "anthropic"], help="기본: 설정값")
     parser.add_argument("--model", help="기본: 백엔드별 기본 모델")
     parser.add_argument("--repeat", type=int, default=1, help="같은 fixture를 N회 생성해 합산 (기본 1)")
@@ -209,7 +224,8 @@ async def main() -> int:
     if args.model:
         os.environ["NEGOPILOT_GENERATOR_MODEL"] = args.model
 
-    items = json.loads(GOLD.read_text(encoding="utf-8"))["items"]
+    gold, input_dir = SETS[args.set]
+    items = json.loads(gold.read_text(encoding="utf-8"))["items"]
     if args.only:
         items = [i for i in items if any(key in i["fixture"] for key in args.only)]
     if not items:
@@ -225,13 +241,14 @@ async def main() -> int:
             judge_client = openai.AsyncOpenAI()
     head = "오프라인 (모델 호출 없음)" if args.offline else (
         f"생성 {settings.backend} · {settings.model} · 채점 {'없음' if args.no_judge else args.judge_model}")
+    head += f" · {args.set} 세트"
     print(f"{head} · fixtures {len(items)}개 × {1 if args.offline else args.repeat}회\n")
 
     runs = []
     for n in range(1 if args.offline else args.repeat):
         rows = []
         for item in items:
-            row = await run_case(gen, judge_client, args.judge_model, item)
+            row = await run_case(gen, judge_client, args.judge_model, item, input_dir)
             rows.append(row)
             if not args.offline:
                 print(f"[{n + 1}] {item['fixture']}: {row['kind']} · 첫 시도 {'통과' if row['first_try_ok'] else '-'}"
@@ -243,8 +260,9 @@ async def main() -> int:
     out_dir = ROOT / "eval_results"
     out_dir.mkdir(exist_ok=True)
     tag = "offline" if args.offline else f"{settings.backend}_{settings.model.replace(':', '-')}"
+    tag += "" if args.set == "dev" else f"_{args.set}"
     out = out_dir / f"generation_{datetime.now():%Y%m%d_%H%M%S}_{tag}.json"
-    out.write_text(json.dumps({"mode": tag, "judge_model": None if args.no_judge or args.offline else args.judge_model,
+    out.write_text(json.dumps({"mode": tag, "set": args.set, "judge_model": None if args.no_judge or args.offline else args.judge_model,
                                "runs": runs}, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"\n원본: {out.relative_to(ROOT)}")
     if args.report:
