@@ -8,6 +8,7 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "anthropic>=1.15.0",
+    "fastmcp>=4.1.1",
     "httpx2>=2.15.1",
     "langgraph>=1.2.16",
     "negopilot-shared",

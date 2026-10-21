@@ -1,0 +1,153 @@
+"""Router: 분해 결과를 parallel_groups() 순서로 실행한다.
+
+같은 묶음의 하위 질문은 병렬로, 다음 묶음은 앞 묶음이 끝난 뒤 실행한다.
+도구를 실제로 부르는 일은 ToolCaller가 맡아서, 테스트에서는 가짜로 바꿔 끼운다.
+"""
+
+import asyncio
+import itertools
+from typing import Any, Protocol
+
+from negopilot_shared import DecompositionResult, IntentSpec, load_intents
+from negopilot_shared.decomposition import SubQuery
+
+from negopilot_agent.routing.extract import select_values
+from negopilot_agent.routing.results import RouteResult, SubQueryOutcome, ToolCall
+
+MAX_FANOUT = 10      # top(n)/all로 값이 여러 개일 때 하위 질문 하나가 부를 수 있는 최대 호출 수
+LAW_ARTICLES = 3     # law_check에서 search_regulation 결과 중 get_article로 전문을 가져올 조문 수
+
+# 도구 인자 = 엔티티 이름 (계약 결정 3). 이름이 다른 것만 바꿔 적는다
+TOOL_PARAMS: dict[str, dict[str, str]] = {
+    "list_rfqs": {},
+    "search_suppliers": {"process": "process", "material": "material", "region": "region",
+                         "iatf_required": "iatf_required", "min_monthly_capacity": "min_monthly_capacity",
+                         "top_n": "limit"},
+    "get_supplier": {"supplier": "supplier"},
+    "rank_suppliers": {"rfq_id": "rfq_id", "top_n": "top_n"},
+    "check_offer": {k: k for k in ("supplier", "rfq_id", "unit_price", "payment_days", "price_linkage",
+                                   "raw_material_ratio", "contract_days", "linkage_waived_by_agreement",
+                                   "buyer_is_small_business")},
+    "get_article": {"law": "law", "article_no": "article_no", "as_of": "as_of"},
+}
+
+# 도구의 필수 인자 (엔티티 이름). 없으면 부르지 않고 missing_args로 Generation에 넘긴다
+REQUIRED: dict[str, list[str]] = {
+    "search_suppliers": ["process"],
+    "get_supplier": ["supplier"],
+    "rank_suppliers": ["rfq_id"],
+    "check_offer": ["supplier", "rfq_id", "unit_price", "payment_days", "price_linkage"],
+    "get_article": ["law", "article_no"],
+}
+
+
+class ToolCaller(Protocol):
+    async def __call__(self, server: str, tool: str, args: dict[str, Any]) -> Any:
+        """도구를 부르고 결과를 돌려준다. 실패하면 예외를 낸다."""
+        ...
+
+
+class Router:
+    def __init__(self, caller: ToolCaller, intents: dict[str, IntentSpec] | None = None):
+        self.caller = caller
+        self.intents = intents or load_intents()
+
+    async def route(self, decomposition: DecompositionResult) -> RouteResult:
+        if decomposition.status != "ok":
+            return RouteResult(status="not_routed")
+
+        by_id = {sq.id: sq for sq in decomposition.sub_queries}
+        done: dict[str, SubQueryOutcome] = {}
+        halt_reason: str | None = None
+
+        for group in decomposition.parallel_groups():
+            if halt_reason:
+                for qid in group:
+                    done[qid] = SubQueryOutcome(id=qid, intent=by_id[qid].intent, status="skipped",
+                                                message="앞 결과가 0건이라 실행을 멈춤")
+                continue
+            outcomes = await asyncio.gather(*(self._run(by_id[qid], done) for qid in group))
+            for o in outcomes:
+                done[o.id] = o
+                if o.status == "empty" and halt_reason is None:
+                    halt_reason = f"{o.id}: {o.message}"
+
+        return RouteResult(status="routed", outcomes=[done[sq.id] for sq in decomposition.sub_queries],
+                           halted=halt_reason is not None, halt_reason=halt_reason)
+
+    async def _run(self, sq: SubQuery, done: dict[str, SubQueryOutcome]) -> SubQueryOutcome:
+        spec = self.intents[sq.intent]
+        if spec.status == "planned":
+            return SubQueryOutcome(id=sq.id, intent=sq.intent, status="unsupported",
+                                   message=f"{spec.server or sq.intent}가 아직 없어 지원하지 않는 기능")
+        if spec.server is None or not spec.tools:
+            return SubQueryOutcome(id=sq.id, intent=sq.intent, status="no_tool")
+
+        if bad := [d for d in sq.depends_on if done[d].status != "ok"]:
+            return SubQueryOutcome(id=sq.id, intent=sq.intent, status="skipped",
+                                   message=f"앞 하위 질문 {bad}의 결과가 없어 실행하지 않음")
+
+        # 엔티티(값 하나)와 inputs(앞 결과에서 꺼낸 값 여러 개)를 합쳐 호출 조합을 만든다
+        fixed = sq.entities.model_dump(exclude_none=True)
+        fixed.pop("price_change_pct", None)          # 판단 근거일 뿐 도구 인자가 아니다
+        choices: dict[str, list[Any]] = {}
+        for ref in sq.inputs:
+            src = done[ref.from_]
+            values = select_values(src.intent, src.calls, ref.slot, ref.select)
+            if not values:
+                return SubQueryOutcome(id=sq.id, intent=sq.intent, status="empty",
+                                       message=f"{ref.from_} 결과에서 {ref.slot}({ref.select})를 찾지 못함")
+            choices[ref.slot] = values
+        combos = [fixed | dict(zip(choices, vals)) for vals in itertools.product(*choices.values())]
+        combos = combos[:MAX_FANOUT]
+
+        if sq.intent == "law_check":
+            return await self._law_check(sq, spec, combos[0])
+
+        tool = spec.tools[0]
+        if missing := [k for k in REQUIRED.get(tool, []) if k not in combos[0]]:
+            return SubQueryOutcome(id=sq.id, intent=sq.intent, status="missing_args", missing=missing,
+                                   message=f"{tool} 필수 인자 없음: {', '.join(missing)}")
+        calls = await asyncio.gather(*(self._call(spec.server, tool, self._args(tool, c)) for c in combos))
+        return self._outcome(sq, list(calls))
+
+    async def _law_check(self, sq: SubQuery, spec: IntentSpec, ents: dict[str, Any]) -> SubQueryOutcome:
+        """search_regulation(질문으로 검색) → 찾은 조문을 get_article로 전문 조회."""
+        args: dict[str, Any] = {"query": sq.question}
+        if "law" in ents:
+            args["laws"] = [ents["law"]]
+        if "as_of" in ents:
+            args["as_of"] = ents["as_of"]
+        search = await self._call(spec.server, "search_regulation", args)
+        if search.error:
+            return self._outcome(sq, [search])
+
+        articles: list[tuple[str, str]] = []
+        for hit in search.result or []:
+            key = (hit.get("law_key"), hit.get("article_no"))
+            if hit.get("type") == "조문" and all(key) and key not in articles:
+                articles.append(key)
+        article_calls = await asyncio.gather(*(
+            self._call(spec.server, "get_article",
+                       {"law": law, "article_no": no} | ({"as_of": ents["as_of"]} if "as_of" in ents else {}))
+            for law, no in articles[:LAW_ARTICLES]))
+        return self._outcome(sq, [search, *article_calls])
+
+    @staticmethod
+    def _args(tool: str, ents: dict[str, Any]) -> dict[str, Any]:
+        params = TOOL_PARAMS.get(tool, {})
+        return {params[k]: v for k, v in ents.items() if k in params}
+
+    async def _call(self, server: str, tool: str, args: dict[str, Any]) -> ToolCall:
+        try:
+            result = await self.caller(server, tool, args)
+        except Exception as e:  # noqa: BLE001  도구 오류도 결과로 Generation에 넘긴다
+            return ToolCall(server=server, tool=tool, args=args, error=f"{type(e).__name__}: {e}")
+        return ToolCall(server=server, tool=tool, args=args, result=result)
+
+    @staticmethod
+    def _outcome(sq: SubQuery, calls: list[ToolCall]) -> SubQueryOutcome:
+        errors = [c.error for c in calls if c.error]
+        if errors:
+            return SubQueryOutcome(id=sq.id, intent=sq.intent, status="error", calls=calls, message=errors[0])
+        return SubQueryOutcome(id=sq.id, intent=sq.intent, status="ok", calls=calls)
