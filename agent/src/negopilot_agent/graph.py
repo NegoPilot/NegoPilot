@@ -19,6 +19,7 @@ from negopilot_shared import DecompositionResult, RouteResult
 from negopilot_agent.decomposition import QueryDecomposer, make_decompose_node
 from negopilot_agent.generation import Answer, AnswerGenerator, make_generate_node
 from negopilot_agent.routing import ToolCaller, make_route_node
+from negopilot_agent.timing import timed_node
 
 
 class AgentState(TypedDict):
@@ -38,9 +39,10 @@ def build_graph(decomposer: QueryDecomposer | None = None, caller: ToolCaller | 
                 generator: AnswerGenerator | None = None):
     """생략한 부품은 환경 변수 설정(.env.example)을 따른다. MCP 서버는 BUSINESS_MCP_URL, LAW_MCP_URL."""
     graph = StateGraph(AgentState)
-    graph.add_node("decompose_query", make_decompose_node(decomposer))
-    graph.add_node("route", make_route_node(caller))
-    graph.add_node("generate", make_generate_node(generator))
+    # timing.collect() 안에서 실행하면 노드별 시간이 기록된다 (밖이면 기록하지 않음)
+    graph.add_node("decompose_query", timed_node("decompose_query", make_decompose_node(decomposer)))
+    graph.add_node("route", timed_node("route", make_route_node(caller)))
+    graph.add_node("generate", timed_node("generate", make_generate_node(generator)))
     graph.add_edge(START, "decompose_query")
     graph.add_conditional_edges("decompose_query", after_decompose, ["route", "generate"])
     graph.add_edge("route", "generate")
