@@ -21,6 +21,17 @@ LAW_KEYS = ("subcontract_act", "subcontract_decree", "winwin_act", "winwin_decre
 SELECT_RE = re.compile(r'^(top1|all|top\(([1-9]\d*)\)|by_name\("[^"]+"\))$')
 
 
+def select_example(value: str) -> str:
+    """select 형식 오류 메시지에 넣을 바로 쓸 수 있는 예.
+
+    모델이 "top3"처럼 괄호를 빼고 쓰면, 재시도에서 오류 메시지의 "top(n)"을 글자 그대로 따라 쓰는 일이 있었다.
+    그래서 모델이 쓴 값의 숫자로 실제 값을 보여 준다. 숫자가 없으면 top(2)를 예로 든다.
+    """
+    digits = re.search(r"[1-9]\d*", value)
+    n = digits.group() if digits else "2"
+    return f'예: 상위 {n}개면 "top({n})"처럼 괄호 안에 숫자를 쓴다.'
+
+
 class Entities(BaseModel):
     """엔티티 사전. 이름은 MCP 도구 인자명과 같다. 사전에 없는 키는 받지 않는다."""
 
@@ -77,7 +88,8 @@ class InputRef(BaseModel):
     @classmethod
     def select_is_known(cls, v: str) -> str:
         if not SELECT_RE.match(v):
-            raise ValueError(f"select '{v}'는 top1, top(n), all, by_name(\"이름\") 중 하나여야 한다")
+            raise ValueError(f"select '{v}'는 top1, top(숫자), all, by_name(\"이름\") 중 하나여야 한다. "
+                             f"{select_example(v)}")
         return v
 
 
