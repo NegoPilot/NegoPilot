@@ -5,11 +5,12 @@
 """
 
 import anthropic
+from openai.lib._pydantic import to_strict_json_schema
 
-from negopilot_agent.decomposition.backends import AnthropicBackend, Backend, OllamaBackend, inline_refs
+from negopilot_agent.decomposition.backends import AnthropicBackend, Backend, OllamaBackend, OpenAIBackend, inline_refs
 from negopilot_agent.generation.answer import GenerationDraft
 
-__all__ = ["Backend", "GenerationAnthropicBackend", "GenerationOllamaBackend"]
+__all__ = ["Backend", "GenerationAnthropicBackend", "GenerationOllamaBackend", "GenerationOpenAIBackend"]
 
 
 class GenerationAnthropicBackend(AnthropicBackend):
@@ -19,3 +20,8 @@ class GenerationAnthropicBackend(AnthropicBackend):
 
 class GenerationOllamaBackend(OllamaBackend):
     OUTPUT_SCHEMA = inline_refs(GenerationDraft.model_json_schema())
+
+
+class GenerationOpenAIBackend(OpenAIBackend):
+    OUTPUT_MODEL = GenerationDraft
+    OUTPUT_SCHEMA = to_strict_json_schema(GenerationDraft)
