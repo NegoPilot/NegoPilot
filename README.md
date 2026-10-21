@@ -18,13 +18,20 @@
 
 ## 팀원 로컬 테스트
 
-Docker를 실행한 뒤 저장소 루트에서 다음 명령을 실행합니다. 로컬 DB와 테이블 및 테스트 관리자가 자동으로 준비됩니다. Java와 Python 및 Node.js를 따로 설치할 필요는 없습니다.
+Docker를 실행한 뒤 저장소 루트에서 다음 명령을 실행합니다. 로컬 DB와 테이블 및 테스트 관리자와 승인된 일반 회원이 자동으로 준비됩니다. Java와 Python 및 Node.js를 따로 설치할 필요는 없습니다.
 
 ```sh
 docker compose up --build -d
 ```
 
-[http://localhost:5173](http://localhost:5173)에서 `admin@negopilot.local`과 `LocalAdmin2026!`로 로그인합니다. 기본 채팅은 모델 키가 필요 없는 테스트 응답입니다. 회원과 대화 기록은 실제 PostgreSQL에 저장하며 일반 종료 후에도 유지됩니다. 포트 변경과 데이터 보존 및 지원 질문은 [Docker 실행 안내](docs/LOCAL_DOCKER.md)를 참고합니다.
+[http://localhost:5173](http://localhost:5173)에서 다음 로컬 테스트 계정으로 로그인합니다. 일반 회원은 추가 승인 없이 `/chat`에서 바로 질문할 수 있습니다.
+
+| 계정 | 이메일 | 비밀번호 |
+| --- | --- | --- |
+| 승인된 일반 회원 | `user@negopilot.local` | `LocalUser2026!` |
+| 관리자 | `admin@negopilot.local` | `LocalAdmin2026!` |
+
+기본 채팅은 모델 키가 필요 없는 테스트 응답입니다. 회원과 대화 기록은 실제 PostgreSQL에 저장하며 일반 종료 후에도 유지됩니다. 기존 volume에도 일반 회원이 없으면 추가하므로 데이터를 삭제할 필요는 없습니다. 기존 계정의 암호나 상태는 덮어쓰지 않습니다. 공개 회원가입은 관리자 승인이 필요한 `PENDING` 상태를 유지합니다. 포트와 계정 설정 변경 및 지원 질문은 [Docker 실행 안내](docs/LOCAL_DOCKER.md)를 참고합니다.
 
 ## 아키텍처
 

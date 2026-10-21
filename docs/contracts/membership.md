@@ -170,6 +170,31 @@ java -Dloader.main=com.negopilot.backend.AuthBootstrapAdmin \
 
 `deploy/local/backend.Dockerfile`의 이미지 안에서는 JAR 경로가 `/app/app.jar`다. 이미지의 진입점은 `java`이므로 Compose `command`에는 `-Dloader.main=...`부터 지정한다. 일반 백엔드는 기본 명령인 `-jar /app/app.jar`로 실행한다.
 
+## 로컬 테스트용 승인 회원 생성
+
+루트 Compose의 `user-bootstrap`은 `admin-bootstrap`이 성공한 뒤 `AuthBootstrapLocalUser`를 일회성으로 실행한다. backend는 두 초기화 서비스의 성공을 기다린다. `user-bootstrap`도 `bootstrap-admin` 프로필과 `WebApplicationType.NONE`으로 실행하며 HTTP 서버를 열지 않는다. 일반 웹 서버 시작이나 공개 회원가입에 자동 승인 기능을 추가하지 않는다.
+
+Compose의 기본값은 `LOCAL_USER_EMAIL=user@negopilot.local`과 `LOCAL_USER_PASSWORD=LocalUser2026!`다. 관리자는 `admin@negopilot.local`과 `LocalAdmin2026!`를 유지한다. `.env`에서 각 계정을 바꿀 수 있다. 이 값은 로컬 테스트용이며 Java CLI 자체에는 계정이나 비밀번호 기본값이 없다.
+
+`AuthBootstrapLocalUser`는 CLI 인자를 받지 않는다. `LOCAL_USER_EMAIL`과 `LOCAL_USER_PASSWORD` 환경변수가 필수다. 이메일과 비밀번호는 기존 가입 검증을 사용한다. 이메일은 앞뒤 공백을 제거하고 소문자로 저장한다. 신규 회원의 이름은 `로컬 테스트 회원`이며 부서는 `개발팀`이고 직책은 `테스트`다.
+
+DB 변경은 회원 관리 공통 잠금 안에서 처리한다.
+
+- 지정 이메일이 `ADMIN`이거나 상태가 `PENDING` 또는 `REJECTED` 또는 `DISABLED`이면 실패한다. 기존 계정을 승인하거나 역할을 바꾸지 않는다.
+- 활성 관리자가 한 명 이상 있어야 한다. 없으면 실패한다.
+- 지정 이메일의 `USER/ACTIVE`가 이미 있으면 성공 종료한다. 비밀번호와 회원 정보 및 세션과 이력은 변경하지 않는다. 감사 이벤트도 추가하지 않는다.
+- 지정 이메일이 없으면 `USER/ACTIVE`를 생성한다. 감사 기록은 `action=LOCAL_USER_BOOTSTRAP`과 `actor_id=null` 및 `old_value=null`과 `new_value=USER`로 한 번 남긴다.
+
+패키징된 JAR에서는 다음 명령을 사용한다. 위 두 필수 환경변수와 애플리케이션 DB 환경변수를 먼저 전달해야 한다.
+
+```sh
+java -Dloader.main=com.negopilot.backend.AuthBootstrapLocalUser \
+  -cp backend/target/negopilot-backend-0.1.0-SNAPSHOT.jar \
+  org.springframework.boot.loader.launch.PropertiesLauncher
+```
+
+Compose 컨테이너에서는 JAR 경로가 `/app/app.jar`다. 기존 volume에 로컬 일반 회원이 없다면 `docker compose up --build -d`로 추가한다. `down -v`는 필요하지 않다. 이후 환경변수의 비밀번호만 바꿔도 기존 암호가 변경되지는 않는다. 공개 `POST /api/v1/auth/signup`은 그대로 `USER/PENDING`을 생성하며 관리자 승인이 필요하다.
+
 ## 검증
 
 `AuthMembershipPostgresTest`는 임시 PostgreSQL을 지정하면 실제 HTTP와 JDBC 세션으로 수행한다. 테스트 전용 DB만 지정해야 한다. 이 클래스는 테스트마다 회원과 세션 및 관련 데이터를 초기화한다.
@@ -182,3 +207,5 @@ mvn -f backend/pom.xml -B -ntp -Dtest=AuthMembershipPostgresTest test
 ```
 
 가입과 해시 저장 및 권한별 접근과 제한 세션 승인 및 로그인 세션 회전과 이전 CSRF 토큰 거절을 검증한다. 모든 대상 세션 폐기와 상태 재확인 및 접근 이력 보존 기간과 관리자 동시 변경 및 최초 관리자 동시 생성도 검증한다. 반복 초기화의 기존 계정 보존과 이메일 충돌 거절 및 동시 실행도 검증한다. `AuthBootstrapAdminTest`는 별도 DB 없이 CLI 옵션의 명시적 선택과 허용하지 않는 인자 거절을 검증한다.
+
+`AuthBootstrapLocalUserTest`는 필수 환경변수와 기존 가입 검증의 적용 및 CLI 인자 거절을 검증한다. Compose 통합 검사는 기본 `USER/ACTIVE` 로그인과 신규 가입의 `PENDING` 유지 및 관리자 승인과 회원별 대화 격리를 확인한다. 컨테이너를 다시 만들 때 초기 비밀번호 설정을 바꿔도 기존 계정의 암호와 대화가 유지되는지 확인한다.
