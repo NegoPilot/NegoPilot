@@ -20,7 +20,13 @@ class GenerationAnthropicBackend(AnthropicBackend):
 
 class GenerationOpenAIBackend(OpenAIBackend):
     OUTPUT_MODEL = GenerationDraft
+    OUTPUT_NAME = GenerationDraft.__name__
     OUTPUT_SCHEMA = to_strict_json_schema(GenerationDraft)
+    COMPACT_OUTPUT = False   # 분해용 짧은 출력 형식은 쓰지 않는다
+
+    @staticmethod
+    def to_contract(text: str) -> str:
+        return text
 
 
 class GenerationOllamaBackend(OllamaBackend):
