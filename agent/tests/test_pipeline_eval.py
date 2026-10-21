@@ -98,3 +98,36 @@ async def test_no_judge_does_not_report_unmeasured_quality_as_zero_or_success():
     summary = summarize([row])
     assert summary["point_coverage"] is None and summary["scored_points"] == 0
     assert summary["judge"] == {}
+
+
+async def test_intent_match_and_grounding_only_count_answers_that_need_evidence():
+    """분해 intent 일치와, 근거가 필요한 답변만 센 근거 표시율 (#110). 개념 설명은 근거 표시율에서 빠진다."""
+    rows = []
+    for name in ("01_law_article", "06_general_knowledge"):
+        graph, _, _, _ = make_app(name)
+        item, directory = case(name)
+        rows.append(await evaluate_case(graph, item, directory))
+    law, concept = rows
+    assert law["intent_match"] and concept["intent_match"]
+    assert law["needs_grounding"] and not concept["needs_grounding"]
+    summary = summarize(rows)
+    assert summary["intent_match"] == 1.0
+    assert summary["grounded_when_needed"] == (1.0 if law["grounded"] else 0.0)
+
+
+async def test_cross_judge_scores_the_same_answer_twice():
+    graph, _, _, _ = make_app("01_law_article")
+    item, directory = case("01_law_article")
+    row = await evaluate_case(graph, item, directory, JudgeClient(), cross_model="other-model")
+    assert row["cross"]["points_covered"] == 3
+    assert summarize([row])["cross_judge"]["point_agreement"] == 1.0
+
+
+def test_cross_metrics_counts_point_level_disagreement():
+    from eval_pipeline import cross_metrics
+    rows = [{"points": 3, "points_covered": 2, "covered_points": [0, 1], "unsupported_claims": [],
+             "cross": {"points_covered": 1, "covered_points": [0], "unsupported_claims": ["a", "b"]}}]
+    m = cross_metrics(rows)
+    assert m["point_agreement"] == 2 / 3
+    assert (m["unsupported_claims"], m["cross_unsupported_claims"]) == (0, 2)
+    assert cross_metrics([{"points": 1}]) is None
