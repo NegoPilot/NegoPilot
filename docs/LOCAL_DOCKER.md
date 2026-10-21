@@ -13,7 +13,7 @@ docker compose ps -a
 docker compose logs --tail=100
 ```
 
-준비가 끝나면 [http://localhost:5173](http://localhost:5173)을 엽니다. `admin-bootstrap`은 관리자 초기화가 끝나면 `Exited (0)`으로 남는 일회성 서비스입니다. 나머지 서비스가 실행되고 `frontend`가 healthy인지 확인합니다. 초기화 로그는 `docker compose logs admin-bootstrap postgres`로 확인합니다.
+준비가 끝나면 [http://localhost:5173](http://localhost:5173)을 엽니다. `admin-bootstrap`과 `user-bootstrap`은 계정 초기화가 끝나면 `Exited (0)`으로 남는 일회성 서비스입니다. 관리자 초기화 성공 후 승인 회원을 준비하며 backend는 두 서비스가 성공한 뒤 시작합니다. 나머지 서비스가 실행되고 `frontend`가 healthy인지 확인합니다. 초기화 로그는 `docker compose logs admin-bootstrap user-bootstrap postgres`로 확인합니다.
 
 웹 포트만 `127.0.0.1`에 공개합니다. DB와 Spring 및 MCP는 Compose 내부 네트워크를 사용합니다. 호스트에 Node.js와 Java 및 Python을 따로 설치하거나 Vite 개발 서버를 실행할 필요는 없습니다.
 
@@ -26,6 +26,8 @@ docker compose logs --tail=100
 | `LOCAL_WEB_PORT` | `5173` | 로컬 웹 포트 |
 | `LOCAL_ADMIN_EMAIL` | `admin@negopilot.local` | 최초 테스트 관리자 이메일 |
 | `LOCAL_ADMIN_PASSWORD` | `LocalAdmin2026!` | 최초 테스트 관리자 비밀번호 |
+| `LOCAL_USER_EMAIL` | `user@negopilot.local` | 승인된 로컬 테스트 회원 이메일 |
+| `LOCAL_USER_PASSWORD` | `LocalUser2026!` | 승인된 로컬 테스트 회원 비밀번호 |
 | `POSTGRES_PASSWORD` | `local-postgres-password` | PostgreSQL 초기화와 상태 확인 |
 | `APP_DB_PASSWORD` | `local-app-password` | 회원과 세션 및 대화 DB 연결 |
 | `BUSINESS_DB_PASSWORD` | `local-business-password` | Spring의 business DB 쓰기 연결 |
@@ -35,21 +37,26 @@ docker compose logs --tail=100
 
 예를 들어 `.env`에서 `LOCAL_WEB_PORT=5178`로 바꾼 뒤 같은 시작 명령을 실행하면 접속 주소는 `http://localhost:5178`입니다. 이 방법은 Windows에서도 사용할 수 있습니다. 환경변수에 설정한 값은 `.env`보다 우선합니다.
 
-관리자와 DB 비밀번호는 최초 volume 초기화 전에 정합니다. 이후 `.env`의 비밀번호만 바꿔도 DB에 저장된 비밀번호는 자동 변경되지 않습니다. 기존 volume과 다른 DB 비밀번호를 설정하면 연결이 실패할 수 있습니다.
+계정 비밀번호는 해당 계정이 처음 생성되기 전에 정합니다. DB 비밀번호는 최초 volume 초기화 전에 정합니다. 이후 `.env`의 비밀번호만 바꿔도 저장된 비밀번호는 자동 변경되지 않습니다. 기존 volume과 다른 DB 비밀번호를 설정하면 연결이 실패할 수 있습니다.
 
 ## 처음 로그인하기
 
-빈 애플리케이션 DB에는 로컬 테스트용 관리자를 자동으로 생성합니다.
+로컬 테스트용 관리자와 승인된 일반 회원을 자동으로 준비합니다. 채팅 기능은 일반 회원으로 바로 확인할 수 있습니다.
 
-| 항목 | 기본값 |
-| --- | --- |
-| 이메일 | `admin@negopilot.local` |
-| 비밀번호 | `LocalAdmin2026!` |
-| 역할과 상태 | `ADMIN`과 `ACTIVE` |
+| 계정 | 이메일 | 비밀번호 | 역할과 상태 |
+| --- | --- | --- | --- |
+| 일반 회원 | `user@negopilot.local` | `LocalUser2026!` | `USER`와 `ACTIVE` |
+| 관리자 | `admin@negopilot.local` | `LocalAdmin2026!` | `ADMIN`과 `ACTIVE` |
 
 기존 계정이나 암호는 덮어쓰지 않습니다. `admin-bootstrap`은 활성 관리자가 있으면 생성을 건너뜁니다. 지정한 이메일이 일반 회원이나 비활성 계정에 이미 사용 중이면 오류로 종료하고 backend 시작을 막습니다. 기존 계정을 자동 승격하거나 활성화하지 않습니다. DB volume을 유지한 채 다시 시작하면 기존 관리자로 로그인합니다. 초기 관리자 설정을 바꿔도 이미 생성된 계정의 비밀번호가 변경되는 것은 아닙니다.
 
-이 기본 계정은 팀원의 로컬 기능 확인용입니다. 공개 서버 배포 설정으로 사용하지 않습니다. 새로운 일반 회원은 가입 후 `PENDING` 상태가 되며 승인 전에는 채팅을 사용할 수 없습니다. 관리자의 가입 승인 화면은 아직 연결 준비 상태이므로 [회원 API](contracts/membership.md#요청-순서)로 승인합니다.
+`user-bootstrap`은 활성 관리자가 있는 상태에서 지정한 이메일의 `USER/ACTIVE` 계정을 준비합니다. 같은 이메일의 활성 일반 회원이 있으면 비밀번호와 회원 정보 및 기존 기록을 그대로 보존합니다. 이메일이 관리자나 `PENDING` 또는 `REJECTED` 또는 `DISABLED` 계정과 충돌하면 실패하며 자동 승인이나 역할 변경을 하지 않습니다. `LOCAL_ADMIN_EMAIL`과 `LOCAL_USER_EMAIL`은 서로 달라야 합니다.
+
+기존 volume에 일반 회원이 없어도 `docker compose up --build -d`를 실행하면 추가됩니다. 이 계정을 만들기 위해 `docker compose down -v`로 데이터를 삭제할 필요는 없습니다.
+
+두 계정 모두 로그인 후 기본 화면은 `/chat`입니다. 로그인 전에 `/admin`으로 접근했다면 관리자는 원래 관리자 화면으로 돌아갈 수 있습니다. 관리자 안내 화면의 `AI 대화로 이동`을 누르거나 [http://localhost:5173/chat](http://localhost:5173/chat)을 직접 열면 됩니다.
+
+이 기본 계정은 팀원의 로컬 기능 확인용입니다. 공개 서버 배포 설정으로 사용하지 않습니다. 공개 회원가입은 여전히 `USER/PENDING`을 생성하며 승인 전에는 채팅을 사용할 수 없습니다. 관리자의 가입 승인 화면은 아직 연결 준비 상태이므로 새로 가입한 회원은 [회원 API](contracts/membership.md#요청-순서)로 승인합니다. 로컬 승인 회원 자동 생성은 공개 가입의 승인 규칙을 바꾸지 않습니다.
 
 ## 기본 실행에서 확인하는 기능
 
@@ -74,7 +81,7 @@ docker compose logs --tail=100
 
 ## 데이터 보존과 종료
 
-`postgres-data` named volume에는 애플리케이션 DB와 business DB를 저장합니다. `law-data`에는 법령 최신화 결과와 작업 상태를 저장합니다. 컨테이너를 중지하거나 다시 만들더라도 volume이 남아 있으면 저장된 데이터를 유지합니다. 초기 데이터 준비와 관리자 생성은 기존 자료를 덮어쓰는 동작으로 사용하지 않습니다.
+`postgres-data` named volume에는 애플리케이션 DB와 business DB를 저장합니다. `law-data`에는 법령 최신화 결과와 작업 상태를 저장합니다. 컨테이너를 중지하거나 다시 만들더라도 volume이 남아 있으면 저장된 데이터를 유지합니다. 초기 데이터 준비와 계정 생성은 기존 자료를 덮어쓰는 동작으로 사용하지 않습니다.
 
 일반 종료는 다음 명령입니다. named volume은 유지됩니다.
 
@@ -99,8 +106,9 @@ docker compose up --build -d
 | --- | --- |
 | 5173 포트 사용 중 | `LOCAL_WEB_PORT`에 다른 포트를 지정합니다. |
 | 로그인 화면은 열리지만 API 실패 | `docker compose ps`와 로그에서 backend 및 DB 초기화 상태를 확인합니다. |
-| 기본 관리자 로그인 실패 | 기존 volume의 관리자 이메일과 비밀번호를 확인합니다. 초기 설정을 바꿔도 기존 암호는 바뀌지 않습니다. |
+| 기본 계정 로그인 실패 | 기존 volume의 해당 계정 이메일과 비밀번호를 확인합니다. 초기 설정을 바꿔도 기존 암호는 바뀌지 않습니다. |
 | `admin-bootstrap` 오류 종료 | 초기화 로그를 확인합니다. 지정 이메일이 기존 일반 회원이나 비활성 계정과 충돌할 수 있습니다. |
+| `user-bootstrap` 오류 종료 | 활성 관리자가 있는지 확인합니다. `LOCAL_USER_EMAIL`이 관리자나 승인 대기 또는 거절 및 비활성 계정과 충돌하면 기존 계정을 변경하지 않고 실패합니다. |
 | `.env` 변경 후 DB 연결 실패 | 기존 volume의 DB 비밀번호와 설정이 같은지 확인합니다. 환경변수 수정은 DB 비밀번호 변경 명령이 아닙니다. |
 | 회원가입 후 승인 대기 | 정상 동작입니다. 관리자 API 승인이 필요합니다. |
 | stub 질문이 거절됨 | 지원 질문 예시를 사용합니다. 임의 질문의 실제 모델 답변에는 별도의 live 설정이 필요합니다. |
@@ -110,9 +118,9 @@ docker compose up --build -d
 
 ## 통합 검증
 
-CI는 빈 volume에서 시작한 뒤 가입과 승인 및 실제 MCP 조회와 후속 채팅을 검사합니다. 컨테이너를 다시 만들면서 초기 관리자 비밀번호 설정을 바꿔도 기존 계정과 채팅 데이터가 유지되는지 확인합니다. 모델 API와 외부 법령 수집은 호출하지 않습니다.
+CI는 빈 volume에서 시작한 뒤 기본 일반 회원 로그인과 공개 가입 및 승인과 실제 MCP 조회 및 후속 채팅을 검사합니다. 두 일반 회원과 관리자가 서로의 개인 대화를 볼 수 없는지도 확인합니다. 컨테이너를 다시 만들면서 초기 관리자와 일반 회원의 비밀번호 설정을 바꿔도 기존 계정과 채팅 데이터가 유지되는지 확인합니다. 모델 API와 외부 법령 수집은 호출하지 않습니다.
 
-직접 같은 검사를 실행하려면 Python 3가 있는 환경에서 다음 명령을 사용합니다. 테스트용 일반 회원 한 명과 대화 한 개가 생성됩니다. state 파일에는 그 테스트 회원의 로그인 정보가 저장됩니다. 기본 관리자 설정을 바꿨다면 실행 환경에도 `LOCAL_ADMIN_EMAIL`과 `LOCAL_ADMIN_PASSWORD`를 지정합니다. 스크립트는 `.env`를 직접 읽지 않습니다.
+직접 같은 검사를 실행하려면 Python 3가 있는 환경에서 다음 명령을 사용합니다. 기본 일반 회원과 별개로 가입 및 승인 검증용 회원 한 명을 만듭니다. 두 일반 회원의 대화도 각각 생성합니다. state 파일에는 두 회원의 로그인 정보가 저장됩니다. 기본 계정 설정을 바꿨다면 실행 환경에도 `LOCAL_ADMIN_EMAIL`과 `LOCAL_ADMIN_PASSWORD` 및 `LOCAL_USER_EMAIL`과 `LOCAL_USER_PASSWORD`를 지정합니다. 스크립트는 `.env`를 직접 읽지 않습니다.
 
 ```bash
 docker compose up --build -d --wait

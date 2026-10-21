@@ -22,7 +22,7 @@
     uv run python scripts/eval_generation.py --backend openai           # gpt-4.1-mini 생성 + 채점 (OPENAI_API_KEY)
     uv run python scripts/eval_generation.py --backend openai --repeat 3 --report eval_reports/2026-10-21_generation.md
     uv run python scripts/eval_generation.py --backend openai --no-judge --only 05 07
-    uv run python scripts/eval_generation.py --backend openai --cross-judge gpt-4.1   # 같은 답변을 다른 모델로도 채점
+    uv run python scripts/eval_generation.py --backend openai --cross-judge gpt-5.4-mini   # 같은 답변을 다른 모델로도 채점
     uv run python scripts/eval_generation.py --backend openai --repeat 3 --set validation
 
 채점은 OpenAI(--judge-model, 기본 gpt-4.1-mini)로 한다. 생성 모델과 같으면 점수가 후할 수 있어,
@@ -43,6 +43,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT.parent / "shared" / "src")]
 
 from negopilot_shared import DecompositionResult, RouteResult  # noqa: E402
+from negopilot_agent import timing  # noqa: E402
 
 from negopilot_agent.generation import AnswerGenerator, GeneratorSettings, build_evidence  # noqa: E402
 from negopilot_agent.generation.answer import Answer, Evidence  # noqa: E402
@@ -124,15 +125,27 @@ async def judge(client, model: str, item: dict, answer: Answer) -> dict:
     points = "\n".join(f"{i}. {p}" for i, p in enumerate(item["points"]))
     evidence = "\n\n".join(f"[{e.id}] {e.label}\n{e.text}" for e in answer.evidence) or "(근거 없음)"
     user = f"<points>\n{points}\n</points>\n\n<evidence>\n{evidence}\n</evidence>\n\n<answer>\n{answer.text}\n</answer>"
-    response = await client.chat.completions.create(
-        model=model, temperature=0,
-        messages=[{"role": "system", "content": JUDGE_SYSTEM}, {"role": "user", "content": user}],
-        response_format={"type": "json_schema",
-                         "json_schema": {"name": "GenerationJudgement", "schema": JUDGE_SCHEMA, "strict": True}},
-    )
+    with timing.span("llm", model) as meta:
+        response = await client.chat.completions.create(
+            model=model, temperature=0,
+            messages=[{"role": "system", "content": JUDGE_SYSTEM}, {"role": "user", "content": user}],
+            response_format={"type": "json_schema",
+                             "json_schema": {"name": "GenerationJudgement", "schema": JUDGE_SCHEMA, "strict": True}},
+        )
+        if usage := getattr(response, "usage", None):
+            details = getattr(usage, "prompt_tokens_details", None)
+            meta.update(input_tokens=usage.prompt_tokens, output_tokens=usage.completion_tokens,
+                        cached_tokens=getattr(details, "cached_tokens", 0) or 0)
+    if response.choices[0].finish_reason != "stop" or response.choices[0].message.refusal:
+        raise ValueError("채점 응답이 거절되거나 잘렸습니다")
     result = json.loads(response.choices[0].message.content or "{}")
-    covered = {p["index"] for p in result.get("points", []) if p.get("covered")}
-    covered &= set(range(len(item["points"])))
+    marks = result["points"]
+    if (len(marks) != len(item["points"])
+            or {p["index"] for p in marks} != set(range(len(item["points"])))
+            or any(type(p["covered"]) is not bool for p in marks)
+            or not isinstance(result["unsupported_claims"], list)):
+        raise ValueError("채점 포인트가 누락되거나 중복됐습니다")
+    covered = {p["index"] for p in marks if p["covered"]} & set(range(len(item["points"])))
     return {"points_covered": len(covered), "covered_points": sorted(covered),
             "uncovered_points": [p for i, p in enumerate(item["points"]) if i not in covered],
             "unsupported_claims": result.get("unsupported_claims", [])}
@@ -232,7 +245,7 @@ async def main() -> int:
     parser.add_argument("--only", nargs="*", help="fixture 번호나 이름 일부 (예: 05 07)")
     parser.add_argument("--no-judge", action="store_true", help="정답 포인트·근거 없는 주장 채점을 건너뜀")
     parser.add_argument("--judge-model", default="gpt-4.1-mini")
-    parser.add_argument("--cross-judge", help="같은 답변을 이 모델로도 채점해 비교 (예: gpt-4.1)")
+    parser.add_argument("--cross-judge", help="같은 답변을 이 모델로도 채점해 비교 (예: gpt-5.4-mini)")
     parser.add_argument("--report", help="요약 표를 이 경로의 Markdown 파일로도 저장")
     args = parser.parse_args()
 

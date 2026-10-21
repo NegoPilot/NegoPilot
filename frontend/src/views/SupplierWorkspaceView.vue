@@ -8,6 +8,7 @@ import EmptyState from '@/components/EmptyState.vue'
 import ErrorNotice from '@/components/ErrorNotice.vue'
 import SupplierDetailSection from '@/components/SupplierDetailSection.vue'
 import SupplierSearchPanel from '@/components/SupplierSearchPanel.vue'
+import { assistantOpen, openAssistant } from '@/stores/assistant'
 import { NO_DATA, formatInteger, formatPpm } from '@/utils/format'
 import { provenanceLabel } from '@/utils/provenance'
 import {
@@ -19,8 +20,8 @@ import {
 
 const route = useRoute()
 const router = useRouter()
-// 현재 기본 서버에는 이 화면의 v1 조회 경로가 없다. 직접 대화와 분리한다.
-const SUPPLIER_READ_AVAILABLE = false
+// 협력사 조회 v2 API(/api/v2/business/catalog, /api/v2/suppliers)로 검색과 상세를 불러온다.
+const SUPPLIER_READ_AVAILABLE = true
 
 function queryString(key: string): string | null {
   const v = route.query[key]
@@ -234,7 +235,7 @@ const headerContext = computed(() => {
       </div>
 
     </div>
-    <RouterLink :to="{ name: 'chat' }" class="btn btn-primary ai-fab">AI 대화로 이동</RouterLink>
+    <button v-if="!assistantOpen" class="btn btn-primary ai-fab" type="button" @click="openAssistant()">AI 대화로 이동</button>
   </main>
 </template>
 
