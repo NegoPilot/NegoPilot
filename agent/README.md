@@ -177,3 +177,134 @@ uv run python scripts/eval_decomposition.py --limit 3          # Claude 평가 (
 | --- | --- | --- | --- |
 | 2026-10-20 | llama3.1:8b (로컬) | 64% (7/11) | [2026-10-20_llama3.1-8b.md](eval_reports/2026-10-20_llama3.1-8b.md) |
 프롬프트 예시는 평가용 fixtures와 겹치지 않게 따로 두었습니다 (테스트로 확인).
+
+## Python 내부 HTTP API (`negopilot_agent.api`)
+
+FastAPI 진입점은 `negopilot_agent.api.app:app`입니다. [쿼리 실행 HTTP 계약 v0.1](../docs/contracts/agent-http.md)과 [협력사 대화 HTTP 계약 v0.2](../docs/contracts/supplier-chat.md)의 Python 내부 경로를 제공합니다. 브라우저는 Spring의 공개 API를 호출하고 Spring이 내부 키를 붙여 Python에 요청합니다.
+
+기존 Generation과 전체 그래프는 위에서 설명한 코어 기능입니다. HTTP v0.1은 `QueryDecomposer`와 `Router`를 실행해 구조화된 결과를 반환합니다. HTTP v0.2는 fixture를 조회해 정해진 템플릿으로 표시할 내용을 반환합니다. 두 HTTP 경로 모두 `AnswerGenerator`와 전체 그래프를 호출하지 않습니다. 응답의 `generation_status: NOT_IMPLEMENTED`는 이 HTTP 응답 범위를 뜻하며 코어 Generation의 구현 여부와 별개입니다.
+
+### stub 서버 시작
+
+Python 3.12 이상과 uv가 필요합니다. 저장소 루트에서 다음 명령을 실행합니다. `AGENT_INTERNAL_API_KEY`의 예시 문자열은 로컬 키로 교체합니다. Spring에도 같은 값을 설정합니다.
+
+```bash
+cd agent
+uv sync --locked
+export AGENT_EXECUTION_MODE=stub
+export AGENT_INTERNAL_API_KEY='replace-with-a-local-test-key'
+export AGENT_REQUEST_TIMEOUT_SECONDS=30
+uv run uvicorn negopilot_agent.api.app:app --host 127.0.0.1 --port 9200
+```
+
+이 명령은 `.env`를 자동으로 읽지 않습니다. 환경 변수를 내보낸 셸에서 서버를 시작해야 합니다. fixture는 저장소의 `shared/fixtures/decomposition/`과 `docs/contracts/fixtures/supplier-chat.json`을 읽으므로 이 디렉터리를 함께 유지합니다.
+
+다른 터미널에 같은 내부 키를 설정한 뒤 상태와 실행 응답을 확인합니다. health에는 인증이 필요하지 않습니다. 다른 내부 경로는 키가 없거나 다르면 401 `UNAUTHORIZED`를 반환합니다.
+
+```bash
+export AGENT_INTERNAL_API_KEY='replace-with-a-local-test-key'
+curl --fail http://127.0.0.1:9200/health
+curl --fail-with-body http://127.0.0.1:9200/internal/v1/query-executions \
+  -H "X-Internal-Api-Key: ${AGENT_INTERNAL_API_KEY}" \
+  -H 'Content-Type: application/json' \
+  --data '{"request_id":"11111111-1111-4111-8111-111111111111","query":"하도급법 제4조 보여줘","history":[]}'
+```
+
+`GET /health`의 `{"status":"ok"}`는 HTTP 프로세스의 응답을 확인하는 값입니다. 모델이나 MCP의 연결 상태까지 검사하지 않습니다.
+
+### Python과 Spring 설정
+
+| 적용 대상 | 환경 변수 | 기본값 | 설명 |
+| --- | --- | --- | --- |
+| 양쪽 | `AGENT_EXECUTION_MODE` | `live` | fixture 검증은 양쪽 모두 `stub`을 명시 |
+| 양쪽 | `AGENT_INTERNAL_API_KEY` | 빈 값 | Python 내부 경로에서 검증할 공통 키 |
+| Python | `AGENT_REQUEST_TIMEOUT_SECONDS` | `30` | 처리 제한 시간. 양의 유한한 초 단위 값 |
+| Spring | `AGENT_BASE_URL` | `http://127.0.0.1:9200` | Python origin. URL 경로를 붙이지 않음 |
+| Spring | `AGENT_CONNECT_TIMEOUT_SECONDS` | `2` | 연결 및 연결 풀 대기 제한 시간 |
+| Spring | `AGENT_RESPONSE_TIMEOUT_SECONDS` | `35` | 응답 및 소켓 읽기 대기 제한 시간 |
+| Spring | `SERVER_ADDRESS` | `127.0.0.1` | Spring 수신 주소 |
+| Spring | `SERVER_PORT` | `8080` | Spring 수신 포트 |
+
+Spring을 함께 실행하려면 별도 터미널의 저장소 루트에서 다음 명령을 사용합니다. Java 21과 Maven 3.6.3 이상이 필요합니다. 상세 설정은 [backend 안내](../backend/README.md)를 참고합니다.
+
+```bash
+export AGENT_EXECUTION_MODE=stub
+export AGENT_INTERNAL_API_KEY='replace-with-a-local-test-key'
+export AGENT_BASE_URL='http://127.0.0.1:9200'
+mvn -f backend/pom.xml -B -ntp spring-boot:run
+```
+
+내부 키는 두 서버의 환경 변수에 둡니다. 프런트엔드에 넣지 않습니다. 처리 제한을 변경할 때는 Python의 제한 시간과 Spring의 응답 대기 시간을 함께 확인합니다. HTTP 요청을 자동으로 재시도하지 않습니다.
+
+### v0.1 쿼리 실행
+
+`POST /internal/v1/query-executions`의 `request_id`는 필수 UUID입니다. `query`는 공백만 있는 값을 제외한 1..4000자입니다. `history`는 생략할 수 있으며 최대 20개입니다. 각 항목은 `role`과 `content`만 받습니다. role은 `user` 또는 `assistant`입니다. 요청에 정의되지 않은 필드는 400 `VALIDATION_ERROR`로 거절합니다.
+
+stub 모드에서 지원하는 질문은 다음 세 개입니다. 실제 Router에 fixture 분해 결과와 가짜 ToolCaller를 연결합니다. 모델과 MCP 및 DB를 호출하지 않습니다. 반환하는 법령 내용은 테스트용 데이터입니다.
+
+| 질문 | 분해 fixture | `execution_status` |
+| --- | --- | --- |
+| 하도급법 제4조 보여줘 | `01_law_article.json` | `COMPLETED` |
+| 그 업체 괜찮아? | `09_clarify.json` | `NEEDS_INPUT` |
+| ㅁㄴㅇㄹ 그거 저번처럼 해줘 | `11_failed.json` | `FAILED` |
+
+다른 stub 질문은 400 `VALIDATION_ERROR`입니다. `COMPLETED`는 분해와 Routing 처리가 끝났다는 뜻입니다. 생성 답변이나 도구 성공을 일괄 보장하는 값은 아닙니다. 상세 결과는 공용 `RouteResult`의 상태와 `referenced_articles`를 포함해 반환합니다. 오류 설명은 HTTP 응답 사본에서 정제합니다. 참조 조문 조회 오류만으로 본래 성공한 outcome을 실패로 바꾸지 않습니다.
+
+### v0.2 협력사 조회와 템플릿 대화
+
+다음 경로는 `stub`에서만 사용할 수 있습니다. `live`에서는 503 `DEMO_MODE_REQUIRED`와 `retryable: false`를 반환합니다. 데이터 원본은 [supplier-chat.json](../docs/contracts/fixtures/supplier-chat.json)입니다. 모든 기업과 수치는 가상 데이터입니다.
+
+| Python 내부 경로 | 동작 |
+| --- | --- |
+| `GET /internal/v1/business/catalog` | 공정별 소재와 지역 목록 |
+| `GET /internal/v1/suppliers` | 필터 조건에 맞는 기업 검색 |
+| `GET /internal/v1/suppliers/{supplier_id}` | 선택 기업 상세 조회 |
+| `POST /internal/v1/chat/responses` | 선택 기업의 템플릿 응답 |
+
+기업 검색은 `process`가 필수입니다. `material`과 `region`은 선택입니다. `iatf_required`의 기본값은 `false`이며 인증 여부 전체를 뜻합니다. `limit`은 1..100이며 기본값은 20입니다. 알 수 없는 query parameter와 중복 parameter는 거절합니다. 기업 ID는 대소문자를 구분하며 `^[A-Za-z0-9_-]{1,100}$` 형식입니다. 존재하지 않는 ID는 404 `SUPPLIER_NOT_FOUND`입니다.
+
+```bash
+curl --fail-with-body --get http://127.0.0.1:9200/internal/v1/suppliers \
+  -H "X-Internal-Api-Key: ${AGENT_INTERNAL_API_KEY}" \
+  --data-urlencode 'process=다이캐스팅' \
+  --data-urlencode 'material=ADC12'
+curl --fail-with-body http://127.0.0.1:9200/internal/v1/chat/responses \
+  -H "X-Internal-Api-Key: ${AGENT_INTERNAL_API_KEY}" \
+  -H 'Content-Type: application/json' \
+  --data '{"request_id":"22222222-2222-4222-8222-222222222222","conversation_id":"33333333-3333-4333-8333-333333333333","query":"이 회사에 대해 알려줘","history":[],"context":{"selected_supplier_ids":["SUP-0034"]}}'
+```
+
+Python 직접 호출에서는 `request_id`와 `conversation_id` 및 `query`와 `history` 및 `context`를 모두 보냅니다. 선택 기업은 최대 한 곳입니다. 지원하는 질문은 아래 세 개입니다.
+
+1. 이 회사에 대해 알려줘
+2. 이 회사의 재무 상태를 알려줘
+3. 납기와 품질은 어때?
+
+별칭 `이 회사의 재무 상태와 납기 지표를 알려줘`는 개요 응답으로 처리합니다. 기업 미선택 시 기업 선택 안내가 질문 분류보다 우선합니다. 지원하지 않는 질문은 `NEEDS_INPUT`과 지원 질문 목록으로 안내합니다. Python은 대화 이력을 저장하지 않으며 일반적인 후속 질문을 해석하지 않습니다.
+
+응답의 `presentation.renderer`는 `template`입니다. 완료 응답은 선택 기업의 카드 한 개와 이에 연결된 stub 근거 한 개를 포함합니다. 근거의 `executed: false`는 실제 MCP를 호출하지 않았다는 뜻입니다. `on_time_delivery_rate`와 `debt_ratio`는 fixture의 백분율을 그대로 사용합니다. 화면에서 100을 곱하지 않습니다. null과 빈 재무 목록은 정보 없음으로 표시합니다.
+
+대화 생성과 조회 및 저장은 Spring의 `/api/v1/conversations` 경로가 담당합니다. Spring은 메모리에 최대 100개 메시지를 유지하고 최신 20개를 Python에 전달합니다. 재시작하면 대화가 초기화됩니다. Python 직접 호출 예시는 Spring의 대화 생성이나 저장을 수행하지 않습니다.
+
+### live 설정과 검증 범위
+
+`AGENT_EXECUTION_MODE=live`에서는 v0.1 경로가 기존 QueryDecomposer와 실제 McpToolCaller를 연결합니다. 위의 분해 및 Routing 환경 변수를 재사용합니다. 현재 기본 모델은 [DecomposerSettings](src/negopilot_agent/decomposition/decomposer.py)의 `DEFAULT_MODELS`에 정의돼 있습니다. `anthropic`은 `claude-opus-5-5`이며 `ollama`는 `llama3.1:8b`입니다. [모델 백엔드](src/negopilot_agent/decomposition/backends.py)는 이 설정을 받아 호출합니다.
+
+기본 모델을 사용하려면 `NEGOPILOT_DECOMPOSER_MODEL`을 설정하지 않아야 합니다. `.env.example`의 `NEGOPILOT_DECOMPOSER_MODEL=`을 그대로 불러오면 빈 문자열이 선택됩니다. 이 경우 HTTP 경로는 503 `UPSTREAM_UNAVAILABLE`을 반환합니다. 기본 모델을 선택할 때는 환경 파일에서 해당 줄을 제거하거나 환경 파일을 불러온 뒤 아래 명령을 실행합니다.
+
+```bash
+unset NEGOPILOT_DECOMPOSER_MODEL
+```
+
+Claude에는 유효한 인증이 필요합니다. Ollama에는 해당 모델과 실행 중인 Ollama 서버가 필요합니다. Routing에는 `BUSINESS_MCP_URL`과 `LAW_MCP_URL`에 지정한 서버가 필요합니다. HTTP 경로는 SDK의 전송 오류 재시도를 끕니다. 분해 코어의 출력 형식 오류 재시도는 기존 규칙을 유지합니다. Generation 환경 변수는 이 HTTP 실행에 사용하지 않습니다.
+
+비용 없는 단위 테스트는 저장소 루트에서 다음 명령으로 실행합니다. 테스트는 가짜 모델과 ToolCaller 및 ASGI 전송을 사용합니다.
+
+```bash
+cd agent
+uv run --locked python -m pytest tests/test_api.py tests/test_supplier_chat.py tests/test_http_openapi_contract.py -q
+```
+
+이 검사는 실제 LLM 연결과 실제 MCP 서버 및 메일 발송과 DB seed를 검증하지 않습니다. 전체 그래프 실행이나 live 모델 호출 결과도 별도 확인이 필요합니다. 로그인과 승인 및 영구 대화 저장은 이 HTTP 범위에 포함하지 않습니다.
+
+실제 Spring과 Python을 임시 포트에서 함께 실행하는 검사는 [HTTP 통합 검증 안내](../scripts/integration/README.md)를 따릅니다. 이 검사도 stub 응답을 사용합니다.
