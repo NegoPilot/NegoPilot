@@ -666,7 +666,7 @@ async def test_unsupported_stub_query_cannot_reuse_supported_history_question(qu
     assert_error(response, 400, "VALIDATION_ERROR", body["request_id"])
 
 
-@pytest.mark.parametrize("backend_name", ["anthropic", "ollama"])
+@pytest.mark.parametrize("backend_name", ["anthropic", "openai"])
 async def test_live_clients_are_lazy_owned_per_request_and_closed_once(monkeypatch, backend_name):
     from negopilot_agent.api import generation_execution
 
@@ -687,7 +687,7 @@ async def test_live_clients_are_lazy_owned_per_request_and_closed_once(monkeypat
 
     class DecompositionBackend:
         def __init__(self, *args, **kwargs):
-            backend_clients.append(kwargs["http_client"] if backend_name == "ollama" else args[0])
+            backend_clients.append(args[0])
 
         async def generate(self, system, user):
             return json.dumps(fixture("01_law_article")["expected"])
@@ -695,7 +695,7 @@ async def test_live_clients_are_lazy_owned_per_request_and_closed_once(monkeypat
     class GenerationBackend(CiteFirst):
         def __init__(self, *args, **kwargs):
             super().__init__()
-            backend_clients.append(kwargs["http_client"] if backend_name == "ollama" else args[0])
+            backend_clients.append(args[0])
 
     for phase in ("DECOMPOSER", "GENERATOR"):
         monkeypatch.setenv(f"NEGOPILOT_{phase}_BACKEND", backend_name)
@@ -705,11 +705,9 @@ async def test_live_clients_are_lazy_owned_per_request_and_closed_once(monkeypat
         monkeypatch.setattr(generation_execution, "AnthropicBackend", DecompositionBackend)
         monkeypatch.setattr(generation_execution, "GenerationAnthropicBackend", GenerationBackend)
     else:
-        monkeypatch.setattr(generation_execution, "httpx2", SimpleNamespace(
-            AsyncClient=Client, HTTPError=httpx.HTTPError, InvalidURL=httpx.InvalidURL,
-        ))
-        monkeypatch.setattr(generation_execution, "OllamaBackend", DecompositionBackend)
-        monkeypatch.setattr(generation_execution, "GenerationOllamaBackend", GenerationBackend)
+        monkeypatch.setattr(generation_execution.openai, "AsyncOpenAI", Client)
+        monkeypatch.setattr(generation_execution, "OpenAIBackend", DecompositionBackend)
+        monkeypatch.setattr(generation_execution, "GenerationOpenAIBackend", GenerationBackend)
     app = create_app(settings=settings(mode="live"), generation_caller=RecordingCaller())
     assert clients == []
 
@@ -721,8 +719,7 @@ async def test_live_clients_are_lazy_owned_per_request_and_closed_once(monkeypat
         assert len(clients) == count
         assert backend_clients == clients
         assert all(client.closes == 1 for client in clients)
-    expected_options = {"max_retries": 0} if backend_name == "anthropic" else {"timeout": 300.0}
-    assert all(client.kwargs == expected_options for client in clients)
+    assert all(client.kwargs == {"max_retries": 0} for client in clients)
 
 
 @pytest.mark.parametrize("name", ["09_clarify", "10_out_of_scope", "11_failed"])
@@ -752,7 +749,7 @@ async def test_invalid_live_configuration_never_falls_back_to_stub(monkeypatch, 
     monkeypatch.setattr(generation_execution.FixtureDecompositionBackend, "generate", unexpected_stub)
     monkeypatch.setattr(generation_execution.FixtureGenerationBackend, "generate", unexpected_stub)
     prefix = "DECOMPOSER" if phase == "decomposition" else "GENERATOR"
-    monkeypatch.setenv(f"NEGOPILOT_{prefix}_BACKEND", "ollama")
+    monkeypatch.setenv(f"NEGOPILOT_{prefix}_BACKEND", "openai")
     monkeypatch.setenv(f"NEGOPILOT_{prefix}_MODEL", "fake-model")
     monkeypatch.setenv(f"NEGOPILOT_{prefix}_{variable}", value)
     kwargs = {} if phase == "decomposition" else {"generation_decomposer": FixedDecomposer()}

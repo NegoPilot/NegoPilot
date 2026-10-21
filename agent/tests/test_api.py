@@ -391,8 +391,8 @@ async def test_owned_client_cleanup_is_bounded_after_execution_timeout(monkeypat
 
 @pytest.mark.parametrize("environment", [
     {"NEGOPILOT_DECOMPOSER_BACKEND": "private-invalid-backend"},
-    {"NEGOPILOT_DECOMPOSER_BACKEND": "ollama", "NEGOPILOT_DECOMPOSER_MODEL": ""},
-    {"NEGOPILOT_DECOMPOSER_BACKEND": "ollama", "NEGOPILOT_DECOMPOSER_MODEL": " \t"},
+    {"NEGOPILOT_DECOMPOSER_BACKEND": "openai", "NEGOPILOT_DECOMPOSER_MODEL": ""},
+    {"NEGOPILOT_DECOMPOSER_BACKEND": "openai", "NEGOPILOT_DECOMPOSER_MODEL": " \t"},
 ])
 async def test_invalid_live_model_configuration_returns_safe_503(monkeypatch, caplog, environment):
     for name, value in environment.items():

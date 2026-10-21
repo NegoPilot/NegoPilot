@@ -18,12 +18,12 @@ from pydantic import ValidationError
 
 from negopilot_shared import DecompositionResult, load_intents
 
-from negopilot_agent.decomposition.backends import AnthropicBackend, Backend, OllamaBackend, OpenAIBackend
+from negopilot_agent.decomposition.backends import AnthropicBackend, Backend, OpenAIBackend
 from negopilot_agent.decomposition.prompt import build_system_prompt, build_user_message
 
 log = logging.getLogger(__name__)
 
-DEFAULT_MODELS = {"anthropic": "claude-opus-5-5", "ollama": "llama3.1:8b", "openai": "gpt-4.1-mini"}
+DEFAULT_MODELS = {"anthropic": "claude-opus-5-5", "openai": "gpt-4.1-mini"}
 
 
 def _env_backend() -> str:
@@ -32,7 +32,7 @@ def _env_backend() -> str:
 
 @dataclass(frozen=True)
 class DecomposerSettings:
-    backend: str = field(default_factory=_env_backend)  # anthropic | ollama | openai
+    backend: str = field(default_factory=_env_backend)  # anthropic | openai
     model: str = field(default_factory=lambda: os.getenv(
         "NEGOPILOT_DECOMPOSER_MODEL", DEFAULT_MODELS.get(_env_backend(), DEFAULT_MODELS["anthropic"])))
     # 분류에 가까운 작업이라 low로 시작한다. 평가 결과를 보고 조정한다 (anthropic 전용)
@@ -42,8 +42,6 @@ class DecomposerSettings:
     # 안전 분류기가 거절하면 서버가 다른 모델로 다시 실행하게 한다 (anthropic 전용)
     use_fallbacks: bool = field(
         default_factory=lambda: os.getenv("NEGOPILOT_DECOMPOSER_FALLBACKS", "1") != "0")
-    ollama_base_url: str = field(
-        default_factory=lambda: os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"))
 
 
 def failed_result(query: str) -> DecompositionResult:
@@ -59,14 +57,12 @@ def _format_errors(err: ValidationError) -> str:
 
 
 def make_backend(settings: DecomposerSettings, client: anthropic.AsyncAnthropic | None = None) -> Backend:
-    if settings.backend == "ollama":
-        return OllamaBackend(settings.model, settings.ollama_base_url)
     if settings.backend == "openai":
         return OpenAIBackend(openai.AsyncOpenAI(), settings.model, settings.max_tokens)  # OPENAI_API_KEY
     if settings.backend == "anthropic":
         return AnthropicBackend(client or anthropic.AsyncAnthropic(), settings.model, settings.effort,
                                 settings.max_tokens, settings.use_fallbacks)
-    raise ValueError(f"알 수 없는 백엔드 '{settings.backend}'. anthropic, ollama 또는 openai")
+    raise ValueError(f"알 수 없는 백엔드 '{settings.backend}'. anthropic 또는 openai")
 
 
 class QueryDecomposer:

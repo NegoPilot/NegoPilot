@@ -124,7 +124,7 @@ Spring의 `AGENT_BASE_URL` 기본값은 `http://127.0.0.1:9200`입니다. 연결
 
 stub에서 다른 질문은 400 VALIDATION_ERROR로 거절하고 지원하는 테스트 질문을 문서로 안내합니다. 테스트용 질문을 일반 질문 처리 능력으로 설명하지 않습니다.
 
-`AGENT_EXECUTION_MODE=live`는 기존 QueryDecomposer와 Router 및 McpToolCaller를 연결하는 모드입니다. 기존 Claude와 Ollama 및 OpenAI 설정을 재사용하며 이 envelope에서는 Generation을 실행하지 않습니다. 기본 모드는 live로 두고 stub 사용은 명시적으로 켜게 합니다. 전체 그래프와 Generation은 이 v0.1 경로가 아닌 v2 경로에서 실행합니다.
+`AGENT_EXECUTION_MODE=live`는 기존 QueryDecomposer와 Router 및 McpToolCaller를 연결하는 모드입니다. 기존 Claude와 OpenAI 설정을 재사용하며 이 envelope에서는 Generation을 실행하지 않습니다. 기본 모드는 live로 두고 stub 사용은 명시적으로 켜게 합니다. 전체 그래프와 Generation은 이 v0.1 경로가 아닌 v2 경로에서 실행합니다.
 
 HTTP 명세의 Routing 호환성은 `shared/fixtures/routing/`의 최신 예제를 읽어 검증합니다. 저장된 예제를 검증하는 과정은 모델이나 MCP를 다시 호출하지 않습니다. 공용 Routing 모델과 fixture 자체를 HTTP 명세에 맞춰 수정하지 않습니다.
 

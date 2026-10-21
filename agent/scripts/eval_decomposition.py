@@ -7,7 +7,6 @@ API를 실제로 호출하므로 비용이 든다. 실행 전에 질문 수(--li
 
     uv run python scripts/eval_decomposition.py
     uv run python scripts/eval_decomposition.py --limit 3 --effort medium
-    uv run python scripts/eval_decomposition.py --backend ollama --model llama3.1:8b   # 로컬, 비용 없음
     uv run python scripts/eval_decomposition.py --backend openai                        # gpt-4.1-mini (OPENAI_API_KEY)
     uv run python scripts/eval_decomposition.py --set validation --repeat 3             # 검증 세트 3회 평균
 
@@ -78,7 +77,7 @@ async def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, help="앞에서부터 이 개수만 평가")
     parser.add_argument("--effort", help="low / medium / high ... (기본: 설정값, anthropic 전용)")
-    parser.add_argument("--backend", choices=["anthropic", "ollama", "openai"], help="기본: 설정값")
+    parser.add_argument("--backend", choices=["anthropic", "openai"], help="기본: 설정값")
     parser.add_argument("--model", help="기본: 백엔드별 기본 모델")
     parser.add_argument("--set", dest="fixture_set", choices=list(SETS), default="dev", help="기본: dev")
     parser.add_argument("--repeat", type=int, default=1, help="같은 질문을 N회 돌려 평균 (결과가 흔들리는 모델용)")

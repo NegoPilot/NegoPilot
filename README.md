@@ -79,7 +79,7 @@ NegoPilot/
 │       └── SETUP.md           단계별 실행 방법
 ├── agent/
 │   ├── src/negopilot_agent/
-│   │   └── decomposition/     쿼리 분해 노드 (프롬프트, Claude와 Ollama 백엔드, LangGraph 노드)
+│   │   └── decomposition/     쿼리 분해 노드 (프롬프트, Claude와 OpenAI 백엔드, LangGraph 노드)
 │   ├── scripts/               분해 평가 스크립트
 │   ├── eval_reports/          평가 결과 보고서
 │   ├── tests/                 분해 단위 테스트 (가짜 응답 사용, 비용 없음)
@@ -100,7 +100,7 @@ NegoPilot/
 
 Spring은 `POST /api/v2/agent/queries`를 Python의 `POST /internal/v2/query-executions`로 전달합니다. Python이 최신 그래프의 분해와 Routing 및 Generation을 실행하면 Spring이 답변과 인용 및 검증 정보를 확인해 반환합니다. 선택 기업과 대화 이력은 `/api/v2/conversations`에서 관리합니다. 기업 선택 없이 질문하면 필요한 기업 정보와 법령을 조회합니다. 대상이나 필수 조건을 정할 수 없을 때만 추가로 묻습니다. [직접 질문 계약](docs/contracts/direct-chat.md)에 예시와 후속 입력 규칙이 있습니다.
 
-기본 모드는 `live`입니다. Claude나 Ollama 또는 OpenAI 설정과 조회에 필요한 MCP 서버를 준비합니다. `stub`은 모델과 도구 입출력을 테스트용으로 바꾸면서 실제 그래프와 생성기의 근거 검사를 실행합니다. 기존 v1의 fixture 조회와 템플릿 대화는 호환성 확인용으로 유지합니다. 프런트엔드 화면 연결과 사용자 인증 및 영구 저장은 별도 작업입니다.
+기본 모드는 `live`입니다. Claude나 OpenAI 설정과 조회에 필요한 MCP 서버를 준비합니다. `stub`은 모델과 도구 입출력을 테스트용으로 바꾸면서 실제 그래프와 생성기의 근거 검사를 실행합니다. 기존 v1의 fixture 조회와 템플릿 대화는 호환성 확인용으로 유지합니다. 프런트엔드 화면 연결과 사용자 인증 및 영구 저장은 별도 작업입니다.
 
 실행 방법은 [Backend README](backend/README.md)와 [Agent README](agent/README.md)에 있습니다. 요청 형식은 [Generation HTTP 계약](docs/contracts/agent-generation.md)과 [OpenAPI](docs/contracts/agent-generation.openapi.json)를 확인합니다. 검증 명령은 [통합 검사 가이드](scripts/integration/README.md)를 따릅니다.
 

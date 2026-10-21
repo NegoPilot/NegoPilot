@@ -27,7 +27,7 @@ mvn -f backend/pom.xml -B -ntp package
 
 ## 실행
 
-기능을 연결하려면 [agent 실행 안내](../agent/README.md)에 따라 Python 의존성을 준비하고 내부 HTTP 서버를 `127.0.0.1:9200`에서 실행합니다. live에서는 분해 모델과 Generation 모델 및 MCP 서버 설정이 필요합니다. 모델은 Claude와 Ollama 및 OpenAI 설정을 지원합니다. 설정이나 연결에 문제가 생겨도 stub 답변으로 전환하지 않습니다. 모델 없이 연동할 때는 Python에 `AGENT_EXECUTION_MODE=stub`를 명시합니다. Spring은 응답에 표시된 live 또는 stub 모드를 보존합니다.
+기능을 연결하려면 [agent 실행 안내](../agent/README.md)에 따라 Python 의존성을 준비하고 내부 HTTP 서버를 `127.0.0.1:9200`에서 실행합니다. live에서는 분해 모델과 Generation 모델 및 MCP 서버 설정이 필요합니다. 모델은 Claude와 OpenAI 설정을 지원합니다. 설정이나 연결에 문제가 생겨도 stub 답변으로 전환하지 않습니다. 모델 없이 연동할 때는 Python에 `AGENT_EXECUTION_MODE=stub`를 명시합니다. Spring은 응답에 표시된 live 또는 stub 모드를 보존합니다.
 
 두 프로세스에 같은 테스트 전용 키를 환경 변수로 설정합니다. 아래 값은 교체할 예시이며 실제 비밀값이 아닙니다.
 

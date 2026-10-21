@@ -71,7 +71,7 @@ Generation 검사는 실제 FastAPI 서버와 Spring 서버를 임시 포트에�
 
 검사 중 주입한 응답 손상과 HTTP 오류는 저장 경계 검사용입니다. 이 결과를 실제 모델 실패나 실제 도구 응답으로 표시하지 않습니다. 임시 내부 키는 출력하지 않습니다. 결과 본문과 로그를 저장할 때는 `/tmp` 경로를 사용합니다.
 
-실제 모델 검증은 위 fake 검사와 별도로 수행합니다. 기존 로컬 Ollama 모델을 사용할 때는 분해와 생성의 backend를 모두 `ollama`로 지정하고 양쪽 model을 같은 설치된 모델명으로 설정합니다. 예를 들어 `qwen3:8b`가 이미 설치돼 있다면 `NEGOPILOT_DECOMPOSER_MODEL`과 `NEGOPILOT_GENERATOR_MODEL`에 지정합니다. `NEGOPILOT_DECOMPOSER_BACKEND`와 `NEGOPILOT_GENERATOR_BACKEND`도 모두 설정합니다. Python의 `AGENT_REQUEST_TIMEOUT_SECONDS`는 180초 등 모델 지연을 수용할 값으로 두고 Spring의 `AGENT_RESPONSE_TIMEOUT_SECONDS`는 Python 응답 정리 시간을 포함하도록 설정합니다.
+실제 모델 검증은 위 fake 검사와 별도로 수행합니다. OpenAI 모델을 사용할 때는 분해와 생성의 backend를 모두 `openai`로 지정하고 Python 서버 환경에 `OPENAI_API_KEY`를 설정합니다. 모델을 지정하지 않으면 `gpt-4.1-mini`를 씁니다. `NEGOPILOT_DECOMPOSER_BACKEND`와 `NEGOPILOT_GENERATOR_BACKEND`도 모두 설정합니다. Python의 `AGENT_REQUEST_TIMEOUT_SECONDS`는 180초 등 모델 지연을 수용할 값으로 두고 Spring의 `AGENT_RESPONSE_TIMEOUT_SECONDS`는 Python 응답 정리 시간을 포함하도록 설정합니다.
 
 실제 모델 확인은 일반 지식 질문 한 건부터 순차 실행합니다. HTTP 성공 여부와 실제 분해 모델 호출 및 생성 모델 호출을 각각 기록합니다. 답변 대신 추가 입력이나 실패가 나오면 실제 생성 성공으로 세지 않습니다. MCP가 준비되지 않은 환경의 일반 지식 검증은 실제 기업 정보나 법령 근거 조회의 성공을 의미하지 않습니다.
 

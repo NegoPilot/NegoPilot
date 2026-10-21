@@ -10,11 +10,9 @@ import openai
 
 from negopilot_shared import DecompositionResult, RouteResult
 from negopilot_agent.decomposition import DecomposerSettings, QueryDecomposer
-from negopilot_agent.decomposition.backends import AnthropicBackend, Backend, OllamaBackend, OpenAIBackend
+from negopilot_agent.decomposition.backends import AnthropicBackend, Backend, OpenAIBackend
 from negopilot_agent.generation import Answer, AnswerGenerator, GeneratorSettings
-from negopilot_agent.generation.backends import (
-    GenerationAnthropicBackend, GenerationOllamaBackend, GenerationOpenAIBackend,
-)
+from negopilot_agent.generation.backends import GenerationAnthropicBackend, GenerationOpenAIBackend
 from negopilot_agent.graph import build_graph
 from negopilot_agent.routing import McpToolCaller, ToolCaller
 
@@ -55,11 +53,6 @@ class LazyModelBackend:
                 self._close = client.close
                 backend_type = GenerationOpenAIBackend if generation else OpenAIBackend
                 return backend_type(client, settings.model, settings.max_tokens)
-            if settings.backend == "ollama":
-                client = httpx2.AsyncClient(timeout=300.0)
-                self._close = client.aclose
-                backend_type = GenerationOllamaBackend if generation else OllamaBackend
-                return backend_type(settings.model, settings.ollama_base_url, http_client=client)
             raise ValueError("Unknown model backend")
         except (ValueError, anthropic.AnthropicError, openai.OpenAIError, httpx2.HTTPError, httpx2.InvalidURL):
             raise ModelUnavailable() from None

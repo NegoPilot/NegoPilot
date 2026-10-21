@@ -5,7 +5,6 @@
     cd mcp-servers/law-mcp      && uv run python server.py --http 9103
 
     uv run python scripts/ask.py "RFQ-2026-001 협력사 추천해줘"
-    uv run python scripts/ask.py --backend ollama "하도급법 제4조 보여줘"   # 분해·생성 모두 로컬 모델 (비용 없음)
     uv run python scripts/ask.py --backend openai "하도급법 제4조 보여줘"   # gpt-4.1-mini (OPENAI_API_KEY)
     uv run python scripts/ask.py --json "..."                               # 상태 전체를 JSON으로
 
@@ -61,7 +60,7 @@ async def main(query: str, as_json: bool) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("query")
-    parser.add_argument("--backend", choices=["anthropic", "ollama", "openai"], help="분해·생성 백엔드를 한 번에 지정")
+    parser.add_argument("--backend", choices=["anthropic", "openai"], help="분해·생성 백엔드를 한 번에 지정")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
     # --backend를 주면 .env의 모델명은 다른 백엔드용일 수 있어 읽지 않는다. 셸에서 지정한 모델은 그대로 쓴다

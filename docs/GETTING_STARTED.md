@@ -112,7 +112,7 @@ for group in result.parallel_groups():          # [["q1", "q2"]] → q1, q2 병�
 ```bash
 cd shared && uv sync && uv run python -m pytest -q            # 계약 테스트
 cd agent  && uv sync && uv run python -m pytest -q            # 분해 단위 테스트 (비용 없음)
-cd agent  && uv run python scripts/eval_decomposition.py --backend ollama   # 로컬 Llama로 분해 평가
+cd agent  && uv run python scripts/eval_decomposition.py --backend openai   # gpt-4.1-mini로 분해 평가 (OPENAI_API_KEY)
 ```
 
 MCP 서버 실행은 [README 빠른 시작](../README.md#빠른-시작)을 보세요.
