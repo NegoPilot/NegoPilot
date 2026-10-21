@@ -24,6 +24,9 @@
 | `/admin` | 10 관리자 대시보드 | 회원·승인 대기·팀장·이용 정지 수, 가입 승인 요청, 최근 관리 이력 |
 | `/admin/members` | 11 회원·권한 관리 | 가입 승인·반려(`?request=이메일`로 신청 선택), 회원 검색·역할·상태 필터, 역할 변경·이용 정지·재개, 페이지 이동 |
 | `/admin/approvals`, `/admin/history` | (와이어프레임 없음) | 사이드바 '가입 승인'·'접근 이력'. 승인 대기 전체 목록과 관리 이력 전체 |
+| `/admin/data` | 12 데이터 관리 | 협력사·법령 수, 등록 화면 바로가기, 등록 요청 목록(JSON 내려받기) |
+| `/admin/data/suppliers/new` | 13 협력사 등록 | business-mcp 표(suppliers, capabilities, quality, contracts, quotes, financials)에 넣을 값 입력·검사, 저장 미리보기 |
+| `/admin/data/laws/new` | 14 법령 등록 | 저장된 법령과 시행 판, legalize-kr에서 새 법령 받기, 개정본 원문(.md) 올리기 |
 
 07~09는 상단 띠와 푸터만 있는 화면, 10~11은 관리자 전용 사이드바를 씁니다. 라우트의 `meta.layout`(`public`, `admin`)으로 고릅니다.
 
@@ -56,6 +59,7 @@
 | --- | --- | --- |
 | 홈의 RFQ 목록 | business-mcp 시드 데이터를 [`src/data/rfqs.ts`](src/data/rfqs.ts)에 옮겨 표시 | RFQ 조회(list_rfqs) API |
 | 법규 검토 | 예시 협상안과 check_offer 기준표로 만든 [`src/data/lawReview.ts`](src/data/lawReview.ts). 재검사 버튼 비활성 | 협상안 검사(check_offer) API |
+| 협력사·법령 등록 | 입력을 DB 열 이름 그대로의 JSON으로 만들고 화면 안 등록 요청 목록에 둠. 백분율은 0..1 비율로, 사업자번호는 뒤 5자리를 가려 저장. 법령은 law-mcp가 파일을 읽어서 `fetch_laws.py` TARGETS·ALIASES 또는 원문 파일 저장 위치를 안내 | 협력사 등록 API(business-mcp 쓰기), 법령 반영 API |
 | 로그인·회원가입·관리자 | [`src/data/accounts.ts`](src/data/accounts.ts)의 예시 회원과 [`src/stores/admin.ts`](src/stores/admin.ts)의 화면 안 상태. 로그인은 형식만 확인하고 이 브라우저에 예시 로그인 상태([`src/stores/session.ts`](src/stores/session.ts))를 남김. 로그인 전에는 업무·관리자 화면이 로그인으로 넘어가고, 관리자 화면은 '관리자 로그인'으로만 들어감. 승인·반려·역할 변경은 새로고침하면 처음으로 돌아감 | 인증·회원 API (라우터 확인을 서버 세션 확인으로 교체) |
 
 ## 실행
@@ -96,6 +100,8 @@ AI 도우미는 stub 모드에서 정해진 질문만 답합니다 (그 밖의 �
 - 대화 중에 다른 협력사를 고르고 `이 회사의 재무 상태를 알려줘` → 같은 대화에서 바뀐 협력사로 답함
 - ISO 14001 체크 후 검색 → "아직 서버에서 지원하지 않는 조건" 안내
 - `http://127.0.0.1:5173` 접속 → 로그인 화면. 아무 이메일 형식과 비밀번호로 로그인 → 홈, 사이드바 아래 '로그아웃'. '관리자 로그인' → `/admin`
+- 관리자 로그인 → 사이드바 '협력사 등록'에서 필수 항목 입력 → '등록 요청 저장' → '데이터 현황'에 요청이 생기고 JSON으로 내려받기
+- '법령 등록' → '원문 파일 올리기'에 `mcp-servers/law-mcp/data/raw/subcontract_act/*.md` 하나를 올리면 제목·시행일·조문 수를 읽어 보여 줌
 - `/signup`에서 회사 코드 `HANBIT-2026`으로 신청 → `/signup/pending`에 소속 회사 한빛오토텍 → `/admin`의 승인 대기에 신청자가 추가됨 (같은 탭, 새로고침 전)
 - 답변의 `[1]` 또는 근거 자료 링크 → 새 탭에서 근거 자료 상세, 새로고침해도 같은 내용
 - Spring을 끄면 "백엔드 서버에 연결할 수 없습니다"
@@ -108,9 +114,9 @@ src/
   components/   검색 조건 패널, 협력사 상세(탭), AI 도우미 패널, 빈 상태, 오류 안내
   views/        홈, 협력사, 근거 자료 상세, 법규 검토, 404, auth/(로그인·회원가입·승인 대기), admin/(관리자)
   layouts/      로그인 전 화면(상단 띠+푸터), 관리자 사이드바
-  stores/       예시 로그인 상태, 관리자 화면이 함께 쓰는 예시 상태, 가입 신청 내용(sessionStorage)
+  stores/       예시 로그인 상태, 관리자 화면이 함께 쓰는 예시 상태, 가입 신청 내용(sessionStorage), 데이터 등록 요청
   data/         API가 아직 없는 화면의 시드·예시 데이터
-  utils/        숫자 포맷(null → "정보 없음"), 오류 문구, 검색 조건 ↔ URL, 근거 파싱, 출처 표시, 입력 검사
+  utils/        숫자 포맷(null → "정보 없음"), 오류 문구, 검색 조건 ↔ URL, 근거 파싱, 출처 표시, 입력 검사, 협력사·법령 등록 폼 ↔ 저장 형식
   router/       라우트 (근거 자료 상세는 사이드바 없는 standalone)
   styles/       와이어프레임 기준 공통 스타일
 ```

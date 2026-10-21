@@ -91,6 +91,25 @@ export const router = createRouter({
       component: () => import('@/views/admin/AdminHistoryView.vue'),
       meta: { title: '접근 이력', layout: 'admin' },
     },
+    // ── 데이터 관리 (Figma 12~14). 등록 API 연결 전 ──
+    {
+      path: '/admin/data',
+      name: 'admin-data',
+      component: () => import('@/views/admin/DataManagementView.vue'),
+      meta: { title: '데이터 관리', layout: 'admin' },
+    },
+    {
+      path: '/admin/data/suppliers/new',
+      name: 'admin-supplier-new',
+      component: () => import('@/views/admin/SupplierRegisterView.vue'),
+      meta: { title: '협력사 등록', layout: 'admin' },
+    },
+    {
+      path: '/admin/data/laws/new',
+      name: 'admin-law-new',
+      component: () => import('@/views/admin/LawRegisterView.vue'),
+      meta: { title: '법령 등록', layout: 'admin' },
+    },
     {
       path: '/:pathMatch(.*)*',
       name: 'not-found',

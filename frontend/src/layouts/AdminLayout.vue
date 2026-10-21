@@ -21,6 +21,12 @@ const NAV = [
   { name: 'admin-approvals', label: '가입 승인' },
   { name: 'admin-history', label: '접근 이력' },
 ] as const
+
+const DATA_NAV = [
+  { name: 'admin-data', label: '데이터 현황' },
+  { name: 'admin-supplier-new', label: '협력사 등록' },
+  { name: 'admin-law-new', label: '법령 등록' },
+] as const
 </script>
 
 <template>
@@ -31,6 +37,10 @@ const NAV = [
         <span class="brand-team">{{ ORGANIZATION.name }} · 관리자</span>
       </div>
       <RouterLink v-for="n in NAV" :key="n.name" :to="{ name: n.name }" class="nav-item" exact-active-class="on">
+        {{ n.label }}
+      </RouterLink>
+      <p class="nav-group">데이터 관리</p>
+      <RouterLink v-for="n in DATA_NAV" :key="n.name" :to="{ name: n.name }" class="nav-item" exact-active-class="on">
         {{ n.label }}
       </RouterLink>
       <div class="side-bottom">
@@ -101,6 +111,13 @@ const NAV = [
   border-color: var(--border);
   color: var(--text);
   font-weight: 600;
+}
+.nav-group {
+  margin: 18px 0 2px;
+  padding: 0 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
 }
 .side-bottom {
   margin-top: auto;
