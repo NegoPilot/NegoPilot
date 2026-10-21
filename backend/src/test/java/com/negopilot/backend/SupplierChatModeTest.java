@@ -24,12 +24,16 @@ class SupplierChatModeTest {
     private static final JsonMapper JSON = JsonMapper.builder().build();
     @LocalServerPort int port;
 
+    static Stream<Arguments> lookups() {
+        return Stream.of(
+                Arguments.of("/api/v1/business/catalog"),
+                Arguments.of("/api/v1/suppliers?process=test"),
+                Arguments.of("/api/v1/suppliers/SUP-0034"));
+    }
+
     static Stream<Arguments> endpoints() {
         String id = "62751dc6-e6ad-41dc-a7fd-a11f79b5f3c2";
         return Stream.of(
-                Arguments.of("GET", "/api/v1/business/catalog", ""),
-                Arguments.of("GET", "/api/v1/suppliers?process=test", ""),
-                Arguments.of("GET", "/api/v1/suppliers/SUP-0034", ""),
                 Arguments.of("POST", "/api/v1/conversations", "{\"context\":{\"selected_supplier_ids\":[]}}"),
                 Arguments.of("GET", "/api/v1/conversations/" + id, ""),
                 Arguments.of("POST", "/api/v1/conversations/" + id + "/messages", "{\"query\":\"test\"}"));
@@ -37,12 +41,23 @@ class SupplierChatModeTest {
 
     @ParameterizedTest
     @MethodSource("endpoints")
-    void allNewEndpointsRequireStubMode(String method, String path, String body) throws Exception {
+    void conversationEndpointsRequireStubMode(String method, String path, String body) throws Exception {
         var response = send(method, path, body);
         assertThat(response.statusCode()).isEqualTo(503);
         var error = JSON.readTree(response.body()).path("error");
         assertThat(error.path("code").stringValue()).isEqualTo("DEMO_MODE_REQUIRED");
         assertThat(error.path("retryable").booleanValue()).isFalse();
+    }
+
+    @ParameterizedTest
+    @MethodSource("lookups")
+    void lookupsAreAvailableInLiveModeAndUseTheServerKey(String path) throws Exception {
+        // No internal key is configured here, so the live lookup stops before calling Python.
+        var response = send("GET", path, "");
+        assertThat(response.statusCode()).isEqualTo(503);
+        var error = JSON.readTree(response.body()).path("error");
+        assertThat(error.path("code").stringValue()).isEqualTo("UPSTREAM_UNAVAILABLE");
+        assertThat(error.path("retryable").booleanValue()).isTrue();
     }
 
     @Test

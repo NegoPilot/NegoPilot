@@ -28,9 +28,10 @@ final class SupplierChatService {
         if (!"stub".equals(mode)) throw ApiException.demoRequired(requestId);
     }
 
-    JsonNode catalog(UUID id) { requireDemo(id); return gateway.catalog(id); }
-    JsonNode search(ObjectNode filters, UUID id) { requireDemo(id); return gateway.search(filters, id); }
-    JsonNode detail(String supplierId, UUID id) { requireDemo(id); return gateway.detail(supplierId, id); }
+    // Lookups read the fixture in stub mode and business-mcp in live mode. Conversations are stub-only.
+    JsonNode catalog(UUID id) { return gateway.catalog(id); }
+    JsonNode search(ObjectNode filters, UUID id) { return gateway.search(filters, id); }
+    JsonNode detail(String supplierId, UUID id) { return gateway.detail(supplierId, id); }
 
     JsonNode create(ObjectNode context, UUID requestId) {
         requireDemo(requestId);
