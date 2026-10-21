@@ -2,6 +2,9 @@
 import { computed } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
 
+import AdminLayout from '@/layouts/AdminLayout.vue'
+import PublicLayout from '@/layouts/PublicLayout.vue'
+
 const route = useRoute()
 // 근거 자료 상세는 새 탭에서 단독으로 열리는 화면이라 사이드바를 그리지 않는다
 const standalone = computed(() => route.meta.standalone === true)
@@ -9,6 +12,8 @@ const standalone = computed(() => route.meta.standalone === true)
 
 <template>
   <RouterView v-if="standalone" />
+  <PublicLayout v-else-if="route.meta.layout === 'public'" />
+  <AdminLayout v-else-if="route.meta.layout === 'admin'" />
   <div v-else class="shell">
     <nav class="sidebar" aria-label="주 메뉴">
       <div class="brand">
