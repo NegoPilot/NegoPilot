@@ -11,6 +11,8 @@ from datetime import date
 
 from negopilot_shared import CLARIFY_CONFIDENCE, MAX_SUB_QUERIES, SCHEMA_VERSION, load_intents
 
+from negopilot_agent.decomposition.wire import COMPACT_RULE, contract_to_wire
+
 # 현업 표현 → 법률·코드 용어. question 필드를 정규화할 때 쓴다
 GLOSSARY = [
     ("우리 회사, 1차 협력사 (2차 협력사와 거래할 때)", "원사업자"),
@@ -247,12 +249,16 @@ def _intent_table() -> str:
     return "\n".join(lines)
 
 
-def build_system_prompt() -> str:
+def build_system_prompt(compact: bool = False) -> str:
+    """compact면 출력 형식(규칙 10과 예시)을 짧은 형식(wire.py)으로 보여 준다. openai 백엔드가 쓴다."""
     glossary = "\n".join(f"- {src} → {dst}" for src, dst in GLOSSARY)
     laws = "\n".join(f"- {k}: {v}" for k, v in LAW_KEYS.items())
+    shown = (lambda r: contract_to_wire(r)) if compact else (lambda r: r)
     examples = "\n\n".join(
         (f"이전 대화:\n{json.dumps(ex['history'], ensure_ascii=False)}\n" if ex.get("history") else "")
-        + f"현재 질문: {ex['query']}\n결과:\n{json.dumps(ex['result'], ensure_ascii=False)}" for ex in EXAMPLES)
+        + f"현재 질문: {ex['query']}\n결과:\n{json.dumps(shown(ex['result']), ensure_ascii=False)}" for ex in EXAMPLES)
+    output_rule = (COMPACT_RULE if compact else
+                   f'original_query에는 사용자 질문을 한 글자도 바꾸지 않고 그대로 넣는다. schema_version은 "{SCHEMA_VERSION}"이다.')
     return f"""너는 NegoPilot의 쿼리 분해기다. NegoPilot은 자동차 1차 협력사의 협상 담당자가 2차 협력사와 협상할 때 쓰는 도구다.
 사용자 질문을 MCP 도구 하나로 답할 수 있는 크기의 하위 질문으로 나누고, 각 하위 질문에 intent와 엔티티를 붙인다.
 너는 질문에 답하지 않는다. 분해 결과만 낸다. 뒤 단계(Routing)가 intent를 보고 도구를 부르고, Generation이 답을 만든다.
@@ -273,7 +279,7 @@ def build_system_prompt() -> str:
 6. entities에는 해당 intent가 허용한 엔티티 이름만 쓴다.
    law는 사용자가 법령 이름(하도급법, 상생협력법 같은 약칭 포함)을 말했을 때만 넣는다. 말하지 않았으면 비워서 모든 법령을 검색하게 한다.
    price_change_pct는 넣지 않는다. 증감률(5% 인하, 3% 인상)은 question에 남긴다.
-   "넣지 않는다"는 값이 null이라는 뜻이다. 출력 형식상 모든 엔티티 칸이 있으므로, 쓰지 않는 칸은 null로 둔다.
+   "넣지 않는다"는 그 엔티티에 값을 채우지 않는다는 뜻이다. 쓰지 않는 엔티티를 빈 값이나 추측한 값으로 채우지 않는다.
    엔티티 값은 질문에 나온 문자열 그대로 쓴다. 따옴표, 괄호, 쉼표 같은 기호를 값에 붙이지 않는다.
    rfq_id는 RFQ-YYYY-NNN, article_no는 "제N조" 또는 "제N조의M", 날짜는 YYYY-MM-DD, 금액은 원 단위 정수다.
    현재 질문과 해당 작업의 대화 이력에 없는 값을 지어내서 채우지 않는다. 특히 top_n 같은 숫자는 사용자가 제시했을 때만 넣는다. 예시의 값을 따라 하지 않는다.
@@ -291,7 +297,7 @@ def build_system_prompt() -> str:
    이 검사에는 supplier와 rfq_id 및 unit_price와 payment_days 및 price_linkage가 필요하다. 관련 이력까지 확인한 뒤 없는 항목만 되묻는다.
    다른 실행 가능한 하위 질문도 있으면 아래 부분 실행 규칙에 따라 전체 요청은 ok로 유지한다.
    필요한 값을 지어내거나 명시적인 협상안 검사를 일반적인 법률 설명으로 바꾸지 않는다.
-10. original_query에는 사용자 질문을 한 글자도 바꾸지 않고 그대로 넣는다. schema_version은 "{SCHEMA_VERSION}"이다.
+10. {output_rule}
 11. supplier_search의 process는 선택 조건이다. 공정이나 선택 기업이 없어도 제시된 지역과 소재 등의 조건만으로 검색한다.
     조건 없는 협력사 목록 요청도 supplier_search로 처리한다. supplier_detail에는 사용자가 말한 기업명이나 ID를 그대로 전달한다.
 12. 법적 근거를 찾는 질문은 법령 이름이나 조문 번호가 없어도 law_check로 질문 내용을 검색한다.

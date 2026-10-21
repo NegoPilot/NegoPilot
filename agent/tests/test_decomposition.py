@@ -412,3 +412,16 @@ def test_clean_entity_values_leaves_normal_values_alone():
     plain = json.dumps(fixture("05")["expected"], ensure_ascii=False)
     assert clean_entity_values(plain) == plain
     assert clean_entity_values("not json") == "not json"
+
+
+async def test_compact_openai_output_is_cleaned_without_retry():
+    """짧은 출력 형식(#80)으로 받아도 값 정리(#82: JSON 기호, price_change_pct)가 그대로 적용된다 (#97)."""
+    from negopilot_agent.decomposition.wire import contract_to_wire
+    data = fixture("03")
+    wire = contract_to_wire(json.loads(json.dumps(data["expected"])))
+    wire["sub_queries"][0]["entities"] = [{"key": "rfq_id", "value": "RFQ-2026-001\"},"}]
+    wire["sub_queries"][1]["entities"].append({"key": "price_change_pct", "value": 5})
+    fake = FakeOpenAI(json.dumps(wire, ensure_ascii=False))
+    result = await fake.decomposer().decompose(data["query"])
+    assert len(fake.requests) == 1
+    assert result == DecompositionResult.model_validate(data["expected"])

@@ -10,6 +10,7 @@ import json
 import logging
 import re
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -73,7 +74,8 @@ class QueryDecomposer:
                  settings: DecomposerSettings | None = None, backend: Backend | None = None):
         self.settings = settings or DecomposerSettings()
         self.backend = backend or make_backend(self.settings, client)
-        self.system = build_system_prompt()
+        # openai 백엔드는 짧은 출력 형식(wire.py)을 쓰므로 프롬프트의 출력 규칙과 예시도 그 형식으로 보여 준다
+        self.system = build_system_prompt(compact=getattr(self.backend, "COMPACT_OUTPUT", False))
 
     async def decompose(self, query: str, history: list[dict] | None = None, *,
                         context: dict[str, list[str]] | None = None) -> DecompositionResult:
@@ -88,18 +90,35 @@ class QueryDecomposer:
             try:
                 # 스키마 형식은 모델 쪽 구조화 출력이 맞추고, 필드 사이 규칙은 여기서 검증한다
                 cleaned = drop_redundant_as_of(
-                    clean_entity_values(drop_disallowed_entities(drop_disallowed_inputs(text))), today)
+                    clean_entity_values(drop_disallowed_entities(drop_disallowed_inputs(fill_original_query(text, query)))),
+                    today)
                 result = DecompositionResult.model_validate_json(cleaned)
             except ValidationError as err:
-                log.warning("분해 결과 형식 오류 (시도 %d): %s", attempt, err.error_count())
+                log.warning("분해 결과 형식 오류 (시도 %d):\n%s", attempt, _format_errors(err))
                 feedback = ("\n\n직전 출력이 계약 형식을 어겼다. 아래 오류를 고쳐서 다시 출력해라.\n"
                             + _format_errors(err))
                 continue
             # original_query는 사용자 원문이어야 한다. 모델이 다듬었으면 원문으로 되돌린다
             if result.original_query != query:
                 result = result.model_copy(update={"original_query": query})
-            return drop_unused_dependencies(result)
+            return apply_named_law(drop_unused_dependencies(result))
         return failed_result(query)
+
+
+def fill_original_query(text: str, query: str) -> str:
+    """original_query가 없으면 사용자 원문으로 채운다.
+
+    original_query는 원문 그대로여야 해서 모델이 쓸 필요가 없다. openai 백엔드는 출력 토큰을 줄이려고 이 필드를 빼고 받는다.
+    JSON이 아니거나 모양이 다르면 그대로 돌려줘 검증 오류로 처리되게 한다.
+    """
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return text
+    if not isinstance(data, dict) or "original_query" in data:
+        return text
+    data["original_query"] = query
+    return json.dumps(data, ensure_ascii=False)
 
 
 def drop_disallowed_inputs(text: str) -> str:
@@ -237,4 +256,47 @@ def drop_unused_dependencies(result: DecompositionResult) -> DecompositionResult
             changed = True
             log.info("%s의 depends_on %s → %s (inputs로 받는 값 없음)", sq.id, sq.depends_on, kept)
         sub_queries.append(sq.model_copy(update={"depends_on": kept}))
+    return result.model_copy(update={"sub_queries": sub_queries}) if changed else result
+
+
+# 질문에 법령 이름이 그대로 나오면 law 엔티티를 정할 수 있다. 시행령을 먼저 본다
+NAMED_LAWS = [
+    ("subcontract_decree", re.compile(r"하도급법\s*시행령|하도급거래\s*공정화에\s*관한\s*법률\s*시행령")),
+    ("subcontract_act", re.compile(r"하도급법|하도급거래\s*공정화")),
+    ("winwin_decree", re.compile(r"상생협력법\s*시행령")),
+    ("winwin_act", re.compile(r"상생협력법|상생협력\s*촉진")),
+    ("sme_decree", re.compile(r"중소기업기본법\s*시행령")),
+    ("sme_act", re.compile(r"중소기업기본법")),
+]
+
+
+def named_law(text: str) -> str | None:
+    """text가 법령 하나를 이름으로 가리키면 그 law 키. 없거나 둘 이상이면 None."""
+    found: list[str] = []
+    for key, pattern in NAMED_LAWS:
+        family = key.split("_")[0]   # 시행령이 잡히면 같은 법의 본법 이름은 세지 않는다
+        if pattern.search(text) and not any(f.split("_")[0] == family for f in found):
+            found.append(key)
+    return found[0] if len(found) == 1 else None
+
+
+def apply_named_law(result: DecompositionResult) -> DecompositionResult:
+    """law를 받는 하위 질문에서 사용자가 법령 이름을 직접 말했으면 law를 그 법령으로 맞춘다.
+
+    "하도급법상 대금 지급 기한은?"처럼 법령 이름이 그대로 있는데 모델이 law를 빼거나 다른 법령을 넣는 경우가 있다
+    (특히 짧은 출력 형식). 그러면 law-mcp가 엉뚱한 범위를 검색해 근거가 흐려진다. 하위 질문 원문을 먼저 보고,
+    없으면 전체 질문을 본다. 이름이 없거나 여러 법령을 말했으면 모델 판단을 그대로 둔다.
+    """
+    intents = load_intents()
+    changed = False
+    sub_queries = []
+    for sq in result.sub_queries:
+        spec = intents.get(sq.intent)
+        if spec is not None and "law" in spec.entities:
+            law = named_law(sq.original_text) or named_law(result.original_query)
+            if law and law != sq.entities.law:
+                log.info("%s의 law를 질문의 법령 이름으로 맞춤: %s → %s", sq.id, sq.entities.law, law)
+                sq = sq.model_copy(update={"entities": sq.entities.model_copy(update={"law": law})})
+                changed = True
+        sub_queries.append(sq)
     return result.model_copy(update={"sub_queries": sub_queries}) if changed else result
