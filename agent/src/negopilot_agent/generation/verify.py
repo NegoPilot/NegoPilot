@@ -17,7 +17,17 @@ from collections.abc import Iterable
 
 from negopilot_agent.generation.answer import Citation, Evidence, VerificationReport
 
-CITE_RE = re.compile(r"\[\s*(E\d+(?:\s*,\s*E\d+)*)\s*\]")
+# 근거 id. 모델이 항 번호를 붙여 [E6①]처럼 쓰는 경우가 있어 뒤의 원문자(①~⑳)도 인용으로 받는다 (#104)
+CITE_ID = r"E\d+[\u2460-\u2473]*"
+CITE_RE = re.compile(rf"\[\s*({CITE_ID}(?:\s*,\s*{CITE_ID})*)\s*\]")
+PARAGRAPH_MARK_RE = re.compile(r"[\u2460-\u2473]+$")
+
+
+def split_ids(group: str) -> list[str]:
+    """'E6①, E6②, E4' → ['E6', 'E4']. 항 번호는 근거 id가 아니므로 떼고, 겹치면 한 번만 남긴다."""
+    return list(dict.fromkeys(PARAGRAPH_MARK_RE.sub("", eid) for eid in re.split(r"\s*,\s*", group)))
+
+
 # 긴 단위를 먼저 잡아 '3억원'을 '3억' 또는 '3원'으로 잘라 비교하지 않는다.
 MONEY_UNIT = r"(?:(?:[십백천]\s*)?[경조억만](?:\s*원)?|[십백천]\s*원|원)"
 NUMBER_WITH_UNIT_RE = re.compile(
@@ -113,7 +123,7 @@ def normalize_article(a: str) -> str:
 def cited_ids(text: str) -> list[str]:
     ids: list[str] = []
     for group in CITE_RE.findall(text):
-        for eid in re.split(r"\s*,\s*", group):
+        for eid in split_ids(group):
             if eid not in ids:
                 ids.append(eid)
     return ids
@@ -163,7 +173,7 @@ def mask(text: str, report: VerificationReport) -> str:
     bad_ids = set(report.unknown_citations)
 
     def drop_bad(m: re.Match) -> str:
-        keep = [i for i in re.split(r"\s*,\s*", m.group(1)) if i not in bad_ids]
+        keep = [i for i in split_ids(m.group(1)) if i not in bad_ids]
         return f"[{', '.join(keep)}]" if keep else ""
 
     text = CITE_RE.sub(drop_bad, text)
@@ -179,7 +189,7 @@ def render_citations(text: str, evidence: list[Evidence]) -> tuple[str, list[Cit
 
     def renumber(m: re.Match) -> str:
         nums = []
-        for eid in re.split(r"\s*,\s*", m.group(1)):
+        for eid in split_ids(m.group(1)):
             if eid not in by_id:
                 continue
             order.setdefault(eid, len(order) + 1)
