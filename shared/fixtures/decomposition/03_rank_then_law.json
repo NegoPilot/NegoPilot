@@ -1,5 +1,5 @@
 {
-  "note": "문장으로는 이어져 있어도, 뒤 질문(법 검토)에 앞 결과가 도구 입력으로 필요 없으면 depends_on을 비워 병렬로 실행한다. 1등 업체 정보는 Generation이 두 결과를 합칠 때 쓴다",
+  "note": "문장으로는 이어져 있어도, 뒤 질문(법 검토)에 앞 결과가 도구 입력으로 필요 없으면 depends_on을 비워 병렬로 실행한다. 1등 업체 정보는 Generation이 두 결과를 합칠 때 쓴다 (#62: law·price_change_pct는 넣지 않고 감액률은 question에 남긴다)",
   "query": "RFQ-2026-001 협력사 추천해 주고, 1등 업체에 단가 5% 깎아도 되는지 알려줘",
   "expected": {
     "schema_version": "0.1",
@@ -26,10 +26,7 @@
         "intent": "law_check",
         "grounding": "required",
         "confidence": 0.9,
-        "entities": {
-          "law": "subcontract_act",
-          "price_change_pct": -5
-        },
+        "entities": {},
         "inputs": [],
         "depends_on": []
       }

@@ -1,5 +1,5 @@
 {
-  "note": "숫자 하나(지급 일수)만 있어도 구체적 협상안이면 offer_check",
+  "note": "RFQ·단가 없이 지급 일수만 있으면 특정 협상안이 아니라 일반 법적 조건 질문이라 law_check (#62, #47 규칙)",
   "query": "SUP-0007에 결제 90일로 해 달라고 해도 돼?",
   "expected": {
     "schema_version": "0.1",
@@ -8,15 +8,12 @@
     "sub_queries": [
       {
         "id": "q1",
-        "question": "SUP-0007에 하도급대금 지급 기한 90일 협상안의 하도급법 위반 여부",
+        "question": "원사업자가 수급사업자(SUP-0007)에게 하도급대금을 목적물 수령 후 90일에 지급해도 되는지",
         "original_text": "SUP-0007에 결제 90일로 해 달라고 해도 돼?",
-        "intent": "offer_check",
+        "intent": "law_check",
         "grounding": "required",
-        "confidence": 0.9,
-        "entities": {
-          "supplier": "SUP-0007",
-          "payment_days": 90
-        },
+        "confidence": 0.85,
+        "entities": {},
         "inputs": [],
         "depends_on": []
       }

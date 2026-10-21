@@ -1,5 +1,5 @@
 {
-  "note": "서로 의존하지 않는 두 질문은 병렬",
+  "note": "서로 의존하지 않는 두 질문은 병렬 (#62: 법령 이름을 말하지 않았으면 law를 넣지 않는다)",
   "query": "SUP-0010 품질이랑 하도급대금 지급 기한 같이 알려 줘",
   "expected": {
     "schema_version": "0.1",
@@ -26,9 +26,7 @@
         "intent": "law_check",
         "grounding": "required",
         "confidence": 0.9,
-        "entities": {
-          "law": "subcontract_act"
-        },
+        "entities": {},
         "inputs": [],
         "depends_on": []
       }
