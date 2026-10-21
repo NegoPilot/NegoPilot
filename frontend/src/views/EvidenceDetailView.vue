@@ -1,13 +1,20 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { RouterLink } from 'vue-router'
+import { computed, ref, watch } from 'vue'
+import { RouterLink, useRoute } from 'vue-router'
 
 import { getConversation } from '@/api/conversations'
-import { getSupplier } from '@/api/suppliers'
-import type { StubEvidence, SupplierDetail } from '@/api/types'
+import type { Citation, Evidence, GenerationResponse } from '@/api/types'
 import ErrorNotice from '@/components/ErrorNotice.vue'
-import SupplierDetailPanel from '@/components/SupplierDetailPanel.vue'
 import { isApiError } from '@/utils/errors'
+import {
+  evidenceKindLabel,
+  findToolCall,
+  isStubResponse,
+  parseSupplierEvidence,
+  toolSignature,
+} from '@/utils/evidence'
+import { NO_DATA, formatInteger, formatKrw, formatPercent, formatPpm } from '@/utils/format'
+import { provenanceLabel } from '@/utils/provenance'
 
 // 새 탭에서 열리므로 메모리 상태 없이 URL만으로 대화를 다시 불러온다
 const props = defineProps<{
@@ -16,12 +23,12 @@ const props = defineProps<{
   evidenceId: string
 }>()
 
-const evidence = ref<StubEvidence | null>(null)
-const supplier = ref<SupplierDetail | null>(null)
+const route = useRoute()
+
+const response = ref<GenerationResponse | null>(null)
+const evidence = ref<Evidence | null>(null)
+const citation = ref<Citation | null>(null)
 const question = ref<string | null>(null)
-const answer = ref<string | null>(null)
-// true면 답변에 실린 카드의 데이터(답변 시점), false면 지금 다시 조회한 데이터
-const fromAnswer = ref(true)
 const loading = ref(false)
 const error = ref<unknown>(null)
 const notFound = ref(false)
@@ -30,30 +37,22 @@ async function load() {
   loading.value = true
   error.value = null
   notFound.value = false
+  response.value = null
   evidence.value = null
-  supplier.value = null
   try {
     const snapshot = await getConversation(props.conversationId)
     const index = snapshot.messages.findIndex((m) => m.response?.response_id === props.responseId)
-    const response = index >= 0 ? snapshot.messages[index]?.response : null
-    const found = response?.evidence.find((e) => e.evidence_id === props.evidenceId) ?? null
-    if (!response || !found) {
+    const res = index >= 0 ? snapshot.messages[index]?.response ?? null : null
+    const found = res?.answer.evidence.find((e) => e.id === props.evidenceId) ?? null
+    if (!res || !found) {
       notFound.value = true
       return
     }
+    response.value = res
     evidence.value = found
-    answer.value = response.presentation.text
+    citation.value = res.answer.citations.find((c) => c.evidence_id === found.id) ?? null
     const previous = snapshot.messages[index - 1]
     question.value = previous?.role === 'user' ? previous.content : null
-
-    const card = response.presentation.cards.find((c) => c.evidence_ids.includes(props.evidenceId))
-    if (card) {
-      supplier.value = card.supplier
-      fromAnswer.value = true
-    } else {
-      supplier.value = await getSupplier(found.supplier_id)
-      fromAnswer.value = false
-    }
   } catch (e) {
     error.value = e
   } finally {
@@ -62,91 +61,308 @@ async function load() {
 }
 
 watch(() => [props.conversationId, props.responseId, props.evidenceId], load, { immediate: true })
+
+// '원래 화면으로 돌아가기'는 협력사 화면 주소만 받는다 (임의 주소로 보내지 않게)
+const backPath = computed(() => {
+  const v = route.query.back
+  const s = Array.isArray(v) ? v[0] : v
+  return typeof s === 'string' && s.startsWith('/suppliers') ? s : '/suppliers'
+})
+const rfq = computed(() => {
+  const v = route.query.rfq
+  const s = Array.isArray(v) ? v[0] : v
+  return typeof s === 'string' && s ? s : null
+})
+
+const supplier = computed(() => (evidence.value ? parseSupplierEvidence(evidence.value) : null))
+const toolCall = computed(() => (response.value && evidence.value ? findToolCall(response.value, evidence.value) : null))
+const stub = computed(() => (response.value ? isStubResponse(response.value, evidence.value) || supplier.value?.stub === true : false))
+
+const mainCapability = computed(() => {
+  const caps = supplier.value?.capabilities ?? []
+  return caps.reduce<(typeof caps)[number] | null>((best, c) => (!best || c.monthly_capacity > best.monthly_capacity ? c : best), null)
+})
+const latestQuote = computed(() => {
+  const quotes = [...(supplier.value?.recent_quotes ?? [])].sort((a, b) => b.quoted_at.localeCompare(a.quoted_at))
+  return quotes[0] ?? null
+})
+
+/** AI가 응답에 쓴 값을 필드 단위로 보여 준다 */
+const supplierRows = computed(() => {
+  const s = supplier.value
+  if (!s) return []
+  const profile = provenanceLabel(s.provenance?.profile ?? s.source)
+  const operations = provenanceLabel(s.provenance?.operations ?? s.source)
+  return [
+    { item: '협력사 ID', value: s.supplier_id, source: profile, use: '대상 식별' },
+    { item: '공정 / 소재', value: mainCapability.value ? `${mainCapability.value.process} / ${mainCapability.value.material}` : NO_DATA, source: operations, use: 'RFQ 조건 비교' },
+    { item: '월 생산능력', value: mainCapability.value ? `${formatInteger(mainCapability.value.monthly_capacity)}개` : NO_DATA, source: operations, use: '공급능력 근거' },
+    { item: '인증', value: s.iatf16949 ? 'IATF 16949' : '인증 없음', source: profile, use: '필수 인증 확인' },
+    { item: '불량률', value: formatPpm(s.quality?.defect_ppm), source: operations, use: '품질 비교' },
+    { item: '납기 준수율', value: formatPercent(s.quality?.on_time_delivery_rate), source: operations, use: '납기 평가' },
+    { item: '최근 견적', value: latestQuote.value ? formatKrw(latestQuote.value.unit_price_krw) : NO_DATA, source: operations, use: '가격 비교' },
+  ]
+})
+
+const target = computed(() => {
+  if (supplier.value) return supplier.value.supplier_id
+  const article = evidence.value?.meta.article_no
+  return typeof article === 'string' ? article : evidence.value?.label ?? NO_DATA
+})
+
+const effectiveDate = computed(() => {
+  const v = evidence.value?.meta.effective_date
+  return typeof v === 'string' ? v : null
+})
 </script>
 
 <template>
-  <main class="page">
-    <header class="page-head">
-      <span class="muted">근거 ID {{ evidenceId }}</span>
-      <h1>근거 자료 상세</h1>
+  <div class="evidence-page">
+    <header class="ev-header">
+      <div>
+        <nav class="crumbs muted" aria-label="위치">NegoPilot / 협력사 / 근거 자료</nav>
+        <h1>근거 자료 상세</h1>
+      </div>
+      <RouterLink :to="backPath" class="btn btn-outline-primary back">← 원래 화면으로 돌아가기</RouterLink>
     </header>
 
-    <p v-if="loading" aria-live="polite">근거 자료를 불러오는 중…</p>
+    <main class="ev-body">
+      <p v-if="loading" aria-live="polite">근거 자료를 불러오는 중…</p>
 
-    <section v-else-if="error" class="panel">
-      <ErrorNotice
-        :error="error"
-        :message="
-          isApiError(error, 'CONVERSATION_NOT_FOUND')
-            ? '대화가 만료됐거나 없는 대화입니다. 서버를 다시 시작하면 대화 기록이 사라집니다.'
-            : null
-        "
-        :retry="load"
-      />
-    </section>
+      <section v-else-if="error" class="panel">
+        <ErrorNotice
+          :error="error"
+          :message="
+            isApiError(error, 'CONVERSATION_NOT_FOUND')
+              ? '대화가 만료됐거나 없는 대화입니다. 서버를 다시 시작하면 대화 기록이 사라집니다.'
+              : null
+          "
+          :retry="load"
+        />
+      </section>
 
-    <section v-else-if="notFound" class="panel panel-body">
-      이 대화에서 해당 근거를 찾을 수 없습니다.
-      <RouterLink :to="{ name: 'chat', params: { conversationId } }">대화로 돌아가기</RouterLink>
-    </section>
+      <section v-else-if="notFound" class="panel panel-pad">이 대화에서 해당 근거를 찾을 수 없습니다.</section>
 
-    <template v-else-if="evidence && supplier">
-      <section class="panel" aria-labelledby="ev-source">
-        <div class="panel-head"><h2 id="ev-source">출처</h2></div>
-        <dl class="kv panel-body">
-          <div><dt>도구</dt><dd>{{ evidence.server }} · {{ evidence.tool }}</dd></div>
-          <div><dt>협력사</dt><dd>{{ supplier.name }} ({{ evidence.supplier_id }})</dd></div>
+      <template v-else-if="response && evidence">
+        <section class="panel panel-pad source-card" aria-labelledby="ev-title">
           <div>
-            <dt>데이터</dt>
-            <dd>{{ evidence.source === 'stub' && !evidence.executed ? '테스트 데이터 (도구를 실행하지 않음)' : '도구 실행 결과' }}</dd>
+            <h2 id="ev-title">AI 답변의 출처: {{ evidenceKindLabel(evidence) }}</h2>
+            <p class="ev-sub">
+              {{ supplier?.name ?? evidence.label }}
+              <template v-if="supplier"> · {{ supplier.supplier_id }}</template>
+              <template v-if="rfq"> · {{ rfq }}</template>
+            </p>
+            <span class="badge">{{ stub ? 'MOCK · 시연 데이터' : '실제 조회 결과' }}</span>
           </div>
-          <div><dt>기준</dt><dd>{{ fromAnswer ? '답변에 쓰인 시점의 데이터' : '지금 다시 조회한 데이터' }}</dd></div>
-        </dl>
-      </section>
+          <p v-if="toolCall" class="tool muted">근거 도구 {{ toolSignature(toolCall) }}</p>
+        </section>
 
-      <section v-if="question || answer" class="panel" aria-labelledby="ev-qa">
-        <div class="panel-head"><h2 id="ev-qa">이 근거를 쓴 답변</h2></div>
-        <div class="panel-body qa">
-          <p v-if="question"><span class="muted">질문</span><br />{{ question }}</p>
-          <p v-if="answer"><span class="muted">답변</span><br />{{ answer }}</p>
-          <RouterLink :to="{ name: 'chat', params: { conversationId } }">대화로 이동</RouterLink>
+        <div class="ev-grid">
+          <section class="panel panel-pad" aria-labelledby="raw-h">
+            <div class="panel-title">
+              <div>
+                <h2 id="raw-h">원본 조회 데이터</h2>
+                <p class="sub">AI가 응답에 사용한 값을 필드 단위로 표시합니다.</p>
+              </div>
+            </div>
+
+            <template v-if="supplier">
+              <div class="kpi-row">
+                <div class="kpi">
+                  <div class="label">월 생산능력</div>
+                  <div class="value">{{ mainCapability ? `${formatInteger(mainCapability.monthly_capacity)}개` : NO_DATA }}</div>
+                </div>
+                <div class="kpi">
+                  <div class="label">불량률</div>
+                  <div class="value">{{ formatPpm(supplier.quality?.defect_ppm) }}</div>
+                </div>
+                <div class="kpi">
+                  <div class="label">납기 준수율</div>
+                  <div class="value">{{ formatPercent(supplier.quality?.on_time_delivery_rate) }}</div>
+                </div>
+              </div>
+              <h3 class="table-title">기업·생산·품질 데이터{{ stub ? ' (시연)' : '' }}</h3>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr><th>항목</th><th>조회값</th><th>출처</th><th>AI 답변 활용</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="r in supplierRows" :key="r.item">
+                      <td class="item">{{ r.item }}</td>
+                      <td>{{ r.value }}</td>
+                      <td>{{ r.source }}</td>
+                      <td>{{ r.use }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </template>
+
+            <template v-else>
+              <h3 class="table-title">{{ evidence.label }}</h3>
+              <pre class="raw-text">{{ evidence.text }}</pre>
+            </template>
+          </section>
+
+          <section class="panel panel-pad" aria-labelledby="used-h">
+            <h2 id="used-h" class="side-title">AI 답변에서 사용한 근거</h2>
+            <blockquote class="quote">
+              <span v-if="question" class="muted">질문: {{ question }}</span>
+              “{{ response.answer.text }}”
+            </blockquote>
+
+            <h3 class="side-sub">조회·출처 정보</h3>
+            <dl class="kv">
+              <dt>조회 도구</dt><dd>{{ toolCall?.tool ?? NO_DATA }}</dd>
+              <dt>데이터 출처</dt><dd>{{ stub ? 'MOCK (가상 샘플)' : evidence.source === 'law' ? '국가법령정보센터 원문 색인' : '업무 데이터베이스' }}</dd>
+              <dt>자료 성격</dt><dd>{{ evidence.source === 'law' ? '법령 조문' : '구조화된 기업 DB 필드' }}</dd>
+              <template v-if="effectiveDate"><dt>시행일</dt><dd>{{ effectiveDate }}</dd></template>
+              <dt>외부 원문 링크</dt>
+              <dd>
+                <a v-if="evidence.source_url" :href="evidence.source_url" target="_blank" rel="noopener noreferrer">원문 보기 ↗</a>
+                <template v-else>제공되지 않음</template>
+              </dd>
+              <dt>조회 대상</dt><dd>{{ target }}</dd>
+              <template v-if="citation"><dt>답변 인용 번호</dt><dd>[{{ citation.n }}]</dd></template>
+            </dl>
+          </section>
         </div>
-      </section>
 
-      <SupplierDetailPanel :supplier="supplier" />
-    </template>
-  </main>
+        <p class="info-bar" role="note">
+          ⓘ 이 화면은 AI 답변이 인용한 근거를 독립된 새 탭에서 확인하는 화면입니다.
+          {{ stub ? '지금은 테스트 데이터이며, 실제 서비스에서는 조회 응답과 공시·법령 원문을 연결합니다.' : '' }}
+        </p>
+      </template>
+    </main>
+  </div>
 </template>
 
 <style scoped>
-.page-head {
+.evidence-page {
+  min-height: 100vh;
+  background: var(--bg);
+}
+.ev-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 24px;
+  padding: 22px 32px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.crumbs {
+  margin-bottom: 6px;
+}
+.ev-header h1 {
+  font-size: 24px;
+}
+.back {
+  min-width: 240px;
+  justify-content: flex-start;
+}
+.ev-body {
+  max-width: 1440px;
+  padding: 24px 32px 40px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 16px;
 }
-.page-head h1 {
-  font-size: 20px;
+.source-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+.source-card h2 {
+  font-size: 17px;
+}
+.ev-sub {
+  margin: 6px 0 12px;
+  font-size: 13px;
+}
+.tool {
+  margin: 0;
+}
+.ev-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(280px, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.table-title {
+  font-size: 14px;
+  margin: 22px 0 10px;
+}
+.item {
+  font-weight: 600;
+}
+.raw-text {
+  margin: 0;
+  padding: 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+.side-title {
+  font-size: 16px;
+  margin-bottom: 14px;
+}
+.quote {
+  margin: 0;
+  padding: 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
+  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  white-space: pre-line;
+}
+.side-sub {
+  font-size: 14px;
+  margin: 20px 0 6px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
 }
 .kv {
   margin: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px 20px;
+  grid-template-columns: 120px 1fr;
+}
+.kv dt,
+.kv dd {
+  margin: 0;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
 }
 .kv dt {
-  font-size: 12px;
   color: var(--text-3);
 }
 .kv dd {
-  margin: 2px 0 0;
+  font-weight: 600;
 }
-.qa {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.qa p {
+.info-bar {
   margin: 0;
-  white-space: pre-line;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 12px;
+}
+@media (max-width: 900px) {
+  .ev-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>

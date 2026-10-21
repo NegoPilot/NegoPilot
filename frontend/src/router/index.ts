@@ -1,34 +1,38 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
+declare module 'vue-router' {
+  interface RouteMeta {
+    title?: string
+    /** 사이드바 없이 단독으로 그리는 화면 (새 탭) */
+    standalone?: boolean
+  }
+}
+
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: '/suppliers' },
     {
+      path: '/',
+      name: 'home',
+      component: () => import('@/views/HomeView.vue'),
+      meta: { title: '홈' },
+    },
+    {
+      // 검색 조건·선택 협력사·AI 패널 여부는 query에 둔다
       path: '/suppliers',
-      name: 'supplier-search',
-      component: () => import('@/views/SupplierSearchView.vue'),
-      meta: { title: '협력사 탐색' },
+      name: 'suppliers',
+      component: () => import('@/views/SupplierWorkspaceView.vue'),
+      meta: { title: '협력사' },
     },
     {
       path: '/suppliers/:supplierId',
-      name: 'supplier-detail',
-      component: () => import('@/views/SupplierDetailView.vue'),
-      props: true,
-      meta: { title: '협력사 상세' },
+      redirect: (to) => ({ name: 'suppliers', query: { selected: String(to.params.supplierId) } }),
     },
     {
-      path: '/chat',
-      name: 'chat-empty',
-      component: () => import('@/views/ChatView.vue'),
-      meta: { title: '협상 도우미' },
-    },
-    {
-      path: '/chat/:conversationId',
-      name: 'chat',
-      component: () => import('@/views/ChatView.vue'),
-      props: true,
-      meta: { title: '협상 도우미' },
+      path: '/review',
+      name: 'law-review',
+      component: () => import('@/views/LawReviewView.vue'),
+      meta: { title: '법규 검토' },
     },
     {
       // 새 탭에서 열리므로 URL만으로 대화를 다시 불러온다
@@ -36,7 +40,7 @@ export const router = createRouter({
       name: 'evidence-detail',
       component: () => import('@/views/EvidenceDetailView.vue'),
       props: true,
-      meta: { title: '근거 자료 상세' },
+      meta: { title: '근거 자료 상세', standalone: true },
     },
     {
       path: '/:pathMatch(.*)*',
@@ -45,10 +49,8 @@ export const router = createRouter({
       meta: { title: '페이지 없음' },
     },
   ],
-  scrollBehavior: () => ({ top: 0 }),
 })
 
 router.afterEach((to) => {
-  const title = typeof to.meta.title === 'string' ? to.meta.title : ''
-  document.title = title ? `${title} · NegoPilot` : 'NegoPilot'
+  document.title = to.meta.title ? `${to.meta.title} · NegoPilot` : 'NegoPilot'
 })
