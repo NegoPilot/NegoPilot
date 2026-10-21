@@ -1,7 +1,7 @@
 [project]
 name = "negopilot-shared"
 version = "0.1.0"
-description = "NegoPilot 컴포넌트 간 공용 계약: 쿼리 분해 결과 스키마와 intent 등록표"
+description = "NegoPilot 컴포넌트 간 공용 계약: 쿼리 분해·Routing 결과 스키마와 intent 등록표"
 authors = [
     { name = "dohyeong", email = "daniel010309@gmail.com" }
 ]

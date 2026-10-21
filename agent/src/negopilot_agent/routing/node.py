@@ -7,10 +7,9 @@
 
 from typing import NotRequired, TypedDict
 
-from negopilot_shared import DecompositionResult
+from negopilot_shared import DecompositionResult, RouteResult
 
 from negopilot_agent.routing.mcp_client import McpToolCaller
-from negopilot_agent.routing.results import RouteResult
 from negopilot_agent.routing.router import Router, ToolCaller
 
 

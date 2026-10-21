@@ -8,7 +8,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-from negopilot_agent.routing.results import ToolCall
+from negopilot_shared import ToolCall
 
 
 def _list(result: Any) -> list[dict]:
