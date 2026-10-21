@@ -1,0 +1,40 @@
+{
+  "note": "순위와 조문 조회는 서로 의존하지 않는다",
+  "query": "RFQ-2026-005 협력사 순위 보여 주고, 하도급법 제4조도 같이 보여 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "RFQ-2026-005 협력사 순위 보여 주고, 하도급법 제4조도 같이 보여 줘",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "RFQ-2026-005에 맞는 2차 협력사 순위",
+        "original_text": "RFQ-2026-005 협력사 순위",
+        "intent": "supplier_ranking",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "rfq_id": "RFQ-2026-005"
+        },
+        "inputs": [],
+        "depends_on": []
+      },
+      {
+        "id": "q2",
+        "question": "하도급거래 공정화에 관한 법률 제4조 조회",
+        "original_text": "하도급법 제4조",
+        "intent": "law_article",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "law": "subcontract_act",
+          "article_no": "제4조"
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

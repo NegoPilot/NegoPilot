@@ -166,7 +166,8 @@ def test_prompt_examples_follow_contract():
 
 
 def test_prompt_examples_do_not_leak_eval_fixtures():
-    fixture_queries = {json.loads(p.read_text(encoding="utf-8"))["query"] for p in FIXTURES}
+    validation = (FIXTURES[0].parent.parent / "validation").glob("*.json")
+    fixture_queries = {json.loads(p.read_text(encoding="utf-8"))["query"] for p in [*FIXTURES, *validation]}
     assert not fixture_queries & {ex["query"] for ex in EXAMPLES}
 
 

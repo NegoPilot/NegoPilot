@@ -1,0 +1,27 @@
+{
+  "note": "인상은 양수 price_change_pct. 숫자 협상안이 아니라 의무를 묻는 질문이라 law_check",
+  "query": "하도급법상 협력사가 단가 3% 인상을 요청하면 꼭 협의해야 해?",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "하도급법상 협력사가 단가 3% 인상을 요청하면 꼭 협의해야 해?",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "수급사업자가 하도급대금 3% 증액을 신청할 때 원사업자의 협의 의무",
+        "original_text": "협력사가 단가 3% 인상을 요청하면 꼭 협의해야 해?",
+        "intent": "law_check",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "law": "subcontract_act",
+          "price_change_pct": 3
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}
