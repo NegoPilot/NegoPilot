@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Explicit HTTP smoke test for the local Compose stack (stdlib only).
 
-Initial mode creates one test member and one conversation. It never refreshes
-external laws or changes containers. Verification mode logs in again and checks
-the saved state after a Compose down/up. State includes a test password and is
-written with mode 0600. No passwords, CSRF tokens or cookies are printed.
+Initial mode checks the preapproved local USER and creates one signup member.
+It stores a follow-up conversation for each member and checks their isolation.
+It never refreshes external laws or changes containers. Verification mode logs
+in with the originally saved credentials and checks both histories after a
+Compose down/up. State includes test passwords and is written with mode 0600.
+No passwords, CSRF tokens or cookies are printed.
 
     python3 scripts/integration/compose_smoke.py --state /tmp/compose-smoke.json
     docker compose down && docker compose up -d --wait
@@ -36,6 +38,7 @@ CONVERSATIONS = "/api/v2/conversations"
 CATALOG = "/api/v2/business/catalog"
 AMBIGUOUS_QUERY = "해솔에 대해 알려줘"
 FOLLOWUP_QUERY = "첫 번째"
+STATE_VERSION = 2
 
 
 class SmokeFailure(Exception):
@@ -119,7 +122,8 @@ def reserve_state(path: Path) -> None:
     except FileExistsError:
         raise SmokeFailure("State path already exists. Use --verify-state or choose a new path.") from None
     with os.fdopen(fd, "w", encoding="utf-8") as stream:
-        stream.write('{"format_version":1,"phase":"started"}\n')
+        json.dump({"format_version": STATE_VERSION, "phase": "started"}, stream)
+        stream.write("\n")
 
 
 def save_state(path: Path, state: dict) -> None:
@@ -142,10 +146,12 @@ def load_state(path: Path) -> dict:
     require(stat.S_ISREG(mode) and stat.S_IMODE(mode) == 0o600,
             "State must be a regular private file with permissions 0600")
     state = json.loads(path.read_text(encoding="utf-8"))
-    require(state.get("format_version") == 1 and state.get("phase") == "complete", "Initial smoke did not complete")
-    uuid.UUID(state["conversation_id"])
-    for entry in state["responses"]:
-        uuid.UUID(entry["response_id"])
+    require(state.get("format_version") == STATE_VERSION and state.get("phase") == "complete",
+            "State must come from a completed two-user smoke")
+    for chat in (state, state["default_chat"]):
+        uuid.UUID(chat["conversation_id"])
+        for entry in chat["responses"]:
+            uuid.UUID(entry["response_id"])
     return state
 
 
@@ -199,6 +205,73 @@ def persisted_snapshot(client: Client, state: dict) -> dict:
     return snapshot
 
 
+def assert_regular_user(client: Client) -> None:
+    denied = client.request("GET", "/api/v1/admin/members", status=403)
+    require(denied["error"]["code"] == "FORBIDDEN", "Regular user gained admin access")
+
+
+def assert_chat_inaccessible(client: Client, chat: dict) -> None:
+    path = CONVERSATIONS + "/" + chat["conversation_id"]
+    for suffix in ("", "/messages", "/responses/" + chat["responses"][0]["response_id"]):
+        denied = client.request("GET", path + suffix, status=404)
+        require(denied["error"]["code"] == "CONVERSATION_NOT_FOUND", "Another member could read private chat")
+    listing = client.request("GET", CONVERSATIONS + "?size=100")
+    require(all(item["conversation_id"] != chat["conversation_id"] for item in listing["items"]),
+            "Conversation list exposed another member's chat")
+
+
+def create_followup_chat(user: Client, title: str) -> dict:
+    conversation = user.request("POST", CONVERSATIONS, {"context": {"selected_supplier_ids": []}}, status=201)
+    require(conversation["storage"] == "database" and conversation["message_count"] == 0, "New conversation storage differs")
+    chat = {"conversation_id": conversation["conversation_id"]}
+    conversation_path = CONVERSATIONS + "/" + chat["conversation_id"]
+    responses = []
+    for query, expected_status, expected_kind in [(AMBIGUOUS_QUERY, "NEEDS_INPUT", "clarify"),
+                                                   (FOLLOWUP_QUERY, "COMPLETED", "answer")]:
+        result = user.request("POST", conversation_path + "/messages", {"query": query},
+                              headers={"Idempotency-Key": str(uuid.uuid4())})
+        require((result["schema_version"], result["mode"]) == ("0.3", "stub"), "Chat must use deterministic stub mode")
+        require(result["execution_status"] == expected_status and result["answer"]["kind"] == expected_kind,
+                "Clarification or numbered follow-up status differs")
+        require(result["generation_status"] == "COMPLETED" and bool(result["answer"]["text"].strip()), "Answer is incomplete")
+        require(result["conversation_id"] == chat["conversation_id"], "Answer conversation ID differs")
+        responses.append({"query": query, "response_id": result["response_id"], "response": result})
+    options = responses[0]["response"]["answer"]["options"]
+    require(len(options) == 2, "Ambiguous question must provide two choices")
+    match = re.search(r"SUP-[0-9]+", options[0])
+    require(match is not None, "First choice has no supplier ID")
+    followup = responses[1]["response"]
+    calls = [call for outcome in followup["routing"]["outcomes"] for call in outcome["calls"]]
+    require(any(call["tool"] == "get_supplier" and call["args"].get("supplier") == match.group()
+                and call["error"] is None for call in calls), "Follow-up did not resolve the first stored choice")
+    require(followup["decomposition"]["original_query"] == FOLLOWUP_QUERY, "Follow-up original query changed")
+    chat["responses"] = responses
+    persisted_snapshot(user, chat)
+    renamed = user.request("PATCH", conversation_path, {"title": title})
+    require(renamed["title"] == title and renamed["message_count"] == 4, "Conversation rename failed")
+    chat.update(title=title, messages=renamed["messages"])
+    return chat
+
+
+def login_saved_user(base_url: str, saved_user: dict) -> Client:
+    client = Client(base_url)
+    # Always use the first run's credentials. Bootstrap overrides must not change an existing account.
+    member = client.login(saved_user["email"], saved_user["password"])
+    require((member["id"], member["role"], member["status"]) == (saved_user["id"], "USER", "ACTIVE"),
+            "Member did not persist after restart")
+    assert_regular_user(client)
+    return client
+
+
+def verify_saved_chat(client: Client, chat: dict) -> None:
+    snapshot = persisted_snapshot(client, chat)
+    require(snapshot["title"] == chat["title"] and snapshot["messages"] == chat["messages"],
+            "Saved title or complete messages changed after restart")
+    listing = client.request("GET", CONVERSATIONS + "?size=100")
+    require(listing["storage"] == "database" and any(item["conversation_id"] == chat["conversation_id"]
+            and item["title"] == chat["title"] for item in listing["items"]), "Conversation list lost saved chat")
+
+
 def initial(base_url: str, path: Path) -> None:
     reserve_state(path)
     anonymous = Client(base_url)
@@ -214,6 +287,20 @@ def initial(base_url: str, path: Path) -> None:
     require("item" in jobs, "Law refresh-job read response is incomplete")
 
     run_id = uuid.uuid4().hex
+    default_user_data = {"email": os.getenv("LOCAL_USER_EMAIL", "user@negopilot.local"),
+                         "password": os.getenv("LOCAL_USER_PASSWORD", "LocalUser2026!")}
+    default_user = Client(base_url)
+    default_member = default_user.login(default_user_data["email"], default_user_data["password"])
+    require((default_member["role"], default_member["status"]) == ("USER", "ACTIVE"),
+            "Default local USER must be active without approval")
+    assert_regular_user(default_user)
+    live_lookup(default_user)
+    default_chat = create_followup_chat(default_user, "Compose 기본 사용자 검증 " + run_id[:8])
+    state = {"format_version": STATE_VERSION, "phase": "default_user_verified", "created_at": timestamp(),
+             "base_url": base_url, "default_user": default_user_data | {"id": default_member["id"]},
+             "default_chat": default_chat, "lookup_supplier_id": supplier_id}
+    save_state(path, state)
+
     user_data = {"email": f"compose-smoke-{run_id}@example.test", "password": "Smoke1!" + secrets.token_urlsafe(20)}
     user = Client(base_url)
     user.refresh_csrf()
@@ -221,8 +308,8 @@ def initial(base_url: str, path: Path) -> None:
         "name": "Compose 검증 회원", "department": "개발검증", "job_title": "테스트",
     }, status=201)["user"]
     require((member["role"], member["status"]) == ("USER", "PENDING"), "Signup must create a pending user")
-    state = {"format_version": 1, "phase": "registered", "created_at": timestamp(), "base_url": base_url,
-             "user": user_data | {"id": member["id"]}, "lookup_supplier_id": supplier_id}
+    require(member["id"] != default_member["id"], "Signup and default user identities must differ")
+    state.update(phase="registered", user=user_data | {"id": member["id"]})
     save_state(path, state)
     require(user.login(user_data["email"], user_data["password"])["status"] == "PENDING", "Pending login failed")
     denied = user.request("GET", CATALOG, status=403)
@@ -231,74 +318,43 @@ def initial(base_url: str, path: Path) -> None:
     require(approved["user"]["status"] == "ACTIVE", "Admin approval failed")
     live_lookup(user)  # The existing pending session must immediately gain active access.
     user.refresh_csrf()
-    denied = user.request("GET", "/api/v1/admin/members", status=403)
-    require(denied["error"]["code"] == "FORBIDDEN", "Regular user gained admin access")
-
-    conversation = user.request("POST", CONVERSATIONS, {"context": {"selected_supplier_ids": []}}, status=201)
-    require(conversation["storage"] == "database" and conversation["message_count"] == 0, "New conversation storage differs")
-    state["conversation_id"] = conversation["conversation_id"]
-    conversation_path = CONVERSATIONS + "/" + state["conversation_id"]
-    responses = []
-    for query, expected_status, expected_kind in [(AMBIGUOUS_QUERY, "NEEDS_INPUT", "clarify"),
-                                                   (FOLLOWUP_QUERY, "COMPLETED", "answer")]:
-        result = user.request("POST", conversation_path + "/messages", {"query": query},
-                              headers={"Idempotency-Key": str(uuid.uuid4())})
-        require((result["schema_version"], result["mode"]) == ("0.3", "stub"), "Chat must use deterministic stub mode")
-        require(result["execution_status"] == expected_status and result["answer"]["kind"] == expected_kind,
-                "Clarification or numbered follow-up status differs")
-        require(result["generation_status"] == "COMPLETED" and bool(result["answer"]["text"].strip()), "Answer is incomplete")
-        require(result["conversation_id"] == state["conversation_id"], "Answer conversation ID differs")
-        responses.append({"query": query, "response_id": result["response_id"], "response": result})
-    options = responses[0]["response"]["answer"]["options"]
-    require(len(options) == 2, "Ambiguous question must provide two choices")
-    match = re.search(r"SUP-[0-9]+", options[0])
-    require(match is not None, "First choice has no supplier ID")
-    followup = responses[1]["response"]
-    calls = [call for outcome in followup["routing"]["outcomes"] for call in outcome["calls"]]
-    require(any(call["tool"] == "get_supplier" and call["args"].get("supplier") == match.group()
-                and call["error"] is None for call in calls), "Follow-up did not resolve the first stored choice")
-    require(followup["decomposition"]["original_query"] == FOLLOWUP_QUERY, "Follow-up original query changed")
-    state["responses"] = responses
-    persisted_snapshot(user, state)
-    for suffix in ("", "/messages", "/responses/" + responses[0]["response_id"]):
-        denied = admin.request("GET", conversation_path + suffix, status=404)
-        require(denied["error"]["code"] == "CONVERSATION_NOT_FOUND", "Admin could read another user's chat")
-    state["title"] = "Compose 재시작 검증 " + run_id[:8]
-    renamed = user.request("PATCH", conversation_path, {"title": state["title"]})
-    require(renamed["title"] == state["title"] and renamed["message_count"] == 4, "Conversation rename failed")
-    state["messages"] = renamed["messages"]
+    assert_regular_user(user)
+    state.update(create_followup_chat(user, "Compose 재시작 검증 " + run_id[:8]))
+    require(state["conversation_id"] != default_chat["conversation_id"], "Members must have distinct conversations")
+    assert_chat_inaccessible(default_user, state)
+    assert_chat_inaccessible(user, default_chat)
+    assert_chat_inaccessible(admin, state)
+    assert_chat_inaccessible(admin, default_chat)
     user.logout()
+    default_user.logout()
     admin.logout()
     state.update(phase="complete", completed_at=timestamp())
     save_state(path, state)
-    print("PASS compose smoke: auth, approval, live lookup, law reads, stub follow-up, ownership, persistence, logout")
+    print("PASS compose smoke: default USER, signup/approval, live lookup, law reads, two stored follow-up chats, isolation, logout")
 
 
 def verify(base_url: str, path: Path) -> None:
     state = load_state(path)
     admin = admin_login(base_url)
-    user = Client(base_url)
-    member = user.login(state["user"]["email"], state["user"]["password"])
-    require((member["id"], member["role"], member["status"]) == (state["user"]["id"], "USER", "ACTIVE"),
-            "Member did not persist after restart")
-    snapshot = persisted_snapshot(user, state)
-    require(snapshot["title"] == state["title"] and snapshot["messages"] == state["messages"],
-            "Saved title or complete messages changed after restart")
-    listing = user.request("GET", CONVERSATIONS + "?size=100")
-    require(listing["storage"] == "database" and any(item["conversation_id"] == state["conversation_id"]
-            and item["title"] == state["title"] for item in listing["items"]), "Conversation list lost saved chat")
-    denied = admin.request("GET", CONVERSATIONS + "/" + state["conversation_id"], status=404)
-    require(denied["error"]["code"] == "CONVERSATION_NOT_FOUND", "Restart changed conversation ownership")
+    default_user = login_saved_user(base_url, state["default_user"])
+    user = login_saved_user(base_url, state["user"])
+    verify_saved_chat(default_user, state["default_chat"])
+    verify_saved_chat(user, state)
+    assert_chat_inaccessible(default_user, state)
+    assert_chat_inaccessible(user, state["default_chat"])
+    assert_chat_inaccessible(admin, state)
+    assert_chat_inaccessible(admin, state["default_chat"])
     user.logout()
+    default_user.logout()
     admin.logout()
-    print("PASS compose restart verification: admin login, member, four messages, full answers, title, ownership")
+    print("PASS compose restart verification: original credentials, both USER IDs, eight messages, full answers, titles, isolation")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--base-url", default="http://127.0.0.1:5173")
     mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--state", type=Path, help="Create a test member/chat and write a new private state file")
+    mode.add_argument("--state", type=Path, help="Check the default USER, create a signup member and save two chats privately")
     mode.add_argument("--verify-state", type=Path, help="Check a completed state file after Compose restart")
     args = parser.parse_args()
     try:

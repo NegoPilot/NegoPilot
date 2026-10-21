@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
+import { openAssistant, setAssistantConversation } from '@/stores/assistant'
 import { ensureSession, session } from '@/stores/session'
 
 declare module 'vue-router' {
@@ -16,7 +17,16 @@ export const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', redirect: { name: 'chat' } },
-    { path: '/chat/:conversationId?', name: 'chat', component: () => import('@/views/ChatView.vue'), meta: { title: 'AI 대화' } },
+    {
+      // AI 대화는 별도 화면 없이 오른쪽 패널로 연다. 예전 대화 링크와 홈 질문은 홈 위에 패널을 띄운다
+      path: '/chat/:conversationId?',
+      name: 'chat',
+      redirect: (to) => {
+        if (typeof to.params.conversationId === 'string') setAssistantConversation(to.params.conversationId)
+        openAssistant(typeof to.query.q === 'string' ? to.query.q : '')
+        return { name: 'home' }
+      },
+    },
     {
       path: '/overview',
       name: 'home',

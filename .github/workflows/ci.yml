@@ -125,6 +125,7 @@ jobs:
           }
           required = {
               "com.negopilot.backend.AuthMembershipPostgresTest",
+              "com.negopilot.backend.AuthBootstrapLocalUserPostgresTest",
               "com.negopilot.backend.PersistentConversationServiceTest",
               "com.negopilot.backend.AdminSupplierPostgresTest",
           }
@@ -170,12 +171,14 @@ jobs:
       - run: docker compose config --quiet
       - name: Build and start the full local stack
         run: docker compose up --build -d --wait --wait-timeout 180
-      - name: Verify signup, approval, MCP lookup and stored follow-up chat
+      - name: Verify default user, signup approval, MCP lookup and isolated follow-up chats
         run: python3 scripts/integration/compose_smoke.py --state /tmp/negopilot-compose-state.json
       - name: Recreate containers while retaining volumes
         run: |
           docker compose down
-          LOCAL_ADMIN_PASSWORD=MustNotReplace2026! docker compose up -d --wait --wait-timeout 180
+          LOCAL_ADMIN_PASSWORD=MustNotReplace2026! \
+          LOCAL_USER_PASSWORD=MustNotReplaceUser2026! \
+            docker compose up -d --wait --wait-timeout 180
       - name: Verify original credentials and persistent data
         run: python3 scripts/integration/compose_smoke.py --verify-state /tmp/negopilot-compose-state.json
       - name: Print service diagnostics on failure

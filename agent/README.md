@@ -480,3 +480,40 @@ Ollama 호출에는 OpenAI 또는 Anthropic 키를 전달하지 않습니다. �
 `OLLAMA_TIMEOUT_SECONDS`는 전체 Agent 실행 제한을 늘리지 않습니다. 로컬 모델의 속도에 맞춰 `AGENT_REQUEST_TIMEOUT_SECONDS`와 Spring 및 프런트의 제한 시간을 별도로 정렬해야 합니다. 이 설정은 프롬프트나 모델 가중치를 바꾸지 않으며 답변 품질을 보장하지 않습니다.
 
 `tests/test_ollama_backend.py`는 실제 모델 호출 없이 native 요청 스키마와 옵션 및 v1/v2 선택과 클라이언트 종료 및 503/504 처리와 자동 재시도 부재를 검사합니다.
+
+## 전체 그래프 품질·토큰·시간 평가
+
+`eval_generation.py`는 저장된 Routing으로 생성만 평가합니다. `eval_pipeline.py`는
+Generation 개발 11개/검증 12개의 질문과 정답을 재사용하지만, 실제 분해부터 MCP 조회와
+생성까지 새로 실행하고 최종 답변을 채점합니다. DB·MCP 서버와 모델 키가 필요하며
+모델 및 채점 호출 비용이 발생합니다. 검증 세트는 점수 확인에만 사용합니다.
+
+```bash
+# agent 폴더에서 실행. 서버 준비는 위 실행 안내 참고
+uv run python scripts/eval_pipeline.py --set dev --limit 3 --repeat 3
+uv run python scripts/eval_pipeline.py --set validation --repeat 3
+# 추가 채점 비용 없이 답변 종류·필수 근거·토큰·시간만 기록
+uv run python scripts/eval_pipeline.py --set dev --limit 3 --no-judge
+```
+
+결과는 `eval_results/pipeline-*.json`에 질문마다 저장됩니다. `rows`에는 실제 분해·Routing·
+전체 답변(인용·검증 포함), 필수 근거 포함, 재생성·가림, 토큰과 시간 기록이 있습니다.
+`summary.agent`와 `summary.judge`는 토큰·호출 수·시간을 분리합니다. Agent 시간에는
+채점 시간을 포함하지 않으며, 금액 비용은 산출하지 않습니다. 실패 호출의 기록도 보존합니다.
+
+`point_coverage`는 모든 정답 포인트를 채점한 경우에만 값이 나옵니다. 채점 생략/오류가
+있으면 null이며, `scored_points`와 `expected_points`로 평가 범위를 확인합니다.
+`point_coverage_lower_bound`는 미채점과 실행 실패를 0점으로 둔 하한입니다.
+답변 종류가 틀린 경우 포인트는 0점입니다. 생성 모델과 같은 모델로 채점할 수 있으므로
+중요한 법령 답변은 사람이 별도로 확인해야 합니다.
+
+현재 평가는 단일 질문 기준입니다. 대화 이력과 동시 사용자 부하는 포함하지 않습니다.
+기업 데이터가 바뀌면 기업별 정답과 저장된 기준 데이터도 별도로 검토해야 합니다.
+
+실행 전 business DB의 관리 스키마도 준비해야 합니다. 기존 DB에서 `status` 또는
+`certification_source` 열이 없다는 오류가 나면 평가를 멈추고 DB를 백업한 뒤
+[`migrate_management.py`](../mcp-servers/business-mcp/scripts/migrate_management.py)를
+스키마 변경 계정의 명시적인 `DATABASE_URL`로 실행합니다. 기존 DB에서는 seed를 다시
+실행하지 않습니다. 자세한 절차는 [business-mcp SETUP](../mcp-servers/business-mcp/SETUP.md)을
+따릅니다. 적용 후 MCP의 `get_supplier`, `rank_suppliers`가 성공하는지 확인하고 평가합니다.
+`summary.tool_errors`는 그래프가 오류를 처리해 응답을 돌려준 경우에도 도구 오류를 셉니다.

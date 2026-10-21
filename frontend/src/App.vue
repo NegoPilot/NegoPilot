@@ -2,9 +2,17 @@
 import { computed, ref } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 
+import AiAssistantPanel from '@/components/AiAssistantPanel.vue'
 import AdminLayout from '@/layouts/AdminLayout.vue'
 import PublicLayout from '@/layouts/PublicLayout.vue'
 import { describeError } from '@/utils/errors'
+import {
+  assistantConversationId,
+  assistantOpen,
+  assistantQuestion,
+  closeAssistant,
+  setAssistantConversation,
+} from '@/stores/assistant'
 import { session, signOut } from '@/stores/session'
 
 const route = useRoute()
@@ -29,7 +37,6 @@ const standalone = computed(() => route.meta.standalone === true)
         <span class="brand-name">NegoPilot</span>
         <span class="brand-team">{{ session?.department ?? '구매 업무 도우미' }}</span>
       </div>
-      <RouterLink to="/chat" class="nav-item" active-class="on">✦ AI 대화</RouterLink>
       <RouterLink to="/overview" class="nav-item" exact-active-class="on">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
           <path d="M2 7.2L8 2l6 5.2V14h-4v-4H6v4H2z" />
@@ -57,6 +64,17 @@ const standalone = computed(() => route.meta.standalone === true)
     </nav>
     <div class="content">
       <RouterView />
+    </div>
+    <div v-if="assistantOpen" class="ai-drawer">
+      <AiAssistantPanel
+        :initial-question="assistantQuestion"
+        :rfq="null"
+        :conversation-id="assistantConversationId"
+        :back-path="route.fullPath"
+        closable
+        @open="setAssistantConversation"
+        @close="closeAssistant"
+      />
     </div>
   </div>
 </template>
@@ -139,6 +157,23 @@ const standalone = computed(() => route.meta.standalone === true)
   flex: 999 1 640px;
   min-width: 0;
   background: var(--bg);
+}
+/* 보고 있는 화면 위 오른쪽에 띄운다. 페이지는 그대로 둔다 */
+.ai-drawer {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 50;
+  display: flex;
+  width: min(420px, calc(100vw - 32px));
+  box-shadow: 0 8px 28px rgba(30, 50, 90, 0.22);
+}
+.ai-drawer :deep(.ai-panel) {
+  position: static;
+  flex: 1;
+  min-height: 0;
+  max-height: none;
 }
 @media (max-width: 760px) {
   .sidebar {

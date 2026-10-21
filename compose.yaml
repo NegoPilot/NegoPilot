@@ -46,6 +46,25 @@ services:
         condition: service_healthy
     restart: "no"
 
+  user-bootstrap:
+    build: *backend-build
+    image: ${COMPOSE_PROJECT_NAME:-negopilot-local}-backend:local
+    environment:
+      <<: *app-environment
+      LOCAL_USER_EMAIL: ${LOCAL_USER_EMAIL:-user@negopilot.local}
+      LOCAL_USER_PASSWORD: ${LOCAL_USER_PASSWORD:-LocalUser2026!}
+    command:
+      - -Dloader.main=com.negopilot.backend.AuthBootstrapLocalUser
+      - -cp
+      - /app/app.jar
+      - org.springframework.boot.loader.launch.PropertiesLauncher
+    depends_on:
+      postgres:
+        condition: service_healthy
+      admin-bootstrap:
+        condition: service_completed_successfully
+    restart: "no"
+
   business-mcp:
     build:
       context: .
@@ -124,6 +143,8 @@ services:
       postgres:
         condition: service_healthy
       admin-bootstrap:
+        condition: service_completed_successfully
+      user-bootstrap:
         condition: service_completed_successfully
       agent:
         condition: service_healthy
