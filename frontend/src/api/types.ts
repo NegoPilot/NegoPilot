@@ -77,6 +77,8 @@ export interface SupplierDetail {
   name: string
   region: string
   iatf16949: boolean
+  // 계약(v0.2)에는 아직 없다. live get_supplier 근거(DB supplier_overview)에는 들어 있다
+  iso14001?: boolean
   capabilities: Capability[]
   quality: Quality
   financials: Financial[]
@@ -91,7 +93,8 @@ export interface SupplierSearchParams {
   material?: string
   region?: string
   iatf_required?: boolean
-  // 계약 변경(#43) 전까지 Spring이 400으로 거절한다
+  // 아래 두 조건은 계약 변경(#43, #53) 전까지 Spring이 400으로 거절한다
+  iso14001_required?: boolean
   min_monthly_capacity?: number
   limit?: number
 }

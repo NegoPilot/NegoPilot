@@ -12,6 +12,7 @@ export async function searchSuppliers(params: SupplierSearchParams): Promise<Sup
   if (params.region) query.set('region', params.region)
   // 계약상 false는 '인증 여부 전체'라 체크했을 때만 보낸다
   if (params.iatf_required) query.set('iatf_required', 'true')
+  if (params.iso14001_required) query.set('iso14001_required', 'true')
   if (params.min_monthly_capacity !== undefined) query.set('min_monthly_capacity', String(params.min_monthly_capacity))
   if (params.limit !== undefined) query.set('limit', String(params.limit))
   const res = await request<Envelope<SupplierList>>(`/api/v1/suppliers?${query.toString()}`)

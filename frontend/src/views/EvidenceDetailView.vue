@@ -9,11 +9,13 @@ import { isApiError } from '@/utils/errors'
 import {
   evidenceKindLabel,
   findToolCall,
+  isHttpUrl,
   isStubResponse,
+  parseEvidenceFields,
   parseSupplierEvidence,
   toolSignature,
 } from '@/utils/evidence'
-import { NO_DATA, formatInteger, formatKrw, formatPercent, formatPpm } from '@/utils/format'
+import { NO_DATA, formatHeld, formatInteger, formatKrw, formatPercent, formatPpm } from '@/utils/format'
 import { provenanceLabel } from '@/utils/provenance'
 
 // 새 탭에서 열리므로 메모리 상태 없이 URL만으로 대화를 다시 불러온다
@@ -97,15 +99,20 @@ const supplierRows = computed(() => {
     { item: '협력사 ID', value: s.supplier_id, source: profile, use: '대상 식별' },
     { item: '공정 / 소재', value: mainCapability.value ? `${mainCapability.value.process} / ${mainCapability.value.material}` : NO_DATA, source: operations, use: 'RFQ 조건 비교' },
     { item: '월 생산능력', value: mainCapability.value ? `${formatInteger(mainCapability.value.monthly_capacity)}개` : NO_DATA, source: operations, use: '공급능력 근거' },
-    { item: '인증', value: s.iatf16949 ? 'IATF 16949' : '인증 없음', source: profile, use: '필수 인증 확인' },
+    { item: 'IATF 16949', value: formatHeld(s.iatf16949), source: profile, use: '필수 인증 확인' },
+    { item: 'ISO 14001', value: formatHeld(s.iso14001), source: profile, use: '환경 인증 확인' },
     { item: '불량률', value: formatPpm(s.quality?.defect_ppm), source: operations, use: '품질 비교' },
     { item: '납기 준수율', value: formatPercent(s.quality?.on_time_delivery_rate), source: operations, use: '납기 평가' },
     { item: '최근 견적', value: latestQuote.value ? formatKrw(latestQuote.value.unit_price_krw) : NO_DATA, source: operations, use: '가격 비교' },
   ]
 })
 
+const fieldRows = computed(() => (evidence.value && !supplier.value ? parseEvidenceFields(evidence.value) : null))
+
 const target = computed(() => {
   if (supplier.value) return supplier.value.supplier_id
+  const supplierId = evidence.value?.meta.supplier_id
+  if (typeof supplierId === 'string') return supplierId
   const article = evidence.value?.meta.article_no
   return typeof article === 'string' ? article : evidence.value?.label ?? NO_DATA
 })
@@ -199,6 +206,23 @@ const effectiveDate = computed(() => {
               </div>
             </template>
 
+            <template v-else-if="fieldRows">
+              <h3 class="table-title">{{ evidence.label }}{{ stub ? ' (시연)' : '' }}</h3>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr><th>항목</th><th>조회값</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="r in fieldRows" :key="r.key">
+                      <td class="item">{{ r.label }}</td>
+                      <td>{{ r.value }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </template>
+
             <template v-else>
               <h3 class="table-title">{{ evidence.label }}</h3>
               <pre class="raw-text">{{ evidence.text }}</pre>
@@ -220,7 +244,7 @@ const effectiveDate = computed(() => {
               <template v-if="effectiveDate"><dt>시행일</dt><dd>{{ effectiveDate }}</dd></template>
               <dt>외부 원문 링크</dt>
               <dd>
-                <a v-if="evidence.source_url" :href="evidence.source_url" target="_blank" rel="noopener noreferrer">원문 보기 ↗</a>
+                <a v-if="isHttpUrl(evidence.source_url)" :href="evidence.source_url" target="_blank" rel="noopener noreferrer">원문 보기 ↗</a>
                 <template v-else>제공되지 않음</template>
               </dd>
               <dt>조회 대상</dt><dd>{{ target }}</dd>

@@ -55,6 +55,7 @@ const appliedChips = computed(() => {
   if (a.material) chips.push({ label: a.material, primary: false })
   if (a.region) chips.push({ label: a.region, primary: false })
   if (a.iatfRequired) chips.push({ label: 'IATF 16949', primary: false })
+  if (a.iso14001Required) chips.push({ label: 'ISO 14001', primary: false })
   const capacity = parsePositiveInteger(a.minMonthlyCapacity)
   if (capacity !== null) chips.push({ label: `월 ${formatInteger(capacity)}개 이상`, primary: false })
   if (props.rfq) chips.push({ label: props.rfq, primary: false })
@@ -120,13 +121,17 @@ function onReset() {
       <span v-if="catalogError" class="muted">지역 목록을 불러오지 못했습니다</span>
     </div>
 
-    <div class="field">
-      <span class="label">IATF 인증</span>
+    <fieldset class="field certs">
+      <legend class="label">인증</legend>
       <label class="checkbox">
         <input v-model="form.iatfRequired" type="checkbox" />
         IATF 16949 인증 보유
       </label>
-    </div>
+      <label class="checkbox">
+        <input v-model="form.iso14001Required" type="checkbox" />
+        ISO 14001 인증 보유
+      </label>
+    </fieldset>
 
     <div class="field">
       <label for="f-capacity">최소 월 생산능력</label>
@@ -177,6 +182,16 @@ function onReset() {
 }
 .required {
   color: var(--danger);
+}
+.certs {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.certs legend {
+  padding: 0;
+  margin-bottom: 6px;
 }
 .checkbox {
   display: inline-flex;

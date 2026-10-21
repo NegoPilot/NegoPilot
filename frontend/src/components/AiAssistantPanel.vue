@@ -20,20 +20,20 @@ const props = defineProps<{
 const emit = defineEmits<{ close: [] }>()
 const router = useRouter()
 
-// stub 모드에서 답할 수 있는 질문 (agent/src/negopilot_agent/api/generation_stubs.py, api/stubs.py)
+// stub 모드에서 답할 수 있는 질문 (docs/contracts/direct-chat.md 자동 검증 예시, agent/.../generation_stubs.py)
 const SUPPLIER_QUESTIONS = ['이 회사에 대해 알려줘', '이 회사의 재무 상태를 알려줘', '납기와 품질은 어때?']
-const GENERAL_QUESTIONS = ['하도급법 제4조 보여줘', '그 업체 괜찮아?']
+const GENERAL_QUESTIONS = ['부산 협력사 찾아줘', '해솔에 대해 알려줘', '하도급법상 대금 지급 기한은 며칠이야?', 'RFQ가 뭐야?']
 const QUERY_MAX = 4000
 
 interface PanelMessage {
   key: string
-  role: 'user' | 'assistant'
+  /** note: 대화 중 기준 협력사가 바뀌었다는 화면 안내 (서버에 저장하지 않음) */
+  role: 'user' | 'assistant' | 'note'
   text: string
   response?: GenerationResponse
 }
 
 const conversationId = ref<string | null>(null)
-const conversationSupplierId = ref<string | null>(null)
 const messages = ref<PanelMessage[]>([])
 const draft = ref(props.initialQuestion)
 const sending = ref(false)
@@ -47,20 +47,29 @@ watch(
   },
 )
 
-// 기업을 바꾸면 새 대화로 시작한다 (계약 기본 동작)
+// 협력사를 바꿔도 대화는 이어진다. 다음 메시지부터 바뀐 선택을 context로 보낸다 (direct-chat 계약)
 watch(
-  () => props.supplier?.id ?? null,
-  (id) => {
-    if (conversationId.value && id !== conversationSupplierId.value) {
-      conversationId.value = null
-      messages.value = []
-      error.value = null
-    }
+  () => props.supplier,
+  (next, prev) => {
+    if (!messages.value.length || next?.id === prev?.id) return
+    messages.value.push({
+      key: `n-${Date.now()}`,
+      role: 'note',
+      text: next ? `이제부터 ${next.name} 기준으로 답합니다.` : '선택한 협력사 없이 이어서 답합니다.',
+    })
+    scrollToEnd()
   },
 )
 
+/** 새 대화는 사용자가 직접 시작한다 */
+function newConversation() {
+  conversationId.value = null
+  messages.value = []
+  error.value = null
+}
+
 const suggestions = computed(() =>
-  messages.value.length ? [] : props.supplier ? [...SUPPLIER_QUESTIONS, ...GENERAL_QUESTIONS] : GENERAL_QUESTIONS,
+  messages.value.length ? [] : props.supplier ? [...SUPPLIER_QUESTIONS, ...GENERAL_QUESTIONS.slice(0, 2)] : GENERAL_QUESTIONS,
 )
 const canSend = computed(() => {
   const q = draft.value.trim()
@@ -91,9 +100,10 @@ async function send(text: string) {
     if (!conversationId.value) {
       const snapshot = await createConversation(props.supplier?.id ?? null)
       conversationId.value = snapshot.conversation_id
-      conversationSupplierId.value = props.supplier?.id ?? null
     }
-    const res = await sendMessage(conversationId.value, query)
+    const res = await sendMessage(conversationId.value, query, {
+      selected_supplier_ids: props.supplier ? [props.supplier.id] : [],
+    })
     messages.value.push({ key: res.response_id, role: 'assistant', text: res.answer.text, response: res })
   } catch (e) {
     // 실패하면 Spring도 저장하지 않으므로 질문을 입력창으로 되돌린다
@@ -153,20 +163,24 @@ function supplierSummary(res: GenerationResponse) {
         <h2 id="ai-h"><span aria-hidden="true">✦</span> AI 도우미</h2>
         <p class="muted">현재 선택: {{ supplier?.name ?? '선택한 협력사 없음' }}</p>
       </div>
-      <button class="close" type="button" aria-label="AI 도우미 닫기" @click="emit('close')">
+      <div class="head-actions">
+        <button v-if="messages.length" class="link-btn" type="button" :disabled="sending" @click="newConversation">새 대화</button>
+        <button class="close" type="button" aria-label="AI 도우미 닫기" @click="emit('close')">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
           <path d="M3.5 3.5l9 9M12.5 3.5l-9 9" />
         </svg>
-      </button>
+        </button>
+      </div>
     </header>
 
     <ol class="messages" aria-live="polite">
       <li v-if="!messages.length" class="empty muted">
-        {{ supplier ? '선택한 협력사에 대해 물어보세요.' : '협력사를 선택하면 그 기업에 대해 물어볼 수 있습니다.' }}
+        {{ supplier ? '선택한 협력사나 법령에 대해 물어보세요.' : '협력사를 고르지 않아도 기업 이름이나 지역, 법령으로 바로 물어볼 수 있습니다.' }}
       </li>
 
       <template v-for="m in messages" :key="m.key">
         <li v-if="m.role === 'user'" class="bubble">{{ m.text }}</li>
+        <li v-else-if="m.role === 'note'" class="note-line">{{ m.text }}</li>
 
         <li v-else-if="m.response" class="answer">
           <div class="who">
@@ -212,10 +226,6 @@ function supplierSummary(res: GenerationResponse) {
               <span class="sr-only">(새 탭에서 열림)</span>
             </a>
           </div>
-
-          <ul v-if="m.response.answer.notices.length" class="notices">
-            <li v-for="n in m.response.answer.notices" :key="n">※ {{ n }}</li>
-          </ul>
 
           <div v-if="m.response.answer.options.length" class="options" role="group" aria-label="이어서 고르기">
             <button v-for="o in m.response.answer.options" :key="o" class="option" type="button" :disabled="sending" @click="send(o)">
@@ -368,10 +378,13 @@ function supplierSummary(res: GenerationResponse) {
   border-color: var(--primary);
   background: var(--primary-soft);
 }
-.notices {
-  margin: 0;
-  padding: 0;
-  list-style: none;
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.note-line {
+  align-self: center;
   font-size: 11px;
   color: var(--text-3);
 }

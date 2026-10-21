@@ -38,14 +38,15 @@ const searchKey = computed(() => JSON.stringify(searchValuesToQuery(applied.valu
 const result = ref<SupplierList | null>(null)
 const loading = ref(false)
 const error = ref<unknown>(null)
-const sentCapacity = ref(false)
+// 아직 계약에 없는 조건을 보냈는지. 400이면 이 조건 때문이라고 안내한다
+const sentUnsupported = ref<string[]>([])
 // 결과 표의 불량률은 상세 조회로 채운다 (검색 결과 요약에는 품질 정보가 없다)
 const details = ref<Record<string, SupplierDetail | 'error'>>({})
 let latest = 0
 
 const errorMessage = computed(() =>
-  sentCapacity.value && isApiError(error.value, 'VALIDATION_ERROR')
-    ? '최소 월 생산능력 조건은 아직 서버에서 지원하지 않습니다. 이 조건을 비우고 다시 검색해 주세요.'
+  sentUnsupported.value.length && isApiError(error.value, 'VALIDATION_ERROR')
+    ? `${sentUnsupported.value.join('·')} 조건은 아직 서버에서 지원하지 않습니다. 이 조건을 빼고 다시 검색해 주세요.`
     : isApiError(error.value, 'DEMO_MODE_REQUIRED')
       ? '협력사 조회 API는 아직 테스트 모드(stub)에서만 동작합니다.'
       : null,
@@ -70,7 +71,10 @@ async function runSearch() {
   const id = ++latest
   loading.value = true
   error.value = null
-  sentCapacity.value = params.min_monthly_capacity !== undefined
+  sentUnsupported.value = [
+    params.iso14001_required ? 'ISO 14001' : '',
+    params.min_monthly_capacity !== undefined ? '최소 월 생산능력' : '',
+  ].filter(Boolean)
   try {
     const data = await searchSuppliers(params)
     if (id !== latest) return

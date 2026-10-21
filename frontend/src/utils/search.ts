@@ -10,10 +10,11 @@ export interface SearchFormValues {
   minMonthlyCapacity: string
   region: string
   iatfRequired: boolean
+  iso14001Required: boolean
 }
 
 export function emptySearchValues(): SearchFormValues {
-  return { process: '', material: '', minMonthlyCapacity: '', region: '', iatfRequired: false }
+  return { process: '', material: '', minMonthlyCapacity: '', region: '', iatfRequired: false, iso14001Required: false }
 }
 
 function first(value: LocationQueryValue | LocationQueryValue[] | undefined): string {
@@ -29,6 +30,7 @@ export function searchValuesFromQuery(query: LocationQuery): SearchFormValues {
     minMonthlyCapacity: first(query.min_capacity),
     region: first(query.region),
     iatfRequired: first(query.iatf) === '1',
+    iso14001Required: first(query.iso) === '1',
   }
 }
 
@@ -42,6 +44,7 @@ export function searchValuesToQuery(values: SearchFormValues): Record<string, st
   if (capacity !== null) query.min_capacity = String(capacity)
   if (values.region) query.region = values.region
   if (values.iatfRequired) query.iatf = '1'
+  if (values.iso14001Required) query.iso = '1'
   return query
 }
 
@@ -54,6 +57,7 @@ export function searchValuesToParams(values: SearchFormValues): SupplierSearchPa
   if (material) params.material = material
   if (values.region) params.region = values.region
   if (values.iatfRequired) params.iatf_required = true
+  if (values.iso14001Required) params.iso14001_required = true
   if (values.minMonthlyCapacity.trim()) {
     const capacity = parsePositiveInteger(values.minMonthlyCapacity)
     if (capacity === null) return null
