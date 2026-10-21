@@ -1,6 +1,6 @@
 # 협력사 조회와 선택 기업 챗봇 API v0.2
 
-협력사 조회와 선택 기업 질문을 연결하는 stub 전용 HTTP 계약이다. 기준 main은 `8d48d7b2b200c88f0ccfe33c3177057811e38cae`다. Spring backend와 Python HTTP 어댑터 및 fixture가 함께 구현돼 있다. Vue 화면은 별도 작업이다. 실제 Agent 생성 답변은 [Generation HTTP 계약 v0.3](agent-generation.md)의 v2 경로를 사용한다. v0.2는 agent-http.md v0.1의 query-executions와 agent/queries 경로를 대체하지 않으며 별도 경로로 정의한다.
+협력사 조회와 선택 기업 질문을 연결하는 stub 전용 HTTP 계약이다. 기준 main은 `8d48d7b2b200c88f0ccfe33c3177057811e38cae`다. Spring backend와 Python HTTP 어댑터 및 fixture가 함께 구현돼 있다. Vue 화면은 별도 작업이다. 실제 Agent 생성 답변은 [Generation HTTP 계약 v0.3](agent-generation.md)의 v2 경로를 사용한다. 협력사 DB를 읽는 live 조회는 [협력사 조회 v2 계약](supplier-lookup.md)의 v2 경로를 사용한다. v0.2는 agent-http.md v0.1의 query-executions와 agent/queries 경로를 대체하지 않으며 별도 경로로 정의한다.
 
 ## 범위와 책임
 
@@ -22,11 +22,11 @@ Spring과 Python 모두 AGENT_EXECUTION_MODE=stub을 명시한다. Spring도 새
 
 조회 성공 응답은 {schema_version:"0.2",mode:"stub",data:{...}}다. 카탈로그 processes는 {process:string,materials:string[]}[]다. regions는 string[]다. fixture에서 도출하며 중복을 제거한다.
 
-검색 query parameter는 process 필수다. material과 region은 선택이다. 각 문자열은 앞뒤 공백 제거 후 1..100자다. iatf_required는 true 또는 false이며 기본값 false다. false는 인증 여부 전체다. min_monthly_capacity는 선택이며 정수 1..10000000이다. 월 생산능력이 이 값 이상인 capability만 matched_capabilities에 포함한다. limit은 정수 1..100이며 기본값 20이다. 알 수 없는 query parameter와 중복 parameter는 400으로 거절한다. 빈 선택값은 프런트가 생략한다. 화면의 인증 라디오 버튼은 전체(iatf_required 생략 또는 false)와 IATF 16949 보유(true)에 대응한다. 지역 드롭다운 값은 카탈로그 regions에서 가져온다. 존재하지 않는 유효 검색 조건은 200과 빈 items를 반환한다. 필터를 만족하는 기업을 supplier_id 순서로 정렬하고 기업별로 묶은 뒤 limit을 적용한다. returned_count는 반환 기업 수다. total과 offset은 제공하지 않는다. 상세 ID가 없으면 404 SUPPLIER_NOT_FOUND다.
+검색 query parameter는 process 필수다. material과 region은 선택이다. 각 문자열은 앞뒤 공백 제거 후 1..100자다. iatf_required와 iso14001_required는 true 또는 false이며 기본값 false다. false는 인증 여부 전체다. true면 각각 IATF 16949와 ISO 14001 인증이 있는 기업만 반환한다. min_monthly_capacity는 선택이며 정수 1..10000000이다. 월 생산능력이 이 값 이상인 capability만 matched_capabilities에 포함한다. limit은 정수 1..100이며 기본값 20이다. 알 수 없는 query parameter와 중복 parameter는 400으로 거절한다. 빈 선택값은 프런트가 생략한다. 화면의 인증 체크박스는 체크했을 때만 iatf_required=true와 iso14001_required=true를 보낸다. 지역 드롭다운 값은 카탈로그 regions에서 가져온다. 존재하지 않는 유효 검색 조건은 200과 빈 items를 반환한다. 필터를 만족하는 기업을 supplier_id 순서로 정렬하고 기업별로 묶은 뒤 limit을 적용한다. returned_count는 반환 기업 수다. total과 offset은 제공하지 않는다. 상세 ID가 없으면 404 SUPPLIER_NOT_FOUND다.
 
-SupplierSummary는 supplier_id와 name 및 region과 iatf16949 및 matched_capabilities와 provenance를 갖는다. matched_capabilities는 검색 조건에 맞는 {process,material,monthly_capacity}[]다. provenance는 {profile:"STUB",financials:"STUB",operations:"STUB"}다.
+SupplierSummary는 supplier_id와 name 및 region과 iatf16949와 iso14001 및 matched_capabilities와 provenance를 갖는다. iatf16949와 iso14001은 인증 보유 여부를 나타내는 boolean이다. matched_capabilities는 검색 조건에 맞는 {process,material,monthly_capacity}[]다. provenance는 {profile:"STUB",financials:"STUB",operations:"STUB"}다.
 
-SupplierDetail은 supplier_id와 name 및 region과 iatf16949 및 capabilities와 quality와 financials 및 recent_quotes와 existing_contract 및 provenance를 갖는다. capabilities의 구조는 matched_capabilities와 같다. quality는 {defect_ppm:number|null,on_time_delivery_rate:number|null}다. financials는 {year:integer,revenue_krw:number|null,operating_profit_krw:number|null,debt_ratio:number|null,source:"STUB"}[]다. recent_quotes는 {process,material,unit_price_krw,quoted_at}[]이며 quoted_at은 YYYY-MM-DD다. existing_contract는 null 또는 {payment_days:integer,price_linkage:boolean}다. 숫자는 fixture 그대로 사용한다. on_time_delivery_rate는 0..100의 백분율이다. debt_ratio도 이미 백분율로 환산한 값이며 100을 넘을 수 있다. 화면에서 두 값에 100을 곱하지 않는다. _krw는 원 단위다. null과 빈 financials는 0으로 바꾸지 않는다.
+SupplierDetail은 supplier_id와 name 및 region과 iatf16949와 iso14001 및 capabilities와 quality와 financials 및 recent_quotes와 existing_contract 및 provenance를 갖는다. capabilities의 구조는 matched_capabilities와 같다. quality는 {defect_ppm:number|null,on_time_delivery_rate:number|null}다. financials는 {year:integer,revenue_krw:number|null,operating_profit_krw:number|null,debt_ratio:number|null,source:"STUB"}[]다. recent_quotes는 {process,material,unit_price_krw,quoted_at}[]이며 quoted_at은 YYYY-MM-DD다. existing_contract는 null 또는 {payment_days:integer,price_linkage:boolean}다. 숫자는 fixture 그대로 사용한다. on_time_delivery_rate는 0..100의 백분율이다. debt_ratio도 이미 백분율로 환산한 값이며 100을 넘을 수 있다. 화면에서 두 값에 100을 곱하지 않는다. _krw는 원 단위다. null과 빈 financials는 0으로 바꾸지 않는다.
 
 ## 대화 API
 

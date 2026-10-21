@@ -22,8 +22,7 @@ class DemoModeRequired(Exception):
     pass
 
 
-def invalid_supplier_detail_path(path: str) -> bool:
-    prefix = "/internal/v1/suppliers/"
+def invalid_supplier_detail_path(path: str, prefix: str = "/internal/v1/suppliers/") -> bool:
     return path.startswith(prefix) and re.fullmatch(SUPPLIER_ID_PATTERN, path[len(prefix):]) is None
 
 
@@ -32,12 +31,14 @@ def parse_search(request: Request) -> SupplierSearch:
     values: dict[str, Any] = dict(pairs)
     if len(pairs) != len(values):
         raise ValueError("Duplicate query parameters")
-    if set(values) - {"process", "material", "region", "iatf_required", "min_monthly_capacity", "limit"}:
+    if set(values) - {"process", "material", "region", "iatf_required", "iso14001_required",
+                      "min_monthly_capacity", "limit"}:
         raise ValueError("Unknown query parameter")
-    if "iatf_required" in values:
-        if values["iatf_required"] not in {"true", "false"}:
-            raise ValueError("Boolean query parameter must be true or false")
-        values["iatf_required"] = values["iatf_required"] == "true"
+    for field in ("iatf_required", "iso14001_required"):
+        if field in values:
+            if values[field] not in {"true", "false"}:
+                raise ValueError("Boolean query parameter must be true or false")
+            values[field] = values[field] == "true"
     for field in ("min_monthly_capacity", "limit"):
         if field in values:
             if not re.fullmatch(r"[0-9]+", values[field]):

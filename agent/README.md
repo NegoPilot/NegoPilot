@@ -276,7 +276,7 @@ stub 모드에서 지원하는 질문은 다음 세 개입니다. 실제 Router�
 
 ### v0.2 협력사 조회와 템플릿 대화
 
-다음 경로는 `stub`에서만 사용할 수 있습니다. `live`에서는 503 `DEMO_MODE_REQUIRED`와 `retryable: false`를 반환합니다. 데이터 원본은 [supplier-chat.json](../docs/contracts/fixtures/supplier-chat.json)입니다. 모든 기업과 수치는 가상 데이터입니다.
+다음 경로는 `stub`에서만 사용할 수 있습니다. `live`에서는 503 `DEMO_MODE_REQUIRED`와 `retryable: false`를 반환합니다. 데이터 원본은 [supplier-chat.json](../docs/contracts/fixtures/supplier-chat.json)입니다. 모든 기업과 수치는 가상 데이터입니다. 협력사 DB를 읽는 live 조회는 `/internal/v2/business/catalog`, `/internal/v2/suppliers`, `/internal/v2/suppliers/{supplier_id}`이며 실행 모드와 관계없이 `BUSINESS_MCP_URL`의 business-mcp를 호출합니다. 규칙은 [협력사 live 조회 계약](../docs/contracts/supplier-lookup.md)을 따릅니다.
 
 | Python 내부 경로 | 동작 |
 | --- | --- |
@@ -285,7 +285,7 @@ stub 모드에서 지원하는 질문은 다음 세 개입니다. 실제 Router�
 | `GET /internal/v1/suppliers/{supplier_id}` | 선택 기업 상세 조회 |
 | `POST /internal/v1/chat/responses` | 선택 기업의 템플릿 응답 |
 
-기업 검색은 `process`가 필수입니다. `material`과 `region`은 선택입니다. `iatf_required`의 기본값은 `false`이며 인증 여부 전체를 뜻합니다. `limit`은 1..100이며 기본값은 20입니다. 알 수 없는 query parameter와 중복 parameter는 거절합니다. 기업 ID는 대소문자를 구분하며 `^[A-Za-z0-9_-]{1,100}$` 형식입니다. 존재하지 않는 ID는 404 `SUPPLIER_NOT_FOUND`입니다.
+기업 검색은 `process`가 필수입니다. `material`과 `region`은 선택입니다. `iatf_required`와 `iso14001_required`의 기본값은 `false`이며 인증 여부 전체를 뜻합니다. `limit`은 1..100이며 기본값은 20입니다. 알 수 없는 query parameter와 중복 parameter는 거절합니다. 기업 ID는 대소문자를 구분하며 `^[A-Za-z0-9_-]{1,100}$` 형식입니다. 존재하지 않는 ID는 404 `SUPPLIER_NOT_FOUND`입니다.
 
 ```bash
 curl --fail-with-body --get http://127.0.0.1:9200/internal/v1/suppliers \

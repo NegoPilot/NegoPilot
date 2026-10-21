@@ -244,7 +244,8 @@ def list_rfqs() -> list[dict]:
 @mcp.tool(annotations={"readOnlyHint": True})
 def search_suppliers(process: str | None = None, material: str | None = None, region: str | None = None,
                      iatf_required: bool = False, min_monthly_capacity: int | None = None,
-                     limit: int = 20, distinct_suppliers: bool = False) -> list[dict]:
+                     limit: int = 20, distinct_suppliers: bool = False,
+                     iso14001_required: bool = False) -> list[dict]:
     """공정·소재·지역·인증·월 생산능력 조건으로 2차 협력사 후보를 찾아 불량률이 낮은 순으로 반환한다.
 
     process: 다이캐스팅, 프레스, 사출, 단조, CNC가공 중 하나. 별칭도 된다. 생략하면 모든 공정에서 찾는다
@@ -252,6 +253,7 @@ def search_suppliers(process: str | None = None, material: str | None = None, re
               공정 없이 지정하면 모든 공정의 실제 지원 코드에서 찾는다
     region: 시·도 (경남, 경상남도, 울산광역시 등). 생략하면 전국
     iatf_required: True면 IATF 16949 인증이 있는 곳만
+    iso14001_required: True면 ISO 14001 인증이 있는 곳만
     min_monthly_capacity: 월 생산능력 하한(개). 연간 물량이면 12로 나눠서 넣는다
     limit: 반환 행의 최대 개수 (1~100). 기본 모드에서는 한 기업이 여러 행으로 나올 수 있다
     distinct_suppliers: True면 조건에 맞는 기업마다 대표 공정과 소재 행 하나를 반환한다.
@@ -263,6 +265,7 @@ def search_suppliers(process: str | None = None, material: str | None = None, re
     distinct = "DISTINCT ON (o.supplier_id) " if distinct_suppliers else ""
     sql = f"""
         SELECT {distinct}o.supplier_id, o.source, o.name, o.region, o.employees, o.revenue_eok, o.iatf16949,
+               o.iso14001,
                o.operating_margin, o.debt_ratio,
                c.process, c.material, c.monthly_capacity,
                o.defect_ppm, o.on_time_rate, o.audit_grade, o.years_dealing
@@ -281,6 +284,8 @@ def search_suppliers(process: str | None = None, material: str | None = None, re
         params.append(resolve_region(region))
     if iatf_required:
         conditions.append("o.iatf16949")
+    if iso14001_required:
+        conditions.append("o.iso14001")
     if min_monthly_capacity:
         conditions.append("c.monthly_capacity >= %s")
         params.append(min_monthly_capacity)

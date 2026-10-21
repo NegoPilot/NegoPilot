@@ -165,6 +165,9 @@ async def test_catalog_is_derived_from_fixture_without_duplicates():
     ({"process": "프레스", "iatf_required": "false"}, ["SUP-0052"], 20),
     ({"process": "프레스", "iatf_required": "true"}, [], 20),
     ({"process": "다이캐스팅", "iatf_required": "true", "limit": "100"}, ["SUP-0034", "SUP-0041"], 100),
+    ({"process": "다이캐스팅", "iso14001_required": "true"}, ["SUP-0034"], 20),
+    ({"process": "다이캐스팅", "iso14001_required": "false"}, ["SUP-0034", "SUP-0041"], 20),
+    ({"process": "프레스", "iatf_required": "true", "iso14001_required": "true"}, [], 20),
     ({"process": "없는 공정"}, [], 20),
     ({"process": "다이캐스팅", "material": "없는 소재"}, [], 20),
     ({"process": "다이캐스팅", "region": "없는 지역"}, [], 20),
@@ -186,7 +189,7 @@ async def test_search_filters_groups_and_limits_suppliers(params, expected_ids, 
                         and ("material" not in params or cap["material"] == params["material"].strip())
                         and cap["monthly_capacity"] >= int(params.get("min_monthly_capacity", 0))]
         assert item == {key: supplier[key] for key in
-                        ("supplier_id", "name", "region", "iatf16949", "provenance")} | {
+                        ("supplier_id", "name", "region", "iatf16949", "iso14001", "provenance")} | {
             "matched_capabilities": capabilities}
 
 
@@ -203,6 +206,8 @@ async def test_search_filters_groups_and_limits_suppliers(params, expected_ids, 
     {"process": "프레스", "iatf_required": "1"},
     {"process": "프레스", "iatf_required": "True"},
     {"process": "프레스", "iatf_required": "yes"},
+    {"process": "프레스", "iso14001_required": "1"},
+    {"process": "프레스", "iso14001_required": "True"},
     {"process": "프레스", "limit": "0"},
     {"process": "프레스", "limit": "101"},
     {"process": "프레스", "limit": "1.5"},
