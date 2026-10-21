@@ -158,7 +158,7 @@ function onReset() {
         <span v-for="c in appliedChips" :key="c.label" class="chip" :class="{ 'chip-primary': c.primary }">{{ c.label }}</span>
       </div>
       <p v-else class="muted">아직 검색하지 않았습니다.</p>
-      <p class="footnote">AI 도우미는 선택한 협력사를 기준으로 답합니다.</p>
+      <p class="footnote">AI 도우미는 검색 조건·선택과 상관없이 질문 내용으로 답합니다.</p>
     </div>
   </form>
 </template>

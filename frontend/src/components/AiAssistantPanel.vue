@@ -8,8 +8,8 @@ import { describeError, isApiError } from '@/utils/errors'
 import { parseSupplierEvidence, splitCitations } from '@/utils/evidence'
 import { NO_DATA, formatKrw, formatPercent, formatPpm } from '@/utils/format'
 
+// 화면에서 고른 협력사와 상관없이 질문 내용만으로 답한다 (#64). 기업은 질문 속 이름·지역으로 찾는다
 const props = defineProps<{
-  supplier: { id: string; name: string } | null
   /** 홈에서 넘어온 질문. 입력창에 채워 둔다 */
   initialQuestion: string
   rfq: string | null
@@ -21,14 +21,19 @@ const emit = defineEmits<{ close: [] }>()
 const router = useRouter()
 
 // stub 모드에서 답할 수 있는 질문 (docs/contracts/direct-chat.md 자동 검증 예시, agent/.../generation_stubs.py)
-const SUPPLIER_QUESTIONS = ['이 회사에 대해 알려줘', '이 회사의 재무 상태를 알려줘', '납기와 품질은 어때?']
-const GENERAL_QUESTIONS = ['부산 협력사 찾아줘', '해솔에 대해 알려줘', '하도급법상 대금 지급 기한은 며칠이야?', 'RFQ가 뭐야?']
+const SUGGESTED_QUESTIONS = [
+  '부산 협력사 찾아줘',
+  '해솔정밀에 대해 알려줘',
+  '해솔에 대해 알려줘',
+  '하도급법상 대금 지급 기한은 며칠이야?',
+  '결제 90일로 해도 돼?',
+  'RFQ가 뭐야?',
+]
 const QUERY_MAX = 4000
 
 interface PanelMessage {
   key: string
-  /** note: 대화 중 기준 협력사가 바뀌었다는 화면 안내 (서버에 저장하지 않음) */
-  role: 'user' | 'assistant' | 'note'
+  role: 'user' | 'assistant'
   text: string
   response?: GenerationResponse
 }
@@ -47,20 +52,6 @@ watch(
   },
 )
 
-// 협력사를 바꿔도 대화는 이어진다. 다음 메시지부터 바뀐 선택을 context로 보낸다 (direct-chat 계약)
-watch(
-  () => props.supplier,
-  (next, prev) => {
-    if (!messages.value.length || next?.id === prev?.id) return
-    messages.value.push({
-      key: `n-${Date.now()}`,
-      role: 'note',
-      text: next ? `이제부터 ${next.name} 기준으로 답합니다.` : '선택한 협력사 없이 이어서 답합니다.',
-    })
-    scrollToEnd()
-  },
-)
-
 /** 새 대화는 사용자가 직접 시작한다 */
 function newConversation() {
   conversationId.value = null
@@ -68,9 +59,7 @@ function newConversation() {
   error.value = null
 }
 
-const suggestions = computed(() =>
-  messages.value.length ? [] : props.supplier ? [...SUPPLIER_QUESTIONS, ...GENERAL_QUESTIONS.slice(0, 2)] : GENERAL_QUESTIONS,
-)
+const suggestions = computed(() => (messages.value.length ? [] : SUGGESTED_QUESTIONS))
 const canSend = computed(() => {
   const q = draft.value.trim()
   return !sending.value && q.length > 0 && [...q].length <= QUERY_MAX
@@ -98,12 +87,10 @@ async function send(text: string) {
   scrollToEnd()
   try {
     if (!conversationId.value) {
-      const snapshot = await createConversation(props.supplier?.id ?? null)
+      const snapshot = await createConversation()
       conversationId.value = snapshot.conversation_id
     }
-    const res = await sendMessage(conversationId.value, query, {
-      selected_supplier_ids: props.supplier ? [props.supplier.id] : [],
-    })
+    const res = await sendMessage(conversationId.value, query)
     messages.value.push({ key: res.response_id, role: 'assistant', text: res.answer.text, response: res })
   } catch (e) {
     // 실패하면 Spring도 저장하지 않으므로 질문을 입력창으로 되돌린다
@@ -161,7 +148,7 @@ function supplierSummary(res: GenerationResponse) {
     <header class="ai-head">
       <div>
         <h2 id="ai-h"><span aria-hidden="true">✦</span> AI 도우미</h2>
-        <p class="muted">현재 선택: {{ supplier?.name ?? '선택한 협력사 없음' }}</p>
+        <p class="muted">협력사·법령 정보를 조회해 답합니다</p>
       </div>
       <div class="head-actions">
         <button v-if="messages.length" class="link-btn" type="button" :disabled="sending" @click="newConversation">새 대화</button>
@@ -175,12 +162,11 @@ function supplierSummary(res: GenerationResponse) {
 
     <ol class="messages" aria-live="polite">
       <li v-if="!messages.length" class="empty muted">
-        {{ supplier ? '선택한 협력사나 법령에 대해 물어보세요.' : '협력사를 고르지 않아도 기업 이름이나 지역, 법령으로 바로 물어볼 수 있습니다.' }}
+        기업 이름이나 지역, 법령으로 물어보세요. 왼쪽에서 고른 협력사와 상관없이 질문 내용으로 답합니다.
       </li>
 
       <template v-for="m in messages" :key="m.key">
         <li v-if="m.role === 'user'" class="bubble">{{ m.text }}</li>
-        <li v-else-if="m.role === 'note'" class="note-line">{{ m.text }}</li>
 
         <li v-else-if="m.response" class="answer">
           <div class="who">
@@ -382,11 +368,6 @@ function supplierSummary(res: GenerationResponse) {
   display: flex;
   align-items: center;
   gap: 4px;
-}
-.note-line {
-  align-self: center;
-  font-size: 11px;
-  color: var(--text-3);
 }
 .options,
 .suggestions {
