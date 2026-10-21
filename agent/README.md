@@ -1,10 +1,28 @@
 # agent
 
-NegoPilot의 LangGraph Agent입니다. 지금은 **쿼리 분해**, **Routing**, **Generation** 노드가 들어 있습니다.
+NegoPilot의 LangGraph Agent입니다. **쿼리 분해**, **Routing**, **Generation** 노드와 세 노드를 잇는 그래프가 들어 있습니다.
 
 ```
 [사용자 질문] → decompose_query → route → (MCP 병렬·순차 호출) → generate
 ```
+
+## 전체 그래프 (`negopilot_agent.graph`)
+
+```python
+from negopilot_agent.graph import build_graph
+
+app = build_graph()                                   # 부품을 생략하면 환경 변수 설정을 따른다
+state = await app.ainvoke({"query": "RFQ-2026-001 협력사 추천해줘", "history": []})
+state["answer"]                                       # Answer (kind, text, citations, options ...)
+```
+
+| 동작 | 내용 |
+| --- | --- |
+| 상태 | `query`, `history` → `decomposition` → `routing` → `answer` ([`graph.py`](src/negopilot_agent/graph.py)의 `AgentState`) |
+| 분기 | 분해가 `clarify`·`failed`면 `route`를 건너뛰고 `generate`로 간다 (되묻기·실패 안내) |
+| 부품 교체 | `build_graph(decomposer=..., caller=..., generator=...)`. 테스트는 가짜 분해·가짜 MCP·가짜 생성으로 세 단계를 한 번에 돈다 ([`tests/test_graph.py`](tests/test_graph.py)) |
+
+질문 하나를 처음부터 끝까지 돌려 보려면 MCP 서버 두 개를 띄우고 `scripts/ask.py`를 씁니다 (아래 실행).
 
 ## 쿼리 분해 (`negopilot_agent.decomposition`)
 
@@ -143,6 +161,8 @@ graph.add_node("generate", make_generate_node())   # 상태: decomposition, rout
 ```bash
 uv sync
 uv run python -m pytest -q                       # 단위 테스트 (가짜 HTTP 전송·가짜 MCP, 비용 없음)
+uv run python scripts/ask.py "RFQ-2026-001 협력사 추천해줘"            # 전체 그래프 (서버 2개를 먼저 띄움, Claude 비용 발생)
+uv run python scripts/ask.py --backend ollama "하도급법 제4조 보여줘"   # 분해·생성 모두 로컬 모델 (비용 없음)
 uv run python scripts/route_fixtures.py          # fixtures를 실제 MCP 서버로 Routing (서버 2개를 먼저 띄움)
 uv run python scripts/route_fixtures.py --save   # 그 결과를 shared/fixtures/routing/에 저장 (계약을 바꿨을 때)
 uv run python scripts/eval_decomposition.py --backend ollama   # 로컬 모델 평가 (비용 없음)

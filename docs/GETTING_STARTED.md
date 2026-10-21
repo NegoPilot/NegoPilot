@@ -8,8 +8,9 @@ NegoPilot 팀원이 자기 담당 부분을 개발하기 전에 무엇을 읽고
 ```
 사용자 질문
   → decompose_query   하위 질문으로 나누고 intent·엔티티를 붙임        [완료]
-  → route             intent에 맞는 MCP 도구 호출 (병렬·순차)          [다음]
-  → generate          도구 결과로 답변, 근거 인용, 되묻기·거절        [다음]
+  → route             intent에 맞는 MCP 도구 호출 (병렬·순차)          [완료]
+  → generate          도구 결과로 답변, 근거 인용, 되묻기·거절        [완료]
+  (세 노드를 잇는 그래프: agent/src/negopilot_agent/graph.py, 실행: agent/scripts/ask.py)
 ```
 
 단계 사이에서 주고받는 형식은 **계약 문서**로 정해져 있습니다. 각 단계는 다른 단계의 완성을 기다리지 않고, 계약에 있는 예시로 먼저 개발합니다.
