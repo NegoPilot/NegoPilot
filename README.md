@@ -46,7 +46,7 @@ Agent는 이 내용을 보고 law-mcp에서 해당 조문을 찾아 근거로 �
 | [`agent`](agent) | 분해와 Routing 및 Generation을 실행하는 LangGraph Agent와 내부 HTTP API | 구현 |
 | [`shared`](shared) | 컴포넌트끼리 같이 쓰는 계약입니다. 분해 결과 스키마, intent 등록표, 예시 11개가 들어 있습니다 | 완료 |
 | [`backend`](backend) | Agent 공개 API와 응답 검증 및 메모리 대화 저장 | HTTP 연동 구현. 인증과 영구 저장은 예정 |
-| `frontend/` | Vue 화면 | 예정 |
+| [`frontend`](frontend) | Vue 화면. 홈, 협력사 탐색·상세와 AI 도우미(v2 생성 답변), 근거 자료 상세(새 탭), 법규 검토 | 진행 중. RFQ 목록·법규 검토는 API 연결 전 |
 
 ### MCP 서버
 
