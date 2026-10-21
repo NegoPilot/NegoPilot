@@ -175,7 +175,11 @@ uv run python scripts/eval_generation.py --offline                  # Generation
 uv run python scripts/eval_generation.py --backend openai --repeat 3   # Generation 생성 + 채점 (비용 있음)
 uv run python scripts/eval_generation.py --backend openai --repeat 3 --set validation   # Generation 검증 세트
 uv run python scripts/route_generation_set.py    # Generation 검증 세트 입력을 실제 MCP 서버로 다시 Routing (서버 2개를 먼저 띄움)
+uv run python scripts/bench_latency.py --set validation             # 전체 그래프 단계별 시간 (서버 2개, 비용 있음)
 ```
+
+`ask.py`는 답변 끝에, `bench_latency.py`는 질문마다 단계별 시간(분해·Routing·생성 노드, LLM 호출 수와 토큰, MCP 도구 호출 수)을 출력합니다.
+측정은 `negopilot_agent.timing.collect()` 안에서만 기록되고, v2 HTTP API는 요청마다 같은 요약을 `negopilot_agent.api.generation_execution` 로거(INFO)에 남깁니다.
 
 Generation 평가는 `shared/fixtures/routing` 11개를 입력으로 쓰고, 정답은 [`eval_data/generation_gold.json`](eval_data/generation_gold.json)에 있습니다 (기대 답변 종류, 근거에 꼭 있어야 할 문구, 답변에 담길 정답 포인트).
 `--set validation`은 [`eval_data/generation_validation/`](eval_data/generation_validation/) 12개(질문, 정답 분해 결과, 실제 MCP Routing 결과를 한 파일에)를 입력으로, [`eval_data/generation_validation_gold.json`](eval_data/generation_validation_gold.json)을 정답으로 씁니다. 분해 검증 세트와 같이 점수만 보고, 오답을 보고 프롬프트를 고치지 않습니다.
