@@ -1,0 +1,18 @@
+event: stage
+data: {"schema_version":"stream-0.1","request_id":"3f1c2a7e-9b4d-4c1e-8a2f-5d6e7f8a9b02","stage":"decompose","status":"started","elapsed_ms":0}
+
+event: stage
+data: {"schema_version":"stream-0.1","request_id":"3f1c2a7e-9b4d-4c1e-8a2f-5d6e7f8a9b02","stage":"decompose","status":"completed","elapsed_ms":1830,"duration_ms":1830,"summary":{"status":"clarify","sub_queries":0}}
+
+event: stage
+data: {"schema_version":"stream-0.1","request_id":"3f1c2a7e-9b4d-4c1e-8a2f-5d6e7f8a9b02","stage":"route","status":"skipped","elapsed_ms":1831}
+
+event: stage
+data: {"schema_version":"stream-0.1","request_id":"3f1c2a7e-9b4d-4c1e-8a2f-5d6e7f8a9b02","stage":"generate","status":"started","elapsed_ms":1832}
+
+event: stage
+data: {"schema_version":"stream-0.1","request_id":"3f1c2a7e-9b4d-4c1e-8a2f-5d6e7f8a9b02","stage":"generate","status":"completed","elapsed_ms":1835,"duration_ms":3,"summary":{"kind":"clarify","retried":false}}
+
+event: result
+data: {"schema_version":"0.3","request_id":"3f1c2a7e-9b4d-4c1e-8a2f-5d6e7f8a9b02","mode":"stub","execution_status":"NEEDS_INPUT","generation_status":"COMPLETED","context":{"selected_supplier_ids":[]},"decomposition":{"schema_version":"0.1","status":"clarify","original_query":"그 업체 괜찮아?","sub_queries":[],"clarification":{"reason":"'그 업체'가 어느 협력사인지, '괜찮다'가 품질·재무·법적 위험 중 무엇인지 불분명","question":"어떤 업체의 어떤 부분이 궁금하신가요?","options":["특정 업체의 품질·납기 실적 (업체 이름이나 ID 입력)","특정 업체의 재무 안정성 (업체 이름이나 ID 입력)","특정 RFQ 추천 1위 업체의 전반적인 평가"]},"assumptions":[]},"routing":{"schema_version":"0.1","status":"not_routed","outcomes":[],"halted":false,"halt_reason":null},"answer":{"kind":"clarify","text":"어떤 업체의 어떤 부분이 궁금하신가요?","citations":[],"options":["특정 업체의 품질·납기 실적 (업체 이름이나 ID 입력)","특정 업체의 재무 안정성 (업체 이름이나 ID 입력)","특정 RFQ 추천 1위 업체의 전반적인 평가"],"grounded":true,"notices":[],"evidence":[],"verification":null},"error":null}
+
