@@ -120,6 +120,10 @@ h3 {
   background: var(--surface-2);
   color: var(--text-2);
 }
+.badge-warning {
+  background: #fdf1e1;
+  color: var(--warning);
+}
 
 .muted {
   color: var(--text-3);
@@ -290,6 +294,9 @@ tbody tr:nth-child(even) td {
   color: var(--text-2);
 }
 input[type='text'],
+input[type='email'],
+input[type='password'],
+input[type='search'],
 select,
 textarea {
   height: 38px;

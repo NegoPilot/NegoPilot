@@ -10,10 +10,11 @@ export interface SearchFormValues {
   minMonthlyCapacity: string
   region: string
   iatfRequired: boolean
+  iso14001Required: boolean
 }
 
 export function emptySearchValues(): SearchFormValues {
-  return { process: '', material: '', minMonthlyCapacity: '', region: '', iatfRequired: false }
+  return { process: '', material: '', minMonthlyCapacity: '', region: '', iatfRequired: false, iso14001Required: false }
 }
 
 function first(value: LocationQueryValue | LocationQueryValue[] | undefined): string {
@@ -29,6 +30,7 @@ export function searchValuesFromQuery(query: LocationQuery): SearchFormValues {
     minMonthlyCapacity: first(query.min_capacity),
     region: first(query.region),
     iatfRequired: first(query.iatf) === '1',
+    iso14001Required: first(query.iso) === '1',
   }
 }
 
@@ -36,12 +38,13 @@ export function searchValuesToQuery(values: SearchFormValues): Record<string, st
   const query: Record<string, string> = {}
   const process = values.process.trim()
   const material = values.material.trim()
-  const capacity = parsePositiveInteger(values.minMonthlyCapacity)
+  const capacity = parseCapacity(values.minMonthlyCapacity)
   if (process) query.process = process
   if (material) query.material = material
   if (capacity !== null) query.min_capacity = String(capacity)
   if (values.region) query.region = values.region
   if (values.iatfRequired) query.iatf = '1'
+  if (values.iso14001Required) query.iso = '1'
   return query
 }
 
@@ -54,8 +57,9 @@ export function searchValuesToParams(values: SearchFormValues): SupplierSearchPa
   if (material) params.material = material
   if (values.region) params.region = values.region
   if (values.iatfRequired) params.iatf_required = true
+  if (values.iso14001Required) params.iso14001_required = true
   if (values.minMonthlyCapacity.trim()) {
-    const capacity = parsePositiveInteger(values.minMonthlyCapacity)
+    const capacity = parseCapacity(values.minMonthlyCapacity)
     if (capacity === null) return null
     params.min_monthly_capacity = capacity
   }
@@ -63,3 +67,11 @@ export function searchValuesToParams(values: SearchFormValues): SupplierSearchPa
 }
 
 export const TEXT_MAX = 100
+/** supplier-chat 계약의 min_monthly_capacity 상한 */
+export const CAPACITY_MAX = 10_000_000
+
+/** 최소 월 생산능력 입력. 쉼표를 빼고 1..CAPACITY_MAX 정수만 받는다 */
+export function parseCapacity(raw: string): number | null {
+  const value = parsePositiveInteger(raw)
+  return value !== null && value <= CAPACITY_MAX ? value : null
+}

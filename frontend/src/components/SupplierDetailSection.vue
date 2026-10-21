@@ -4,6 +4,7 @@ import { computed, ref, watch } from 'vue'
 import type { Capability, SupplierDetail } from '@/api/types'
 import {
   NO_DATA,
+  formatHeld,
   formatInteger,
   formatKrw,
   formatKrwCompact,
@@ -106,7 +107,8 @@ const source = computed(() => provenanceLabel(props.supplier.provenance.profile)
           <dl>
             <dt>협력사 ID</dt><dd>{{ supplier.supplier_id }}</dd>
             <dt>소재지</dt><dd>{{ supplier.region }}</dd>
-            <dt>인증</dt><dd>{{ supplier.iatf16949 ? 'IATF 16949' : '인증 없음' }}</dd>
+            <dt>IATF 16949</dt><dd>{{ formatHeld(supplier.iatf16949) }}</dd>
+            <dt>ISO 14001</dt><dd>{{ formatHeld(supplier.iso14001) }}</dd>
             <dt>출처</dt><dd>{{ source }}</dd>
           </dl>
         </div>
@@ -141,7 +143,8 @@ const source = computed(() => provenanceLabel(props.supplier.provenance.profile)
           <dl>
             <dt>불량률</dt><dd>{{ formatPpm(supplier.quality.defect_ppm) }}</dd>
             <dt>납기 준수율</dt><dd>{{ formatPercent(supplier.quality.on_time_delivery_rate) }}</dd>
-            <dt>인증</dt><dd>{{ supplier.iatf16949 ? 'IATF 16949' : '인증 없음' }}</dd>
+            <dt>IATF 16949</dt><dd>{{ formatHeld(supplier.iatf16949) }}</dd>
+            <dt>ISO 14001</dt><dd>{{ formatHeld(supplier.iso14001) }}</dd>
           </dl>
         </div>
       </div>
