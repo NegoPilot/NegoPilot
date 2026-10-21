@@ -20,10 +20,6 @@ UuidString = Annotated[str, StringConstraints(
 FilterText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
 QueryText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
 Number = int | float
-# 조회 경로는 stub이면 fixture, live면 business-mcp DB를 읽는다. 대화 경로는 stub 전용이다.
-LookupMode = Literal["stub", "live"]
-# STUB은 fixture, DART는 공시 값, MOCK은 business-mcp의 가상 값이다.
-Source = Literal["STUB", "DART", "MOCK"]
 
 
 class Capability(StrictModel):
@@ -33,9 +29,9 @@ class Capability(StrictModel):
 
 
 class Provenance(StrictModel):
-    profile: Source
-    financials: Source
-    operations: Source
+    profile: Literal["STUB"]
+    financials: Literal["STUB"]
+    operations: Literal["STUB"]
 
 
 class Quality(StrictModel):
@@ -48,7 +44,7 @@ class Financials(StrictModel):
     revenue_krw: Number | None
     operating_profit_krw: Number | None
     debt_ratio: Number | None
-    source: Source
+    source: Literal["STUB"]
 
 
 class RecentQuote(StrictModel):
@@ -74,7 +70,6 @@ class SupplierSummary(StrictModel):
     name: Text
     region: Text
     iatf16949: bool
-    iso14001: bool
     matched_capabilities: list[Capability] = Field(min_length=1)
     provenance: Provenance
 
@@ -84,7 +79,6 @@ class SupplierDetail(StrictModel):
     name: Text
     region: Text
     iatf16949: bool
-    iso14001: bool
     capabilities: list[Capability] = Field(min_length=1)
     quality: Quality
     financials: list[Financials]
@@ -123,7 +117,6 @@ class SupplierSearch(StrictModel):
     material: FilterText | None = None
     region: FilterText | None = None
     iatf_required: bool = False
-    iso14001_required: bool = False
     min_monthly_capacity: int | None = Field(default=None, ge=1, le=10_000_000)
     limit: int = Field(default=20, ge=1, le=100)
 
@@ -248,19 +241,19 @@ class ChatResponse(StrictModel):
 
 class CatalogResponse(StrictModel):
     schema_version: Literal["0.2"]
-    mode: LookupMode
+    mode: Literal["stub"]
     data: CatalogData
 
 
 class SupplierSearchResponse(StrictModel):
     schema_version: Literal["0.2"]
-    mode: LookupMode
+    mode: Literal["stub"]
     data: SupplierListData
 
 
 class SupplierDetailResponse(StrictModel):
     schema_version: Literal["0.2"]
-    mode: LookupMode
+    mode: Literal["stub"]
     data: SupplierDetail
 
 

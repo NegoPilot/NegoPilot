@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "NegoPilot Supplier Lookup and Chat API",
+    "title": "NegoPilot Supplier Chat Stub API",
     "version": "0.2",
-    "description": "HTTP contract for supplier lookup and stub-only selected-company template chat against main 8d48d7b2b200c88f0ccfe33c3177057811e38cae. Lookups read the shared fixture in stub mode and business-mcp in live mode. Chat uses the fixture and requires stub mode. Vue screens are separate. NOT_IMPLEMENTED applies only to this template-response scope. Use agent-generation.openapi.json for real Generation. See supplier-chat.md for cross-field rules and ownership."
+    "description": "Stub-only HTTP contract for supplier lookup and selected-company template chat against main 8d48d7b2b200c88f0ccfe33c3177057811e38cae. Spring and Python HTTP adapters share the fixture. Vue screens are separate. NOT_IMPLEMENTED applies only to this template-response scope. Use agent-generation.openapi.json for real Generation. See supplier-chat.md for cross-field rules and ownership."
   },
   "paths": {
     "/api/v1/business/catalog": {
@@ -194,14 +194,6 @@
           },
           {
             "name": "iatf_required",
-            "in": "query",
-            "schema": {
-              "type": "boolean",
-              "default": false
-            }
-          },
-          {
-            "name": "iso14001_required",
             "in": "query",
             "schema": {
               "type": "boolean",
@@ -400,7 +392,7 @@
             "InternalApiKey": []
           }
         ],
-        "description": "Python HTTP adapter. Stub mode reads the shared fixture. Live mode reads business-mcp without model calls."
+        "description": "Stub-only Python HTTP adapter using the shared fixture. No live model or MCP calls in this compatibility endpoint."
       }
     },
     "/internal/v1/suppliers": {
@@ -521,14 +513,6 @@
             }
           },
           {
-            "name": "iso14001_required",
-            "in": "query",
-            "schema": {
-              "type": "boolean",
-              "default": false
-            }
-          },
-          {
             "name": "min_monthly_capacity",
             "in": "query",
             "schema": {
@@ -553,7 +537,7 @@
             "InternalApiKey": []
           }
         ],
-        "description": "Python HTTP adapter. Stub mode reads the shared fixture. Live mode reads business-mcp without model calls."
+        "description": "Stub-only Python HTTP adapter using the shared fixture. No live model or MCP calls in this compatibility endpoint."
       }
     },
     "/internal/v1/suppliers/{supplier_id}": {
@@ -649,7 +633,7 @@
             "InternalApiKey": []
           }
         ],
-        "description": "Python HTTP adapter. Stub mode reads the shared fixture. Live mode reads business-mcp without model calls."
+        "description": "Stub-only Python HTTP adapter using the shared fixture. No live model or MCP calls in this compatibility endpoint."
       }
     },
     "/internal/v1/chat/responses": {
@@ -1080,27 +1064,15 @@
         "properties": {
           "profile": {
             "type": "string",
-            "enum": [
-              "STUB",
-              "DART",
-              "MOCK"
-            ]
+            "const": "STUB"
           },
           "financials": {
             "type": "string",
-            "enum": [
-              "STUB",
-              "DART",
-              "MOCK"
-            ]
+            "const": "STUB"
           },
           "operations": {
             "type": "string",
-            "enum": [
-              "STUB",
-              "DART",
-              "MOCK"
-            ]
+            "const": "STUB"
           }
         },
         "required": [
@@ -1183,11 +1155,7 @@
           },
           "source": {
             "type": "string",
-            "enum": [
-              "STUB",
-              "DART",
-              "MOCK"
-            ]
+            "const": "STUB"
           }
         },
         "required": [
@@ -1272,9 +1240,6 @@
           "iatf16949": {
             "type": "boolean"
           },
-          "iso14001": {
-            "type": "boolean"
-          },
           "matched_capabilities": {
             "type": "array",
             "items": {
@@ -1291,7 +1256,6 @@
           "name",
           "region",
           "iatf16949",
-          "iso14001",
           "matched_capabilities",
           "provenance"
         ],
@@ -1319,9 +1283,6 @@
             "pattern": "\\S"
           },
           "iatf16949": {
-            "type": "boolean"
-          },
-          "iso14001": {
             "type": "boolean"
           },
           "capabilities": {
@@ -1365,7 +1326,6 @@
           "name",
           "region",
           "iatf16949",
-          "iso14001",
           "capabilities",
           "quality",
           "financials",
@@ -1384,10 +1344,7 @@
           },
           "mode": {
             "type": "string",
-            "enum": [
-              "stub",
-              "live"
-            ]
+            "const": "stub"
           },
           "data": {
             "type": "object",
@@ -1455,10 +1412,7 @@
           },
           "mode": {
             "type": "string",
-            "enum": [
-              "stub",
-              "live"
-            ]
+            "const": "stub"
           },
           "data": {
             "type": "object",
@@ -1505,10 +1459,7 @@
           },
           "mode": {
             "type": "string",
-            "enum": [
-              "stub",
-              "live"
-            ]
+            "const": "stub"
           },
           "data": {
             "$ref": "#/components/schemas/SupplierDetail"

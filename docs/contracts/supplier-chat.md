@@ -1,16 +1,16 @@
 # 협력사 조회와 선택 기업 챗봇 API v0.2
 
-협력사 조회와 선택 기업 질문을 연결하는 HTTP 계약이다. 조회는 stub과 live 모드를 모두 지원하고 선택 기업 질문은 stub 전용이다. 기준 main은 `8d48d7b2b200c88f0ccfe33c3177057811e38cae`다. Spring backend와 Python HTTP 어댑터 및 fixture가 함께 구현돼 있다. Vue 화면은 별도 작업이다. 실제 Agent 생성 답변은 [Generation HTTP 계약 v0.3](agent-generation.md)의 v2 경로를 사용한다. v0.2는 agent-http.md v0.1의 query-executions와 agent/queries 경로를 대체하지 않으며 별도 경로로 정의한다.
+협력사 조회와 선택 기업 질문을 연결하는 stub 전용 HTTP 계약이다. 기준 main은 `8d48d7b2b200c88f0ccfe33c3177057811e38cae`다. Spring backend와 Python HTTP 어댑터 및 fixture가 함께 구현돼 있다. Vue 화면은 별도 작업이다. 실제 Agent 생성 답변은 [Generation HTTP 계약 v0.3](agent-generation.md)의 v2 경로를 사용한다. v0.2는 agent-http.md v0.1의 query-executions와 agent/queries 경로를 대체하지 않으며 별도 경로로 정의한다.
 
 ## 범위와 책임
 
-연결 흐름은 Vue → Spring → Python FastAPI 순서다. 아래 동작은 각 구현이 준수할 계약이다. 조회 API 세 개는 AGENT_EXECUTION_MODE=stub이면 fixtures/supplier-chat.json을 읽고 live이면 business-mcp를 통해 협력사 DB를 읽는다. 대화 API와 Python 챗봇 경로는 stub에서만 작동한다. live에서는 503 DEMO_MODE_REQUIRED와 retryable=false를 반환한다. 어느 모드에서도 모델을 호출하지 않는다. stub 모드에서는 fixtures/supplier-chat.json이 가상 데이터의 단일 원본이다. 모든 성공 응답은 schema_version="0.2"와 실행 모드를 나타내는 mode를 포함한다. 조회 응답의 mode는 "stub" 또는 "live"이고 대화 응답의 mode는 "stub"이다. Python 어댑터는 조회와 정해진 질문의 템플릿 응답을 담당한다. Spring은 내부 HTTP 호출과 응답 검증 및 메모리 대화 저장을 담당한다. 후속 Vue 화면은 Spring 공개 API만 호출한다.
+연결 흐름은 Vue → Spring → Python FastAPI 순서다. 아래 동작은 각 구현이 준수할 계약이다. 새 경로는 AGENT_EXECUTION_MODE=stub에서만 작동한다. live에서는 503 DEMO_MODE_REQUIRED와 retryable=false를 반환한다. 실제 모델과 MCP 및 DB를 호출하지 않는다. fixtures/supplier-chat.json이 가상 데이터의 단일 원본이다. 모든 성공 응답은 schema_version="0.2"와 mode="stub"을 포함한다. Python 어댑터는 조회와 정해진 질문의 템플릿 응답을 담당한다. Spring은 내부 HTTP 호출과 응답 검증 및 메모리 대화 저장을 담당한다. 후속 Vue 화면은 Spring 공개 API만 호출한다.
 
 기준 main에는 Generation과 LangGraph 실행 코드가 이미 있다. 이 HTTP 계약은 fixture 조회와 템플릿 응답을 정의한다. `generation_status: NOT_IMPLEMENTED`는 이 HTTP 범위에서 코어 Generation을 호출하지 않는다는 뜻이며 코어의 구현 여부와 별개다. 기존 Routing과 Generation 계약 및 공용 스키마는 변경하지 않는다.
 
 이번에는 단일 기업 문맥만 지원한다. RFQ와 협상안 검사 및 법령 카드와 일반 자연어 생성은 후속 범위다. 사용자가 입력한 질문이 지원 범위 밖이면 추가 입력 응답으로 안내한다. 테스트 데이터를 실제 기업 정보나 실제 MCP 실행 결과로 표시하지 않는다.
 
-Spring과 Python은 같은 AGENT_EXECUTION_MODE 값을 사용한다. Spring은 대화 경로 전체에 모드 검사를 적용한다. 기업 미선택 대화 생성이나 메모리 대화 조회처럼 Python을 호출하지 않는 경로도 포함한다. 설정 생략 시 live로 간주한다. 기존 v0.1 동작에는 이 새 가드를 적용하지 않는다.
+Spring과 Python 모두 AGENT_EXECUTION_MODE=stub을 명시한다. Spring도 새 경로 전체에 모드 검사를 적용한다. 기업 미선택 대화 생성이나 메모리 대화 조회처럼 Python을 호출하지 않는 경로도 포함한다. 설정 생략 시 live로 간주한다. 기존 v0.1 동작에는 이 새 가드를 적용하지 않는다.
 
 ## 조회 API
 
@@ -20,23 +20,13 @@ Spring과 Python은 같은 AGENT_EXECUTION_MODE 값을 사용한다. Spring은 �
 | GET /api/v1/suppliers | GET /internal/v1/suppliers | items와 returned_count 및 limit |
 | GET /api/v1/suppliers/{supplier_id} | GET /internal/v1/suppliers/{supplier_id} | SupplierDetail |
 
-조회 성공 응답은 {schema_version:"0.2",mode:"stub"|"live",data:{...}}다. 카탈로그 processes는 {process:string,materials:string[]}[]다. regions는 string[]다. stub은 fixture에서, live는 business-mcp의 business://catalog에서 도출하며 중복을 제거한다. live 카탈로그는 협력사가 없는 공정을 제외한다.
+조회 성공 응답은 {schema_version:"0.2",mode:"stub",data:{...}}다. 카탈로그 processes는 {process:string,materials:string[]}[]다. regions는 string[]다. fixture에서 도출하며 중복을 제거한다.
 
-검색 query parameter는 process 필수다. material과 region은 선택이다. 각 문자열은 앞뒤 공백 제거 후 1..100자다. iatf_required와 iso14001_required는 true 또는 false이며 기본값 false다. false는 인증 여부 전체다. true면 각각 IATF 16949와 ISO 14001 인증이 있는 기업만 반환한다. min_monthly_capacity는 선택이며 정수 1..10000000이다. 월 생산능력이 이 값 이상인 capability만 matched_capabilities에 포함한다. limit은 정수 1..100이며 기본값 20이다. 알 수 없는 query parameter와 중복 parameter는 400으로 거절한다. 빈 선택값은 프런트가 생략한다. 화면의 인증 체크박스는 체크했을 때만 iatf_required=true와 iso14001_required=true를 보낸다. 지역 드롭다운 값은 카탈로그 regions에서 가져온다. 존재하지 않는 유효 검색 조건은 200과 빈 items를 반환한다. 필터를 만족하는 기업을 supplier_id 순서로 정렬하고 기업별로 묶은 뒤 limit을 적용한다. returned_count는 반환 기업 수다. total과 offset은 제공하지 않는다. 상세 ID가 없으면 404 SUPPLIER_NOT_FOUND다.
+검색 query parameter는 process 필수다. material과 region은 선택이다. 각 문자열은 앞뒤 공백 제거 후 1..100자다. iatf_required는 true 또는 false이며 기본값 false다. false는 인증 여부 전체다. min_monthly_capacity는 선택이며 정수 1..10000000이다. 월 생산능력이 이 값 이상인 capability만 matched_capabilities에 포함한다. limit은 정수 1..100이며 기본값 20이다. 알 수 없는 query parameter와 중복 parameter는 400으로 거절한다. 빈 선택값은 프런트가 생략한다. 화면의 인증 라디오 버튼은 전체(iatf_required 생략 또는 false)와 IATF 16949 보유(true)에 대응한다. 지역 드롭다운 값은 카탈로그 regions에서 가져온다. 존재하지 않는 유효 검색 조건은 200과 빈 items를 반환한다. 필터를 만족하는 기업을 supplier_id 순서로 정렬하고 기업별로 묶은 뒤 limit을 적용한다. returned_count는 반환 기업 수다. total과 offset은 제공하지 않는다. 상세 ID가 없으면 404 SUPPLIER_NOT_FOUND다.
 
-SupplierSummary는 supplier_id와 name 및 region과 iatf16949와 iso14001 및 matched_capabilities와 provenance를 갖는다. iatf16949와 iso14001은 인증 보유 여부를 나타내는 boolean이다. matched_capabilities는 검색 조건에 맞는 {process,material,monthly_capacity}[]다. provenance는 {profile,financials,operations}이며 각 값은 데이터 출처다. stub은 모두 "STUB"이다. live의 profile과 financials는 협력사 DB의 suppliers.source 값인 "DART" 또는 "MOCK"이다. live의 operations는 생산능력과 품질 및 계약과 견적이 모두 가상 데이터이므로 항상 "MOCK"이다.
+SupplierSummary는 supplier_id와 name 및 region과 iatf16949 및 matched_capabilities와 provenance를 갖는다. matched_capabilities는 검색 조건에 맞는 {process,material,monthly_capacity}[]다. provenance는 {profile:"STUB",financials:"STUB",operations:"STUB"}다.
 
-SupplierDetail은 supplier_id와 name 및 region과 iatf16949와 iso14001 및 capabilities와 quality와 financials 및 recent_quotes와 existing_contract 및 provenance를 갖는다. capabilities의 구조는 matched_capabilities와 같다. quality는 {defect_ppm:number|null,on_time_delivery_rate:number|null}다. financials는 {year:integer,revenue_krw:number|null,operating_profit_krw:number|null,debt_ratio:number|null,source:"STUB"|"DART"|"MOCK"}[]다. recent_quotes는 {process,material,unit_price_krw,quoted_at}[]이며 quoted_at은 YYYY-MM-DD다. existing_contract는 null 또는 {payment_days:integer,price_linkage:boolean}다. 숫자는 fixture 그대로 사용한다. on_time_delivery_rate는 0..100의 백분율이다. debt_ratio도 이미 백분율로 환산한 값이며 100을 넘을 수 있다. 화면에서 두 값에 100을 곱하지 않는다. _krw는 원 단위다. null과 빈 financials는 0으로 바꾸지 않는다.
-
-### live 조회
-
-live 조회는 Python이 business-mcp의 search_suppliers와 find_suppliers 및 get_supplier 도구와 business://catalog 리소스를 호출해 만든다. 응답 형식과 검색 규칙은 stub과 같다.
-
-- 검색 조건은 카탈로그 값과 정확히 일치해야 한다. business-mcp의 공정과 소재 및 지역 별칭은 적용하지 않는다. 카탈로그에 없는 공정과 소재 및 지역은 도구를 호출하지 않고 200과 빈 items를 반환한다.
-- 검색은 공정의 소재마다 search_suppliers를 호출한 뒤 기업별로 묶는다. 소재 하나의 결과가 도구의 최대 행 수 100에 도달하면 누락 가능성이 있으므로 500 INTERNAL_ERROR를 반환한다.
-- 상세 ID는 SUP-0001처럼 정확한 형식만 조회한다. 숫자만 있는 ID와 회사명 및 소문자 접두어는 404 SUPPLIER_NOT_FOUND다.
-- on_time_delivery_rate는 DB의 0..1 비율에 100을 곱해 소수 첫째 자리로 반올림한다. debt_ratio는 부채총계를 자본총계로 나눈 백분율이며 자본총계가 0 이하이거나 값이 없으면 null이다. existing_contract는 기존 계약이 없으면 null이다.
-- business-mcp나 협력사 DB에 연결할 수 없으면 503 UPSTREAM_UNAVAILABLE과 retryable=true를 반환한다. 원인 메시지는 노출하지 않는다.
+SupplierDetail은 supplier_id와 name 및 region과 iatf16949 및 capabilities와 quality와 financials 및 recent_quotes와 existing_contract 및 provenance를 갖는다. capabilities의 구조는 matched_capabilities와 같다. quality는 {defect_ppm:number|null,on_time_delivery_rate:number|null}다. financials는 {year:integer,revenue_krw:number|null,operating_profit_krw:number|null,debt_ratio:number|null,source:"STUB"}[]다. recent_quotes는 {process,material,unit_price_krw,quoted_at}[]이며 quoted_at은 YYYY-MM-DD다. existing_contract는 null 또는 {payment_days:integer,price_linkage:boolean}다. 숫자는 fixture 그대로 사용한다. on_time_delivery_rate는 0..100의 백분율이다. debt_ratio도 이미 백분율로 환산한 값이며 100을 넘을 수 있다. 화면에서 두 값에 100을 곱하지 않는다. _krw는 원 단위다. null과 빈 financials는 0으로 바꾸지 않는다.
 
 ## 대화 API
 
@@ -101,13 +91,13 @@ Python 모든 새 내부 경로에 X-Internal-Api-Key 인증을 적용한다. Sp
 - 400 VALIDATION_ERROR: 형식과 범위 오류.
 - 401 UNAUTHORIZED: 내부 키 오류. Spring 공개 응답에서는 502 UPSTREAM_INVALID_RESPONSE.
 - 404 SUPPLIER_NOT_FOUND 또는 CONVERSATION_NOT_FOUND: 대상 없음.
-- 503 DEMO_MODE_REQUIRED: 대화 경로에서 stub 모드가 아님. retryable=false.
-- 503 UPSTREAM_UNAVAILABLE: Python 연결 실패 또는 live 조회의 business-mcp 연결 실패. retryable=true.
+- 503 DEMO_MODE_REQUIRED: stub 모드가 아님. retryable=false.
+- 503 UPSTREAM_UNAVAILABLE: Python 연결 실패. retryable=true.
 - 504 UPSTREAM_TIMEOUT: 처리 시간 초과. retryable=true.
 - 502 UPSTREAM_INVALID_RESPONSE: Spring이 응답 스키마와 상태 또는 ID 및 기업 문맥 불일치를 발견함. retryable=false.
 - 500 INTERNAL_ERROR: 예상하지 못한 오류. retryable=false.
 
-Spring은 성공 응답의 필드와 자료형 및 schema_version과 mode를 검증한다. stub 조회 응답은 fixture와 같은 값인지 확인한다. live 조회 응답은 DB 값을 알 수 없으므로 형식과 출처 값을 검증하고 검색 결과가 요청한 조건과 limit을 만족하며 supplier_id 순서인지 확인한다. 상세는 요청한 기업 ID와 같은지 확인한다. ChatResponse는 request_id와 conversation_id 및 resolved_context가 요청과 일치하는지 확인한다. 카드와 근거의 기업 ID 및 evidence 연결과 상태별 제약을 검증한다. 예상하지 못한 내부 오류 본문은 그대로 공개하지 않는다. 자동 재시도하지 않는다.
+Spring은 성공 응답의 필드와 자료형 및 schema_version과 mode를 검증한다. ChatResponse는 request_id와 conversation_id 및 resolved_context가 요청과 일치하는지 확인한다. 카드와 근거의 기업 ID 및 evidence 연결과 상태별 제약을 검증한다. 예상하지 못한 내부 오류 본문은 그대로 공개하지 않는다. 자동 재시도하지 않는다.
 
 ## 후속 화면 연동과 검증 기준
 

@@ -251,8 +251,7 @@ class SupplierChatResponseValidatorTest {
     }
 
     private static ObjectNode filters(String process) {
-        return JSON.createObjectNode().put("process", process).put("iatf_required", false)
-                .put("iso14001_required", false).put("limit", 20);
+        return JSON.createObjectNode().put("process", process).put("iatf_required", false).put("limit", 20);
     }
 
     private static ObjectNode search(int limit, JsonNode... items) {
@@ -265,7 +264,7 @@ class SupplierChatResponseValidatorTest {
     private static ObjectNode summary(int index, int... capabilities) {
         ObjectNode supplier = supplier(index);
         ObjectNode summary = JSON.createObjectNode();
-        for (String field : new String[]{"supplier_id", "name", "region", "iatf16949", "iso14001", "provenance"}) summary.set(field, supplier.get(field));
+        for (String field : new String[]{"supplier_id", "name", "region", "iatf16949", "provenance"}) summary.set(field, supplier.get(field));
         ArrayNode matched = summary.putArray("matched_capabilities");
         for (int capability : capabilities) matched.add(supplier.get("capabilities").get(capability));
         return summary;

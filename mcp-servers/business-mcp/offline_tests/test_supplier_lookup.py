@@ -167,19 +167,6 @@ def test_search_without_process_accepts_region_and_certification(monkeypatch):
     assert params == ["경남", 20]
 
 
-def test_iso14001_filter_and_column_are_added_only_when_required(monkeypatch):
-    rows = [{"supplier_id": "SUP-0001", "iso14001": True}]
-    calls = mock_query(monkeypatch, rows, rows)
-
-    assert server.search_suppliers(region="부산", iatf_required=True, iso14001_required=True) == rows
-    assert server.search_suppliers(region="부산") == rows
-
-    assert "o.iatf16949, o.iso14001," in calls[0][0]
-    assert "WHERE o.region = %s AND o.iatf16949 AND o.iso14001 ORDER BY" in calls[0][0]
-    assert "AND o.iso14001" not in calls[1][0]
-    assert calls[0][1] == calls[1][1] == ["부산", 20]
-
-
 def test_search_with_no_filters_is_still_bounded_and_deterministic(monkeypatch):
     calls = mock_query(monkeypatch, [])
     assert server.search_suppliers() == []

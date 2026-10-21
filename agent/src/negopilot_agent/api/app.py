@@ -15,7 +15,6 @@ from starlette.exceptions import HTTPException
 from negopilot_agent.routing.router import ToolCaller
 from negopilot_agent.decomposition.backends import Backend
 
-from .business_supplier_service import BusinessSupplierService
 from .execution import Decomposer, ModelUnavailable, QueryExecutor
 from .generation_api import add_generation_routes
 from .generation_execution import ContextDecomposer
@@ -51,7 +50,6 @@ class AuthenticationFailed(Exception):
 def create_app(settings: ApiSettings | None = None, decomposer: Decomposer | None = None,
                caller: ToolCaller | None = None,
                supplier_chat_service: SupplierChatService | None = None,
-               supplier_lookup_service: BusinessSupplierService | None = None,
                generation_decomposer: ContextDecomposer | None = None,
                generation_caller: ToolCaller | None = None,
                generation_backend: Backend | None = None) -> FastAPI:
@@ -86,6 +84,8 @@ def create_app(settings: ApiSettings | None = None, decomposer: Decomposer | Non
                 await authenticate(request)
             except AuthenticationFailed as auth_error:
                 return await authentication_error(request, auth_error)
+            if settings.mode != "stub":
+                return error_response(503, None, "DEMO_MODE_REQUIRED", "This API requires stub mode.")
             return error_response(400, None, "VALIDATION_ERROR", "Invalid request.")
         # Includes malformed encodings. Never return parser details or submitted input.
         return error_response(exc.status_code, None, "VALIDATION_ERROR", "Invalid HTTP request.")
@@ -118,7 +118,7 @@ def create_app(settings: ApiSettings | None = None, decomposer: Decomposer | Non
             return error_response(500, body.request_id, "INTERNAL_ERROR", "Unexpected server error.")
 
     add_supplier_chat_routes(application, settings, authenticate, error_response, extract_request_id,
-                             service=supplier_chat_service, lookup_service=supplier_lookup_service)
+                             service=supplier_chat_service)
     add_generation_routes(application, settings, authenticate, error_response,
                           decomposer=generation_decomposer, caller=generation_caller,
                           backend=generation_backend)
