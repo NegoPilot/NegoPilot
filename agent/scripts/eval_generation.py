@@ -41,6 +41,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT.parent / "shared" / "src")]
 
 from negopilot_shared import DecompositionResult, RouteResult  # noqa: E402
+from negopilot_agent import timing  # noqa: E402
 
 from negopilot_agent.generation import AnswerGenerator, GeneratorSettings, build_evidence  # noqa: E402
 from negopilot_agent.generation.answer import Answer, Evidence  # noqa: E402
@@ -122,14 +123,27 @@ async def judge(client, model: str, item: dict, answer: Answer) -> dict:
     points = "\n".join(f"{i}. {p}" for i, p in enumerate(item["points"]))
     evidence = "\n\n".join(f"[{e.id}] {e.label}\n{e.text}" for e in answer.evidence) or "(근거 없음)"
     user = f"<points>\n{points}\n</points>\n\n<evidence>\n{evidence}\n</evidence>\n\n<answer>\n{answer.text}\n</answer>"
-    response = await client.chat.completions.create(
-        model=model, temperature=0,
-        messages=[{"role": "system", "content": JUDGE_SYSTEM}, {"role": "user", "content": user}],
-        response_format={"type": "json_schema",
-                         "json_schema": {"name": "GenerationJudgement", "schema": JUDGE_SCHEMA, "strict": True}},
-    )
+    with timing.span("llm", model) as meta:
+        response = await client.chat.completions.create(
+            model=model, temperature=0,
+            messages=[{"role": "system", "content": JUDGE_SYSTEM}, {"role": "user", "content": user}],
+            response_format={"type": "json_schema",
+                             "json_schema": {"name": "GenerationJudgement", "schema": JUDGE_SCHEMA, "strict": True}},
+        )
+        if usage := getattr(response, "usage", None):
+            details = getattr(usage, "prompt_tokens_details", None)
+            meta.update(input_tokens=usage.prompt_tokens, output_tokens=usage.completion_tokens,
+                        cached_tokens=getattr(details, "cached_tokens", 0) or 0)
+    if response.choices[0].finish_reason != "stop" or response.choices[0].message.refusal:
+        raise ValueError("채점 응답이 거절되거나 잘렸습니다")
     result = json.loads(response.choices[0].message.content or "{}")
-    covered = {p["index"] for p in result.get("points", []) if p.get("covered")}
+    marks = result["points"]
+    if (len(marks) != len(item["points"])
+            or {p["index"] for p in marks} != set(range(len(item["points"])))
+            or any(type(p["covered"]) is not bool for p in marks)
+            or not isinstance(result["unsupported_claims"], list)):
+        raise ValueError("채점 포인트가 누락되거나 중복됐습니다")
+    covered = {p["index"] for p in marks if p["covered"]}
     return {"points_covered": len(covered & set(range(len(item["points"])))),
             "uncovered_points": [p for i, p in enumerate(item["points"]) if i not in covered],
             "unsupported_claims": result.get("unsupported_claims", [])}
