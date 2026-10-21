@@ -1,6 +1,6 @@
 # agent
 
-NegoPilot의 LangGraph Agent입니다. 지금은 **쿼리 분해** 노드가 들어 있습니다.
+NegoPilot의 LangGraph Agent입니다. 지금은 **쿼리 분해**와 **Routing** 노드가 들어 있습니다.
 
 ```
 [사용자 질문] → decompose_query → route → (MCP 병렬·순차 호출) → generate
@@ -42,11 +42,45 @@ graph.add_node("decompose_query", make_decompose_node())   # 상태: query, hist
 Claude는 `ANTHROPIC_API_KEY`(또는 `ant auth login` 프로필)가 필요합니다. 평가 스크립트는 `agent/.env`가 있으면 읽습니다 (git에 올라가지 않음).
 Ollama는 `ollama pull llama3.1:8b`로 모델을 받아 두면 키 없이 씁니다.
 
+## Routing (`negopilot_agent.routing`)
+
+`DecompositionResult`를 받아 `intents.yaml`에서 서버·도구를 찾아 부르고, 하위 질문별 결과를 `RouteResult`로 돌려줍니다.
+
+```python
+from negopilot_agent.routing import Router, McpToolCaller, make_route_node
+
+result = await Router(McpToolCaller()).route(decomposition)
+
+graph.add_node("route", make_route_node())   # 상태: decomposition → routing
+```
+
+| 동작 | 내용 |
+| --- | --- |
+| 실행 순서 | `parallel_groups()` 순서. 같은 묶음은 병렬(`asyncio.gather`), 다음 묶음은 앞 묶음이 끝난 뒤 |
+| 인자 | 엔티티 이름 = 도구 인자명. 다른 것만 바꾼다 (`search_suppliers`의 `top_n` → `limit`). `price_change_pct`는 넘기지 않는다 ([`router.py`](src/negopilot_agent/routing/router.py)) |
+| `law_check` | `search_regulation(query=질문, laws=[law])` → 찾은 조문 최대 3개를 `get_article`로 전문 조회 |
+| 결과 대응표 | intent별로 결과에서 목록과 값을 꺼내 `top1`, `top(n)`, `all`, `by_name("이름")`을 해석 ([`extract.py`](src/negopilot_agent/routing/extract.py)). 값이 여러 개면 하나씩 부른다 (최대 10번) |
+| 도구 없는 intent | `general_knowledge`, `out_of_scope` → `no_tool`, `status: planned`(`draft_email`) → `unsupported`. 도구를 부르지 않는다 |
+| 필수 인자 없음 | 도구를 부르지 않고 `missing_args`와 빠진 엔티티 이름 (Generation이 되묻기) |
+| 앞 결과 0건 | 그 하위 질문은 `empty`, 이후 묶음은 `skipped`, `halted: true` |
+| 도구 오류 | `error`와 오류 내용. 그 결과에 의존하는 하위 질문만 `skipped` |
+| 분해 `clarify`·`failed` | 아무것도 부르지 않고 `status: "not_routed"` |
+
+출력 형식([`results.py`](src/negopilot_agent/routing/results.py))은 Generation 담당과 합의 전 초안입니다. 합의되면 `shared/`로 옮깁니다.
+
+### 설정
+
+| 환경 변수 | 기본값 |
+| --- | --- |
+| `BUSINESS_MCP_URL` | `http://localhost:9102/mcp` |
+| `LAW_MCP_URL` | `http://localhost:9103/mcp` |
+
 ## 실행
 
 ```bash
 uv sync
-uv run python -m pytest -q                       # 단위 테스트 (가짜 HTTP 전송, 비용 없음)
+uv run python -m pytest -q                       # 단위 테스트 (가짜 HTTP 전송·가짜 MCP, 비용 없음)
+uv run python scripts/route_fixtures.py          # fixtures를 실제 MCP 서버로 Routing (서버 2개를 먼저 띄움)
 uv run python scripts/eval_decomposition.py --backend ollama   # 로컬 모델 평가 (비용 없음)
 uv run python scripts/eval_decomposition.py --limit 3          # Claude 평가 (비용 발생)
 ```
