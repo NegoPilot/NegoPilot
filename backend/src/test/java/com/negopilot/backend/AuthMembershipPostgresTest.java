@@ -16,6 +16,8 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -31,6 +33,7 @@ import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @EnabledIfEnvironmentVariable(named = "TEST_DATABASE_URL", matches = ".+")
@@ -225,6 +228,72 @@ class AuthMembershipPostgresTest {
             start.countDown();
             assertThat(List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS)))
                     .containsExactlyInAnyOrder(true, false);
+        }
+        assertThat(members.activeAdminCount()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM app_users", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM app_membership_audit WHERE action='BOOTSTRAP'", Integer.class)).isEqualTo(1);
+    }
+
+    @Test void idempotentBootstrapCreatesOnceAndPreservesExistingAdministrator() {
+        jdbc.execute("TRUNCATE app_users,app_access_logs,app_membership_audit,spring_session CASCADE");
+        var input = AuthRequestValidator.signup(signup("local@example.com"));
+        assertThat(AuthBootstrapAdmin.createInitialAdministrator(input, members, passwords, transactions, true))
+                .isEqualTo(AuthBootstrapAdmin.BootstrapResult.CREATED);
+        var created = members.byEmail(input.email());
+        assertThat(created.role()).isEqualTo("ADMIN");
+        assertThat(created.status()).isEqualTo("ACTIVE");
+        assertThat(passwords.matches(PASSWORD, created.passwordHash())).isTrue();
+
+        var changed = AuthRequestValidator.signup(signup(input.email())
+                .put("password", "ReplacementPassword2!").put("name", "Changed name").put("department", "Changed department"));
+        assertThat(AuthBootstrapAdmin.createInitialAdministrator(changed, members, passwords, transactions, true))
+                .isEqualTo(AuthBootstrapAdmin.BootstrapResult.SKIPPED);
+        assertThat(members.byEmail(input.email())).isEqualTo(created);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM app_users", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM app_membership_audit WHERE action='BOOTSTRAP'", Integer.class)).isEqualTo(1);
+        assertThatThrownBy(() -> AuthBootstrapAdmin.createInitialAdministrator(input, members, passwords, transactions))
+                .isInstanceOf(IllegalStateException.class).hasMessage("An active administrator already exists.");
+    }
+
+    @Test void idempotentBootstrapSkipsWhenAnotherActiveAdministratorExists() {
+        var before = members.byId(admin);
+        var input = AuthRequestValidator.signup(signup("new-admin@example.com"));
+        assertThat(AuthBootstrapAdmin.createInitialAdministrator(input, members, passwords, transactions, true))
+                .isEqualTo(AuthBootstrapAdmin.BootstrapResult.SKIPPED);
+        assertThat(members.byEmail(input.email())).isNull();
+        assertThat(members.byId(admin)).isEqualTo(before);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM app_users", Integer.class)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM app_membership_audit", Integer.class)).isZero();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"USER,ACTIVE", "USER,PENDING", "USER,REJECTED", "USER,DISABLED",
+            "ADMIN,PENDING", "ADMIN,REJECTED", "ADMIN,DISABLED"})
+    void idempotentBootstrapRejectsConflictingEmailEvenWhenAnotherAdminExists(String role, String status) {
+        UUID conflicting = seed("local@example.com", role, status);
+        var before = members.byId(conflicting);
+        var input = AuthRequestValidator.signup(signup(before.email()));
+        assertThatThrownBy(() -> AuthBootstrapAdmin.createInitialAdministrator(input, members, passwords, transactions, true))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("not an active administrator");
+        assertThat(members.byId(conflicting)).isEqualTo(before);
+        assertThat(members.activeAdminCount()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM app_membership_audit", Integer.class)).isZero();
+    }
+
+    @Test void concurrentIdempotentBootstrapsCreateOnlyOneAdministrator() throws Exception {
+        jdbc.execute("TRUNCATE app_users,app_access_logs,app_membership_audit,spring_session CASCADE");
+        var input = AuthRequestValidator.signup(signup("local@example.com"));
+        CountDownLatch start = new CountDownLatch(1);
+        Callable<AuthBootstrapAdmin.BootstrapResult> bootstrap = () -> {
+            start.await();
+            return AuthBootstrapAdmin.createInitialAdministrator(input, members, passwords, transactions, true);
+        };
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var first = executor.submit(bootstrap);
+            var second = executor.submit(bootstrap);
+            start.countDown();
+            assertThat(List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder(AuthBootstrapAdmin.BootstrapResult.CREATED, AuthBootstrapAdmin.BootstrapResult.SKIPPED);
         }
         assertThat(members.activeAdminCount()).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM app_users", Integer.class)).isEqualTo(1);

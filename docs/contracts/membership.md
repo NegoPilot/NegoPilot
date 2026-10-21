@@ -152,9 +152,23 @@ java -cp "target/classes:$(cat target/runtime-classpath.txt)" \
   --job_title='관리자'
 ```
 
-비밀번호는 터미널에서 표시하지 않고 입력받는다. 터미널이 없는 자동화에서는 비밀 저장소가 `ADMIN_BOOTSTRAP_PASSWORD` 환경변수를 전달해야 한다. 비밀번호를 CLI 인자로 받지 않는다. 입력 인자는 위 네 필드만 허용하며 `job_title`은 생략할 수 있다.
+비밀번호는 터미널에서 표시하지 않고 입력받는다. 터미널이 없는 자동화에서는 비밀 저장소가 `ADMIN_BOOTSTRAP_PASSWORD` 환경변수를 전달해야 한다. 비밀번호를 CLI 인자로 받지 않는다. 계정 입력 인자는 위 네 필드만 허용하며 `job_title`은 생략할 수 있다.
 
 CLI는 `bootstrap-admin` 프로필과 `WebApplicationType.NONE`으로 실행한다. HTTP 포트를 열지 않고 처리 후 종료한다. 접근 이력 정리 작업도 실행하지 않는다. 활성 관리자가 이미 있거나 이메일이 등록되어 있으면 실패하며 기존 계정을 덮어쓰지 않는다. 동시 실행은 DB 잠금으로 직렬화한다. 생성된 회원은 `ADMIN/ACTIVE`이며 `BOOTSTRAP` 감사 기록을 남긴다.
+
+로컬 Compose의 일회성 초기화 서비스는 `--if-absent` 옵션을 명시한다. 이 옵션에서는 활성 관리자가 이미 있으면 생성 작업을 생략하고 성공 종료한다. 기존 계정과 비밀번호 및 감사 기록은 변경하지 않는다. 지정한 이메일이 등록되어 있지만 해당 계정이 `ADMIN/ACTIVE`가 아니면 다른 활성 관리자가 있어도 실패한다. 기존 회원을 자동 승격하거나 다시 활성화하지 않는다. 정상 웹 서버 시작에는 관리자 생성 절차가 없다.
+
+패키징된 Spring Boot JAR에서도 같은 CLI를 실행할 수 있다. 아래 명령은 Compose 초기화용 반복 실행 옵션을 포함한다. 비밀번호와 DB 환경변수는 실행 환경에서 전달한다.
+
+```sh
+java -Dloader.main=com.negopilot.backend.AuthBootstrapAdmin \
+  -cp backend/target/negopilot-backend-0.1.0-SNAPSHOT.jar \
+  org.springframework.boot.loader.launch.PropertiesLauncher \
+  --if-absent --email=admin@negopilot.local --name='로컬 관리자' \
+  --department='운영' --job_title='관리자'
+```
+
+`deploy/local/backend.Dockerfile`의 이미지 안에서는 JAR 경로가 `/app/app.jar`다. 이미지의 진입점은 `java`이므로 Compose `command`에는 `-Dloader.main=...`부터 지정한다. 일반 백엔드는 기본 명령인 `-jar /app/app.jar`로 실행한다.
 
 ## 검증
 
@@ -167,4 +181,4 @@ TEST_DATABASE_PASSWORD="$AUTH_TEST_DATABASE_PASSWORD" \
 mvn -f backend/pom.xml -B -ntp -Dtest=AuthMembershipPostgresTest test
 ```
 
-가입과 해시 저장 및 권한별 접근과 제한 세션 승인 및 로그인 세션 회전과 이전 CSRF 토큰 거절을 검증한다. 모든 대상 세션 폐기와 상태 재확인 및 접근 이력 보존 기간과 관리자 동시 변경 및 최초 관리자 동시 생성도 검증한다.
+가입과 해시 저장 및 권한별 접근과 제한 세션 승인 및 로그인 세션 회전과 이전 CSRF 토큰 거절을 검증한다. 모든 대상 세션 폐기와 상태 재확인 및 접근 이력 보존 기간과 관리자 동시 변경 및 최초 관리자 동시 생성도 검증한다. 반복 초기화의 기존 계정 보존과 이메일 충돌 거절 및 동시 실행도 검증한다. `AuthBootstrapAdminTest`는 별도 DB 없이 CLI 옵션의 명시적 선택과 허용하지 않는 인자 거절을 검증한다.

@@ -157,3 +157,32 @@ jobs:
       - run: npm ci
       - run: npm run check:api
       - run: npm run build
+
+  docker-compose:
+    name: Docker Compose (local onboarding)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      COMPOSE_PROJECT_NAME: negopilot-ci
+      LOCAL_WEB_PORT: "5173"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose config --quiet
+      - name: Build and start the full local stack
+        run: docker compose up --build -d --wait --wait-timeout 180
+      - name: Verify signup, approval, MCP lookup and stored follow-up chat
+        run: python3 scripts/integration/compose_smoke.py --state /tmp/negopilot-compose-state.json
+      - name: Recreate containers while retaining volumes
+        run: |
+          docker compose down
+          LOCAL_ADMIN_PASSWORD=MustNotReplace2026! docker compose up -d --wait --wait-timeout 180
+      - name: Verify original credentials and persistent data
+        run: python3 scripts/integration/compose_smoke.py --verify-state /tmp/negopilot-compose-state.json
+      - name: Print service diagnostics on failure
+        if: failure()
+        run: |
+          docker compose ps -a
+          docker compose logs --no-color --tail=100
+      - name: Remove this CI run's containers and volumes
+        if: always()
+        run: docker compose down -v --remove-orphans

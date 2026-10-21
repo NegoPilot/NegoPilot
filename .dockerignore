@@ -1,0 +1,14 @@
+.git
+**/.git
+**/.venv
+**/node_modules
+**/target
+**/dist
+**/__pycache__
+**/.pytest_cache
+**/.env
+**/.env.*
+!**/.env.example
+**/*.log
+**/.DS_Store
+artifacts

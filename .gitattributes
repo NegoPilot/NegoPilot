@@ -1,0 +1,2 @@
+# PostgreSQL executes these scripts inside Linux containers after any host checkout.
+deploy/local/**/*.sh text eol=lf
