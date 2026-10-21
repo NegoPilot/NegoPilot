@@ -7,6 +7,7 @@
 """
 
 import json
+from datetime import date
 from pathlib import Path
 
 import anthropic
@@ -252,3 +253,43 @@ async def test_dependency_with_inputs_is_kept():
     fake = FakeClaude(message_json(json.dumps(data["expected"], ensure_ascii=False)))
     result = await fake.decomposer().decompose(data["query"])
     assert result.sub_queries[1].depends_on == ["q1"]
+
+
+async def test_today_as_of_is_dropped():
+    """as_of를 생략하면 오늘 기준이다. 모델이 사용자 메시지의 오늘 날짜를 채운 값은 지운다 (#39)."""
+    data = fixture("01")
+    with_today = json.loads(json.dumps(data["expected"]))
+    with_today["sub_queries"][0]["entities"]["as_of"] = date.today().isoformat()
+    fake = FakeClaude(message_json(json.dumps(with_today, ensure_ascii=False)))
+    result = await fake.decomposer().decompose(data["query"])
+    assert result == DecompositionResult.model_validate(data["expected"])
+
+
+async def test_user_given_as_of_is_kept():
+    data = fixture("01")
+    with_date = json.loads(json.dumps(data["expected"]))
+    with_date["sub_queries"][0]["entities"]["as_of"] = "2025-01-01"   # 사용자가 질문에 적은 날짜
+    fake = FakeClaude(message_json(json.dumps(with_date, ensure_ascii=False)))
+    result = await fake.decomposer().decompose(data["query"])
+    assert result.sub_queries[0].entities.as_of == "2025-01-01"
+
+
+@pytest.mark.parametrize("as_of", [date.today().isoformat(), "2025-01-01"])
+async def test_as_of_on_disallowed_intent_is_dropped_without_retry(as_of):
+    """offer_check는 as_of를 받지 않는다. 날짜와 상관없이 지우고 재시도하지 않는다."""
+    data = fixture("05")
+    with_as_of = json.loads(json.dumps(data["expected"]))
+    with_as_of["sub_queries"][0]["entities"]["as_of"] = as_of
+    fake = FakeClaude(message_json(json.dumps(with_as_of, ensure_ascii=False)))
+    result = await fake.decomposer().decompose(data["query"])
+    assert len(fake.requests) == 1
+    assert result == DecompositionResult.model_validate(data["expected"])
+
+
+def test_drop_redundant_as_of_leaves_other_output_alone():
+    from negopilot_agent.decomposition.decomposer import drop_redundant_as_of
+    today = date(2026, 10, 21)
+    plain = json.dumps(fixture("03")["expected"], ensure_ascii=False)
+    assert drop_redundant_as_of(plain, today) == plain                    # as_of가 없으면 그대로
+    assert drop_redundant_as_of("not json", today) == "not json"          # 검증 단계가 오류로 처리
+    assert drop_redundant_as_of('{"status": "failed"}', today) == '{"status": "failed"}'
