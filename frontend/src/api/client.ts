@@ -1,70 +1,69 @@
 import type { ApiErrorBody } from './types'
 
-// Spring 응답 제한 시간(35초)보다 조금 길게 둔다
-const DEFAULT_TIMEOUT_MS = 40_000
+const configuredTimeout = Number(import.meta.env.VITE_API_TIMEOUT_MS)
+export const DEFAULT_TIMEOUT_MS = Number.isFinite(configuredTimeout) && configuredTimeout >= 1_000 && configuredTimeout <= 2_147_483_647 ? configuredTimeout : 40_000
 
 export class ApiError extends Error {
-  readonly status: number
-  readonly code: string
-  readonly retryable: boolean
-  readonly requestId: string | null
-
-  constructor(status: number, code: string, message: string, retryable: boolean, requestId: string | null = null) {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    message: string,
+    readonly retryable: boolean,
+    readonly requestId: string | null = null,
+  ) {
     super(message)
     this.name = 'ApiError'
-    this.status = status
-    this.code = code
-    this.retryable = retryable
-    this.requestId = requestId
   }
 }
 
 function isErrorBody(value: unknown): value is ApiErrorBody {
   if (typeof value !== 'object' || value === null || !('error' in value)) return false
-  const error = (value as { error: unknown }).error
-  return typeof error === 'object' && error !== null && typeof (error as { code?: unknown }).code === 'string'
+  const error = value.error
+  return typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string'
+    && 'message' in error && typeof error.message === 'string' && 'retryable' in error && typeof error.retryable === 'boolean'
 }
 
 export async function request<T>(path: string, init: RequestInit = {}, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<T> {
+  const headers = new Headers(init.headers)
+  headers.set('Accept', 'application/json')
+  if (init.body !== undefined) headers.set('Content-Type', 'application/json')
+  const method = (init.method ?? 'GET').toUpperCase()
+  // 로그인 시 토큰이 바뀌므로 각 변경 요청 직전에 현재 세션의 토큰을 받는다.
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+    const csrf = await request<{ header_name: string; token: string }>('/api/v1/auth/csrf', { signal: init.signal })
+    if (!csrf || typeof csrf.header_name !== 'string' || !/^[A-Za-z0-9-]+$/.test(csrf.header_name)
+      || typeof csrf.token !== 'string' || !csrf.token) throw new ApiError(502, 'INVALID_RESPONSE', 'Invalid CSRF response.', false)
+    headers.set(csrf.header_name, csrf.token)
+  }
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-  const headers: Record<string, string> = { Accept: 'application/json' }
-  if (init.body !== undefined) headers['Content-Type'] = 'application/json'
-
-  let response: Response
+  const abort = () => controller.abort()
+  if (init.signal?.aborted) abort()
+  init.signal?.addEventListener('abort', abort, { once: true })
+  const timer = setTimeout(abort, timeoutMs)
   try {
-    response = await fetch(path, { ...init, headers, signal: controller.signal })
-  } catch {
-    if (controller.signal.aborted) {
-      throw new ApiError(0, 'CLIENT_TIMEOUT', 'Request timed out.', true)
+    const response = await fetch(path, { ...init, headers, credentials: 'same-origin', signal: controller.signal })
+    const text = await response.text()
+    let body: unknown = null
+    try { body = text ? JSON.parse(text) : null } catch { /* HTTP 오류를 아래에서 분류한다. */ }
+    if (!response.ok) {
+      if (isErrorBody(body)) {
+        if (body.error.code === 'UNAUTHENTICATED' && path !== '/api/v1/auth/me' && typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('negopilot:unauthenticated'))
+        }
+        throw new ApiError(response.status, body.error.code, body.error.message, body.error.retryable, body.request_id ?? null)
+      }
+      throw new ApiError(response.status, response.status >= 500 ? 'BACKEND_UNREACHABLE' : `HTTP_${response.status}`, 'Request failed.', response.status >= 500)
     }
+    if (response.status === 204) return undefined as T
+    if (body === null) throw new ApiError(response.status, 'EMPTY_RESPONSE', 'Response body was empty.', false)
+    return body as T
+  } catch (error) {
+    if (error instanceof ApiError) throw error
+    if (init.signal?.aborted) throw new ApiError(0, 'REQUEST_CANCELLED', 'Request was cancelled.', false)
+    if (controller.signal.aborted) throw new ApiError(0, 'CLIENT_TIMEOUT', 'Request timed out.', true)
     throw new ApiError(0, 'NETWORK_ERROR', 'Network request failed.', true)
   } finally {
     clearTimeout(timer)
+    init.signal?.removeEventListener('abort', abort)
   }
-
-  const text = await response.text()
-  let body: unknown = null
-  if (text) {
-    try {
-      body = JSON.parse(text)
-    } catch {
-      body = null
-    }
-  }
-
-  if (!response.ok) {
-    if (isErrorBody(body)) {
-      throw new ApiError(response.status, body.error.code, body.error.message, body.error.retryable, body.request_id)
-    }
-    // Spring이 꺼져 있으면 Vite 프록시가 본문 없는 5xx를 돌려준다
-    if (response.status >= 500) {
-      throw new ApiError(response.status, 'BACKEND_UNREACHABLE', 'Backend did not respond.', true)
-    }
-    throw new ApiError(response.status, `HTTP_${response.status}`, 'Unexpected response.', false)
-  }
-  if (body === null) {
-    throw new ApiError(response.status, 'EMPTY_RESPONSE', 'Response body was empty.', false)
-  }
-  return body as T
 }

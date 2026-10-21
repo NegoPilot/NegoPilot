@@ -12,16 +12,16 @@ const question = ref('')
 
 const QUICK_QUESTIONS = [
   '이 RFQ에 적합한 협력사 3곳 추천해줘.',
-  '선택한 기업의 재무·품질을 확인해줘.',
+  '기업의 재무 상태를 비교하려면 어떤 정보가 필요해?',
   '단가 인하 시 적용 법령을 찾아줘.',
   '지급기한 75일의 위험을 검사해줘.',
 ]
 
-// 질문은 협력사 화면의 AI 패널에서 이어진다
+// 질문은 개인 AI 대화에서 이어진다
 function openAssistant(text: string) {
-  const query: Record<string, string> = { ai: '1' }
+  const query: Record<string, string> = {}
   if (text.trim()) query.q = text.trim()
-  router.push({ name: 'suppliers', query })
+  router.push({ name: 'chat', query })
 }
 </script>
 
@@ -87,7 +87,7 @@ function openAssistant(text: string) {
         <div class="panel-title">
           <div>
             <h2 id="quick-h">AI 빠른 질문</h2>
-            <p class="sub">버튼을 누르면 협력사 화면의 AI 패널에서 이어집니다.</p>
+            <p class="sub">버튼을 누르면 개인 AI 대화에서 이어집니다.</p>
           </div>
         </div>
         <div class="quick-list">
@@ -117,7 +117,7 @@ function openAssistant(text: string) {
       </section>
     </div>
 
-    <p class="footnote">* 기업 데이터 중 일부는 MOCK(가상)이며, 지금 화면의 협력사 조회와 답변은 연결 검증용 테스트 데이터입니다.</p>
+    <p class="footnote">* 이 홈 화면의 RFQ와 수치는 예시 데이터입니다. AI 대화의 자료 출처는 각 답변의 근거에서 확인하세요.</p>
   </main>
 </template>
 

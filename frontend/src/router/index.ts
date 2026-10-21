@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
-import { session } from '@/stores/session'
+import { ensureSession, session } from '@/stores/session'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -15,8 +15,10 @@ declare module 'vue-router' {
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
+    { path: '/', redirect: { name: 'chat' } },
+    { path: '/chat/:conversationId?', name: 'chat', component: () => import('@/views/ChatView.vue'), meta: { title: 'AI 대화' } },
     {
-      path: '/',
+      path: '/overview',
       name: 'home',
       component: () => import('@/views/HomeView.vue'),
       meta: { title: '홈' },
@@ -119,12 +121,23 @@ export const router = createRouter({
   ],
 })
 
-// 예시 로그인 상태로만 막는다. 인증 API가 생기면 서버 세션 확인으로 바꾼다
-router.beforeEach((to) => {
-  if (to.meta.layout === 'public') return true
+router.beforeEach(async (to) => {
+  await ensureSession()
+  if (to.meta.layout === 'public') {
+    if (session.value?.status === 'ACTIVE' && ['login', 'signup', 'signup-pending'].includes(String(to.name))) return { name: 'chat' }
+    if (session.value?.status === 'PENDING' && to.name !== 'signup-pending') return { name: 'signup-pending' }
+    return true
+  }
   if (!session.value) return { name: 'login', query: { redirect: to.fullPath } }
-  if (to.meta.layout === 'admin' && session.value.role !== 'admin') return { name: 'home' }
+  if (session.value.status === 'PENDING') return { name: 'signup-pending' }
+  if (to.meta.layout === 'admin' && session.value.role !== 'ADMIN') return { name: 'chat' }
   return true
+})
+
+window.addEventListener('negopilot:unauthenticated', () => {
+  if (router.currentRoute.value.meta.layout !== 'public') {
+    void router.replace({ name: 'login', query: { redirect: router.currentRoute.value.fullPath } })
+  }
 })
 
 router.afterEach((to) => {

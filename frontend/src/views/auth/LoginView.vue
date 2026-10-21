@@ -2,7 +2,8 @@
 import { computed, reactive, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 
-import { safeRedirect, signIn } from '@/stores/session'
+import { safeRedirect, sessionError, signIn } from '@/stores/session'
+import { describeError } from '@/utils/errors'
 import { isEmail } from '@/utils/validation'
 
 const route = useRoute()
@@ -30,6 +31,8 @@ const remembered = readRemembered()
 const form = reactive({ email: remembered, password: '', remember: remembered !== '' })
 const tried = ref(false)
 const notice = ref<string | null>(null)
+const busy = ref(false)
+const displayedNotice = computed(() => notice.value ?? (sessionError.value ? describeError(sessionError.value).message : null))
 
 const emailError = computed(() => {
   if (!tried.value) return null
@@ -38,20 +41,27 @@ const emailError = computed(() => {
 })
 const passwordError = computed(() => (tried.value && !form.password ? '비밀번호를 입력해 주세요.' : null))
 
-// 인증 API가 없어서 형식만 확인하고 넘어간다
-function login(target: 'home' | 'admin') {
+async function login() {
+  if (busy.value) return
   tried.value = true
   notice.value = null
   if (emailError.value || passwordError.value) return
-  writeRemembered(form.remember ? form.email.trim() : null)
-  signIn(form.email.trim(), target === 'admin' ? 'admin' : 'member')
-  // 로그인 전에 열려던 업무 화면이 있으면 그리로 돌아간다
-  const redirect = target === 'home' ? safeRedirect(route.query.redirect) : null
-  router.push(redirect ?? { name: target })
+  busy.value = true
+  try {
+    const user = await signIn(form.email.trim(), form.password)
+    writeRemembered(form.remember ? form.email.trim() : null)
+    const redirect = safeRedirect(route.query.redirect)
+    await router.push(user.status === 'PENDING' ? { name: 'signup-pending' } : redirect ?? { name: 'chat' })
+  } catch (error) {
+    notice.value = describeError(error).message
+  } finally {
+    busy.value = false
+    form.password = ''
+  }
 }
 
 function forgotPassword() {
-  notice.value = '비밀번호 재설정은 소속 회사 관리자에게 요청해 주세요. 재설정 메일 기능은 인증 API가 연결되면 제공됩니다.'
+  notice.value = '비밀번호 재설정은 소속 회사 관리자에게 요청해 주세요. 현재 비밀번호 재설정 메일은 제공하지 않습니다.'
 }
 </script>
 
@@ -72,7 +82,7 @@ function forgotPassword() {
       <h1 id="login-h">로그인</h1>
       <p class="lead">등록한 회사 이메일과 비밀번호를 입력해 주세요.</p>
 
-      <form class="form" novalidate @submit.prevent="login('home')">
+      <form class="form" novalidate @submit.prevent="login">
         <div class="field">
           <label for="l-email">회사 이메일</label>
           <input
@@ -108,9 +118,9 @@ function forgotPassword() {
           </label>
           <button class="btn ghost" type="button" @click="forgotPassword">비밀번호를 잊으셨나요?</button>
         </div>
-        <p v-if="notice" class="notice" role="status">{{ notice }}</p>
+        <p v-if="displayedNotice" class="notice" role="alert">{{ displayedNotice }}</p>
 
-        <button class="btn btn-primary wide" type="submit">로그인</button>
+        <button class="btn btn-primary wide" type="submit" :disabled="busy">{{ busy ? '로그인 중…' : '로그인' }}</button>
         <p class="footnote">로그인에 문제가 있으면 소속 관리자에게 문의해 주세요.</p>
       </form>
 
@@ -119,9 +129,7 @@ function forgotPassword() {
         <RouterLink :to="{ name: 'signup' }" class="btn ghost">회원가입</RouterLink>
       </div>
 
-      <button class="btn ghost wide admin" type="button" @click="login('admin')">관리자 로그인 →</button>
-      <p class="footnote">관리자 권한이 부여된 계정만 이용할 수 있습니다.</p>
-      <p class="footnote demo">시안: 인증 API 연결 전이라 입력 형식만 확인하고 화면을 넘깁니다.</p>
+      <p class="footnote">관리자 권한은 로그인한 계정의 서버 설정으로 확인합니다.</p>
     </section>
   </div>
 </template>

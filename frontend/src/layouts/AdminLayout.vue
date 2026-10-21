@@ -1,17 +1,18 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
+import { computed, ref } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 
-import { CURRENT_ADMIN, ORGANIZATION } from '@/data/accounts'
-import { signOut } from '@/stores/session'
+import { describeError } from '@/utils/errors'
+import { session, signOut } from '@/stores/session'
 
 // 관리자 화면: 업무 화면과 다른 사이드바를 쓴다. 사이드바는 묶음 3개, 묶음 안 화면은 상단 탭으로 오간다
 const route = useRoute()
 const router = useRouter()
 
-function logout() {
-  signOut()
-  router.push({ name: 'login' })
+const logoutError = ref<string | null>(null)
+async function logout() {
+  try { await signOut(); await router.push({ name: 'login' }) }
+  catch (error) { logoutError.value = describeError(error).message }
 }
 
 const GROUPS = [
@@ -47,7 +48,7 @@ const group = computed(() => GROUPS.find((g) => g.tabs.some((t) => t.name === ro
     <nav class="sidebar" aria-label="관리자 메뉴">
       <div class="brand">
         <span class="brand-name">NegoPilot</span>
-        <span class="brand-team">{{ ORGANIZATION.name }} · 관리자</span>
+        <span class="brand-team">관리자</span>
       </div>
       <RouterLink
         v-for="g in GROUPS"
@@ -71,7 +72,7 @@ const group = computed(() => GROUPS.find((g) => g.tabs.some((t) => t.name === ro
           <h1>{{ group.label }}</h1>
           <span class="right">
             <span class="badge">관리자</span>
-            <span>{{ CURRENT_ADMIN.name }} · {{ CURRENT_ADMIN.department }}</span>
+            <span>{{ session?.name }} / {{ session?.department }}</span>
           </span>
         </div>
         <nav class="tabs admin-tabs" :aria-label="`${group.label} 화면`">
@@ -87,7 +88,15 @@ const group = computed(() => GROUPS.find((g) => g.tabs.some((t) => t.name === ro
           </RouterLink>
         </nav>
       </header>
-      <RouterView />
+      <main class="page-body">
+        <section class="panel panel-pad">
+          <h2>관리자 화면 연결 준비 중</h2>
+          <p>현재 로그인한 계정의 관리자 권한은 서버에서 확인했습니다. 회원 목록과 가입 승인 및 데이터 관리 화면은 아직 실제 API에 연결되지 않았습니다.</p>
+          <p>이 화면에서는 회원 승인이나 권한 변경을 실행하지 않습니다.</p>
+          <RouterLink :to="{ name: 'chat' }" class="btn btn-primary">AI 대화로 이동</RouterLink>
+          <p v-if="logoutError" class="field-error" role="alert">{{ logoutError }}</p>
+        </section>
+      </main>
     </div>
   </div>
 </template>

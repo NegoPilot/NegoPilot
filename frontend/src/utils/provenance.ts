@@ -1,8 +1,12 @@
-// 데이터 출처 표시. STUB(연결 검증용 가상 데이터)과 MOCK(가상 시드)은 화면에서 모두 'MOCK'으로 보여 준다
+// 실행 모드와 데이터의 출처를 구분한다.
 export function provenanceLabel(source: string | null | undefined): string {
-  if (!source) return '출처 없음'
-  const upper = source.toUpperCase()
-  if (upper === 'STUB' || upper === 'MOCK') return 'MOCK'
-  if (upper === 'DART') return 'DART 공시'
-  return source
+  switch (source?.toUpperCase()) {
+    case 'DART': return 'DART 공시'
+    case 'MOCK': return 'MOCK 가상 데이터'
+    case 'STUB': return 'STUB 테스트 응답'
+    case 'MANUAL': return '관리자 입력'
+    case 'MIXED': return '출처 혼합'
+    case 'UNKNOWN': return '출처 정보 없음'
+    default: return source || '출처 정보 없음'
+  }
 }

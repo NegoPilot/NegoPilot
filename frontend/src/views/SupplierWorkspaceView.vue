@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import { getCatalog, getSupplier, searchSuppliers } from '@/api/suppliers'
 import type { Catalog, SupplierDetail, SupplierList, SupplierSummary } from '@/api/types'
-import AiAssistantPanel from '@/components/AiAssistantPanel.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import ErrorNotice from '@/components/ErrorNotice.vue'
 import SupplierDetailSection from '@/components/SupplierDetailSection.vue'
@@ -21,6 +20,8 @@ import {
 
 const route = useRoute()
 const router = useRouter()
+// 현재 기본 서버에는 이 화면의 v1 조회 경로가 없다. 직접 대화와 분리한다.
+const SUPPLIER_READ_AVAILABLE = false
 
 function queryString(key: string): string | null {
   const v = route.query[key]
@@ -53,6 +54,7 @@ const errorMessage = computed(() =>
 )
 
 async function loadDetail(id: string) {
+  if (!SUPPLIER_READ_AVAILABLE) return
   if (details.value[id] && details.value[id] !== 'error') return
   try {
     details.value = { ...details.value, [id]: await getSupplier(id) }
@@ -62,6 +64,7 @@ async function loadDetail(id: string) {
 }
 
 async function runSearch() {
+  if (!SUPPLIER_READ_AVAILABLE) return
   const params = searchValuesToParams(applied.value)
   if (!params) {
     result.value = null
@@ -91,6 +94,7 @@ async function runSearch() {
 watch(searchKey, runSearch, { immediate: true })
 
 onMounted(async () => {
+  if (!SUPPLIER_READ_AVAILABLE) return
   try {
     catalog.value = await getCatalog()
   } catch {
@@ -101,17 +105,16 @@ onMounted(async () => {
 function onSubmit(next: SearchFormValues) {
   const query: Record<string, string> = searchValuesToQuery(next)
   if (rfq.value) query.rfq = rfq.value
-  if (aiOpen.value) query.ai = '1'
   if (JSON.stringify(searchValuesToQuery(next)) === searchKey.value) runSearch()
   else router.push({ query })
 }
 
 function onReset() {
-  router.push({ query: aiOpen.value ? { ai: '1' } : {} })
+  router.push({ query: {} })
 }
 
 // ── 선택 협력사 ──
-const selectedId = computed(() => queryString('selected') ?? result.value?.items[0]?.supplier_id ?? null)
+const selectedId = computed(() => queryString('selected'))
 const selectedDetail = computed(() => {
   const d = selectedId.value ? details.value[selectedId.value] : undefined
   return d && d !== 'error' ? d : null
@@ -136,22 +139,6 @@ function defectOf(id: string): string {
   return d === 'error' ? NO_DATA : formatPpm(d.quality.defect_ppm)
 }
 
-// ── AI 패널 ──
-const aiOpen = computed(() => queryString('ai') === '1')
-function setAi(open: boolean) {
-  const query = { ...route.query }
-  if (open) query.ai = '1'
-  else {
-    delete query.ai
-    delete query.q
-  }
-  router.replace({ query })
-}
-const panelSupplier = computed(() =>
-  selectedDetail.value ? { id: selectedDetail.value.supplier_id, name: selectedDetail.value.name } : null,
-)
-const backPath = computed(() => route.fullPath)
-
 const headerContext = computed(() => {
   const parts: string[] = []
   if (rfq.value) parts.push(rfq.value)
@@ -165,11 +152,17 @@ const headerContext = computed(() => {
   <header class="page-header">
     <h1>협력사</h1>
     <span v-if="headerContext" class="context">{{ headerContext }}</span>
-    <span class="right"><span class="badge badge-gray">시연 데이터 · MOCK</span></span>
+    <span class="right"><span class="badge badge-gray">별도 조회 화면 연결 준비 중</span></span>
   </header>
 
   <main class="page-body">
-    <div class="workspace" :class="{ 'ai-open': aiOpen }">
+    <p class="footnote">협력사 검색 화면은 조회 API 연결을 준비하고 있습니다. 기업과 법령 질문은 AI 대화에서 바로 할 수 있습니다.</p>
+    <section v-if="!SUPPLIER_READ_AVAILABLE" class="panel panel-pad">
+      <h2>협력사 조회 화면 연결 준비 중</h2>
+      <p>이 화면의 검색 API는 현재 실행 환경에 연결되지 않았습니다. AI 대화에서 기업 이름이나 지역 및 필요한 조건을 질문해 주세요.</p>
+      <RouterLink :to="{ name: 'chat' }" class="btn btn-primary">기업 선택 없이 질문하기</RouterLink>
+    </section>
+    <div v-else class="workspace">
       <SupplierSearchPanel
         :catalog="catalog"
         :catalog-error="catalogError"
@@ -250,19 +243,8 @@ const headerContext = computed(() => {
         </section>
       </div>
 
-      <AiAssistantPanel
-        v-if="aiOpen"
-        :supplier="panelSupplier"
-        :initial-question="queryString('q') ?? ''"
-        :rfq="rfq"
-        :back-path="backPath"
-        @close="setAi(false)"
-      />
     </div>
-
-    <button v-if="!aiOpen" class="btn btn-primary ai-fab" type="button" @click="setAi(true)">
-      <span aria-hidden="true">✦</span> AI 도우미 열기
-    </button>
+    <RouterLink :to="{ name: 'chat' }" class="btn btn-primary ai-fab">AI 대화로 이동</RouterLink>
   </main>
 </template>
 

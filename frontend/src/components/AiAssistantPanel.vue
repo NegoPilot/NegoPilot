@@ -1,15 +1,19 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { createConversation, sendMessage } from '@/api/conversations'
-import type { GenerationResponse } from '@/api/types'
-import { describeError, isApiError } from '@/utils/errors'
+import { createConversation, getConversation, getMessages, sendMessage } from '@/api/conversations'
+import { ApiError } from '@/api/client'
+import type { ChatContext, GenerationResponse, StoredMessage } from '@/api/types'
+import { describeError } from '@/utils/errors'
 import { parseSupplierEvidence, splitCitations } from '@/utils/evidence'
 import { NO_DATA, formatKrw, formatPercent, formatPpm } from '@/utils/format'
+import { provenanceLabel } from '@/utils/provenance'
 
 const props = defineProps<{
   supplier: { id: string; name: string } | null
+  conversationId?: string | null
+  closable?: boolean
   /** 홈에서 넘어온 질문. 입력창에 채워 둔다 */
   initialQuestion: string
   rfq: string | null
@@ -17,102 +21,155 @@ const props = defineProps<{
   backPath: string
 }>()
 
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{ close: []; open: [id: string | null]; changed: [] }>()
 const router = useRouter()
 
-// stub 모드에서 답할 수 있는 질문 (docs/contracts/direct-chat.md 자동 검증 예시, agent/.../generation_stubs.py)
 const SUPPLIER_QUESTIONS = ['이 회사에 대해 알려줘', '이 회사의 재무 상태를 알려줘', '납기와 품질은 어때?']
-const GENERAL_QUESTIONS = ['부산 협력사 찾아줘', '해솔에 대해 알려줘', '하도급법상 대금 지급 기한은 며칠이야?', 'RFQ가 뭐야?']
+const GENERAL_QUESTIONS = ['부산 협력사 찾아줘', '하도급법상 대금 지급 기한은 며칠이야?', '계약 조건을 검토하려면 어떤 정보가 필요해?']
 const QUERY_MAX = 4000
-
 interface PanelMessage {
   key: string
-  /** note: 대화 중 기준 협력사가 바뀌었다는 화면 안내 (서버에 저장하지 않음) */
   role: 'user' | 'assistant' | 'note'
   text: string
   response?: GenerationResponse
 }
-
 const conversationId = ref<string | null>(null)
 const messages = ref<PanelMessage[]>([])
 const draft = ref(props.initialQuestion)
 const sending = ref(false)
+const loading = ref(false)
+const olderLoading = ref(false)
+const loaded = ref(true)
+const nextCursor = ref<string | null>(null)
+const selectedContext = ref<ChatContext>({ selected_supplier_ids: props.supplier ? [props.supplier.id] : [] })
 const error = ref<unknown>(null)
-const listEnd = ref<HTMLElement | null>(null)
+const messageList = ref<HTMLOListElement | null>(null)
+let epoch = 0
+let pendingController: AbortController | null = null
+let retry: { id: string; query: string; context: string; key: string } | null = null
 
-watch(
-  () => props.initialQuestion,
-  (q) => {
-    if (q) draft.value = q
-  },
-)
-
-// 협력사를 바꿔도 대화는 이어진다. 다음 메시지부터 바뀐 선택을 context로 보낸다 (direct-chat 계약)
-watch(
-  () => props.supplier,
-  (next, prev) => {
-    if (!messages.value.length || next?.id === prev?.id) return
-    messages.value.push({
-      key: `n-${Date.now()}`,
-      role: 'note',
-      text: next ? `이제부터 ${next.name} 기준으로 답합니다.` : '선택한 협력사 없이 이어서 답합니다.',
-    })
+function cancelView() {
+  epoch += 1
+  pendingController?.abort()
+  pendingController = null
+  sending.value = false
+  loading.value = false
+  olderLoading.value = false
+}
+onBeforeUnmount(cancelView)
+watch(() => props.initialQuestion, (question) => { if (question) draft.value = question })
+watch(() => props.supplier?.id, (id) => {
+  selectedContext.value = { selected_supplier_ids: id ? [id] : [] }
+})
+function rows(items: StoredMessage[]): PanelMessage[] {
+  return items.map((item) => ({ key: item.message_id, role: item.role, text: item.content, ...(item.response ? { response: item.response } : {}) }))
+}
+function scrollToEnd() {
+  nextTick(() => { if (messageList.value) messageList.value.scrollTop = messageList.value.scrollHeight })
+}
+async function loadConversation(id: string) {
+  cancelView()
+  const token = epoch
+  const controller = new AbortController()
+  pendingController = controller
+  conversationId.value = id
+  messages.value = []
+  draft.value = ''
+  retry = null
+  error.value = null
+  loading.value = true
+  loaded.value = false
+  nextCursor.value = null
+  try {
+    const snapshot = await getConversation(id, controller.signal)
+    if (token !== epoch) return
+    messages.value = rows(snapshot.messages)
+    selectedContext.value = snapshot.context
+    nextCursor.value = snapshot.next_cursor
+    loaded.value = true
     scrollToEnd()
-  },
-)
-
-/** 새 대화는 사용자가 직접 시작한다 */
+  } catch (failure) { if (token === epoch) error.value = failure }
+  finally { if (token === epoch) loading.value = false }
+}
 function newConversation() {
+  cancelView()
   conversationId.value = null
   messages.value = []
   error.value = null
+  nextCursor.value = null
+  selectedContext.value = { selected_supplier_ids: props.supplier ? [props.supplier.id] : [] }
+  draft.value = ''
+  retry = null
+  loaded.value = true
+  emit('open', null)
 }
+defineExpose({ newConversation })
+watch(() => props.conversationId, (id) => {
+  if ((id ?? null) === conversationId.value) return
+  if (id) void loadConversation(id)
+  else newConversation()
+}, { immediate: true })
 
-const suggestions = computed(() =>
-  messages.value.length ? [] : props.supplier ? [...SUPPLIER_QUESTIONS, ...GENERAL_QUESTIONS.slice(0, 2)] : GENERAL_QUESTIONS,
-)
-const canSend = computed(() => {
-  const q = draft.value.trim()
-  return !sending.value && q.length > 0 && [...q].length <= QUERY_MAX
-})
-
-const errorText = computed(() => {
-  if (!error.value) return null
-  if (isApiError(error.value, 'VALIDATION_ERROR')) {
-    return '이 질문은 처리할 수 없습니다. 테스트 모드에서는 예시 질문만 답할 수 있습니다.'
-  }
-  return describeError(error.value).message
-})
-
-function scrollToEnd() {
-  nextTick(() => listEnd.value?.scrollIntoView({ block: 'end' }))
+async function loadOlder() {
+  const id = conversationId.value, cursor = nextCursor.value, token = epoch
+  if (!id || !cursor || olderLoading.value) return
+  olderLoading.value = true
+  try {
+    const page = await getMessages(id, cursor, pendingController?.signal)
+    if (token !== epoch) return
+    const height = messageList.value?.scrollHeight ?? 0
+    const existing = new Set(messages.value.map((item) => item.key))
+    messages.value = [...rows(page.messages).filter((item) => !existing.has(item.key)), ...messages.value]
+    nextCursor.value = page.next_cursor
+    nextTick(() => { if (messageList.value) messageList.value.scrollTop += messageList.value.scrollHeight - height })
+  } catch (failure) { if (token === epoch) error.value = failure }
+  finally { if (token === epoch) olderLoading.value = false }
 }
-
+const suggestions = computed(() => messages.value.length || loading.value || !loaded.value ? [] : props.supplier ? SUPPLIER_QUESTIONS : GENERAL_QUESTIONS)
+const canSend = computed(() => !sending.value && !loading.value && loaded.value && draft.value.trim().length > 0 && [...draft.value.trim()].length <= QUERY_MAX)
+const errorText = computed(() => error.value ? describeError(error.value).message : null)
 async function send(text: string) {
   const query = text.trim()
-  if (!query || sending.value) return
+  if (!query || [...query].length > QUERY_MAX || sending.value || loading.value || !loaded.value) return
+  const token = epoch
+  const controller = new AbortController()
+  pendingController = controller
+  const context = { selected_supplier_ids: [...selectedContext.value.selected_supplier_ids] }
   sending.value = true
   error.value = null
   draft.value = ''
-  messages.value.push({ key: `u-${Date.now()}`, role: 'user', text: query })
+  const userKey = crypto.randomUUID()
+  messages.value.push({ key: userKey, role: 'user', text: query })
   scrollToEnd()
   try {
     if (!conversationId.value) {
-      const snapshot = await createConversation(props.supplier?.id ?? null)
+      const snapshot = await createConversation(context.selected_supplier_ids[0] ?? null, controller.signal)
+      if (token !== epoch) return
       conversationId.value = snapshot.conversation_id
+      emit('open', snapshot.conversation_id)
+      emit('changed')
     }
-    const res = await sendMessage(conversationId.value, query, {
-      selected_supplier_ids: props.supplier ? [props.supplier.id] : [],
-    })
+    const id = conversationId.value
+    const serialized = JSON.stringify(context)
+    if (!retry || retry.id !== id || retry.query !== query || retry.context !== serialized) {
+      retry = { id, query, context: serialized, key: crypto.randomUUID() }
+    }
+    const res = await sendMessage(id, query, context, retry.key, controller.signal)
+    if (token !== epoch) return
+    if (res.execution_status === 'FAILED') {
+      throw new ApiError(200, res.error?.code ?? 'GENERATION_FAILED', 'Generation failed.', res.error?.retryable ?? false)
+    }
     messages.value.push({ key: res.response_id, role: 'assistant', text: res.answer.text, response: res })
-  } catch (e) {
-    // 실패하면 Spring도 저장하지 않으므로 질문을 입력창으로 되돌린다
-    messages.value.pop()
-    error.value = e
+    selectedContext.value = res.context
+    retry = null
+    emit('changed')
+  } catch (failure) {
+    if (token !== epoch) return
+    messages.value = messages.value.filter((item) => item.key !== userKey)
+    error.value = failure
     draft.value = query
   } finally {
-    sending.value = false
-    scrollToEnd()
+    if (token === epoch) { sending.value = false; scrollToEnd() }
   }
 }
 
@@ -147,9 +204,10 @@ function supplierSummary(res: GenerationResponse) {
     if (!s) continue
     const quotes = [...(s.recent_quotes ?? [])].sort((a, b) => b.quoted_at.localeCompare(a.quoted_at))
     return [
-      `불량률: ${formatPpm(s.quality?.defect_ppm)}`,
-      `납기 준수율: ${formatPercent(s.quality?.on_time_delivery_rate)}`,
-      `최근 견적: ${quotes[0] ? formatKrw(quotes[0].unit_price_krw) : NO_DATA}`,
+      `${s.name ?? s.supplier_id} 기본 정보: ${provenanceLabel(s.provenance.profile)} / 원출처: ${provenanceLabel(s.provenance.profile_origin)}`,
+      `불량률: ${formatPpm(s.quality.defect_ppm)} (${provenanceLabel(s.provenance.quality)})`,
+      `납기 준수율: ${formatPercent(s.quality.on_time_delivery_rate)} (${provenanceLabel(s.provenance.quality)})`,
+      `최근 견적: ${quotes[0] ? formatKrw(quotes[0].unit_price_krw) : NO_DATA} (${provenanceLabel(quotes[0]?.source)})`,
     ]
   }
   return null
@@ -161,11 +219,11 @@ function supplierSummary(res: GenerationResponse) {
     <header class="ai-head">
       <div>
         <h2 id="ai-h"><span aria-hidden="true">✦</span> AI 도우미</h2>
-        <p class="muted">현재 선택: {{ supplier?.name ?? '선택한 협력사 없음' }}</p>
+        <p class="muted">{{ supplier ? `선택 문맥: ${supplier.name}` : '기업 선택 없이 질문하고 이전 대화를 이어갈 수 있습니다.' }}</p>
       </div>
       <div class="head-actions">
-        <button v-if="messages.length" class="link-btn" type="button" :disabled="sending" @click="newConversation">새 대화</button>
-        <button class="close" type="button" aria-label="AI 도우미 닫기" @click="emit('close')">
+        <button v-if="conversationId || messages.length" class="link-btn" type="button" @click="newConversation">새 대화</button>
+        <button v-if="closable !== false" class="close" type="button" aria-label="AI 도우미 닫기" @click="emit('close')">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
           <path d="M3.5 3.5l9 9M12.5 3.5l-9 9" />
         </svg>
@@ -173,9 +231,11 @@ function supplierSummary(res: GenerationResponse) {
       </div>
     </header>
 
-    <ol class="messages" aria-live="polite">
-      <li v-if="!messages.length" class="empty muted">
-        {{ supplier ? '선택한 협력사나 법령에 대해 물어보세요.' : '협력사를 고르지 않아도 기업 이름이나 지역, 법령으로 바로 물어볼 수 있습니다.' }}
+    <ol ref="messageList" class="messages" aria-live="polite">
+      <li v-if="loading" class="muted">대화를 불러오는 중입니다…</li>
+      <li v-if="nextCursor"><button class="btn" type="button" :disabled="olderLoading" @click="loadOlder">{{ olderLoading ? '불러오는 중…' : '이전 메시지 더 보기' }}</button></li>
+      <li v-if="!messages.length && !loading && loaded" class="empty muted">
+        {{ supplier ? '선택한 협력사나 법령에 대해 물어보세요.' : '협력사를 고르지 않아도 기업 이름이나 지역 또는 법령으로 바로 물어볼 수 있습니다.' }}
       </li>
 
       <template v-for="m in messages" :key="m.key">
@@ -209,6 +269,7 @@ function supplierSummary(res: GenerationResponse) {
             <ul>
               <li v-for="line in supplierSummary(m.response)" :key="line">{{ line }}</li>
             </ul>
+            <p class="origin-note">실제 Agent 실행에도 가상 데이터나 관리자 입력이 포함될 수 있습니다. 인증과 생산능력 등 각 항목의 출처는 근거 자료에서 확인하세요.</p>
           </div>
 
           <div v-if="m.response.answer.citations.length" class="evidence">
@@ -228,8 +289,8 @@ function supplierSummary(res: GenerationResponse) {
           </div>
 
           <div v-if="m.response.answer.options.length" class="options" role="group" aria-label="이어서 고르기">
-            <button v-for="o in m.response.answer.options" :key="o" class="option" type="button" :disabled="sending" @click="send(o)">
-              {{ o }}
+            <button v-for="(o, index) in m.response.answer.options" :key="o" class="option" type="button" :disabled="sending" @click="send(String(index + 1))">
+              {{ index + 1 }}. {{ o }}
             </button>
           </div>
         </li>
@@ -237,13 +298,13 @@ function supplierSummary(res: GenerationResponse) {
 
       <li v-if="sending" class="muted">답변을 만드는 중입니다… 실제 모델은 수십 초 걸릴 수 있습니다.</li>
     </ol>
-    <div ref="listEnd" />
 
     <div v-if="suggestions.length" class="suggestions" role="group" aria-label="예시 질문">
       <button v-for="q in suggestions" :key="q" class="option" type="button" :disabled="sending" @click="send(q)">{{ q }}</button>
     </div>
 
     <p v-if="errorText" class="error" role="alert">{{ errorText }}</p>
+    <button v-if="!loaded && !loading && conversationId" class="btn" type="button" @click="loadConversation(conversationId)">대화 다시 불러오기</button>
     <p class="footnote note">※ 기업 정보와 법령 원문은 근거 자료 탭에서 확인합니다.</p>
 
     <form class="composer" @submit.prevent="send(draft)">
@@ -253,8 +314,8 @@ function supplierSummary(res: GenerationResponse) {
         v-model="draft"
         rows="1"
         :maxlength="QUERY_MAX"
-        placeholder="추가 질문을 입력하세요..."
-        :disabled="sending"
+        placeholder="기업이나 법령에 대해 질문하세요"
+        :disabled="sending || loading || !loaded"
         @keydown="onKeydown"
       />
       <button class="send" type="submit" :disabled="!canSend">전송 ↑</button>
@@ -360,6 +421,7 @@ function supplierSummary(res: GenerationResponse) {
   font-size: 12px;
   color: var(--text-2);
 }
+.origin-note { margin: 8px 0 0; font-size: 12px; color: var(--text-2); line-height: 1.6; }
 .evidence {
   display: flex;
   flex-direction: column;
