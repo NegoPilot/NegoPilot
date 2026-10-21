@@ -6,6 +6,7 @@
       "name": "해솔금형",
       "region": "경남",
       "iatf16949": false,
+      "iso14001": false,
       "capabilities": [{"process": "프레스", "material": "SPCC", "monthly_capacity": 20000}],
       "quality": {"defect_ppm": null, "on_time_delivery_rate": null},
       "financials": [],
