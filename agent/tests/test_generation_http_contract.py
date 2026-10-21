@@ -517,8 +517,8 @@ async def test_explicitly_noncitable_evidence_is_rejected_from_http_citations(mo
         label="인용 금지 참고 자료", text="설명할 때만 참고할 자료입니다.", citable=False,
     )
 
-    def with_restricted_evidence(routing):
-        evidence = original_build(routing)
+    def with_restricted_evidence(routing, questions=None):
+        evidence = original_build(routing, questions)
         assert [item.id for item in evidence] == ["E1"]
         return [*evidence, restricted.model_copy(deep=True)]
 
