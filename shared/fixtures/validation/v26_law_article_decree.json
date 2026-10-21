@@ -1,0 +1,27 @@
+{
+  "note": "시행령 이름이 있으면 시행령 law 키",
+  "query": "하도급법 시행령 제7조 원문 알려 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "하도급법 시행령 제7조 원문 알려 줘",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "하도급거래 공정화에 관한 법률 시행령 제7조 조회",
+        "original_text": "하도급법 시행령 제7조 원문",
+        "intent": "law_article",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "law": "subcontract_decree",
+          "article_no": "제7조"
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

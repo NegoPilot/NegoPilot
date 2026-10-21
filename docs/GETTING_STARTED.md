@@ -90,7 +90,7 @@ Agent 그래프는 `agent/src/negopilot_agent/graph.py`에 있습니다. CLI 진
 | 볼 것 | [agent/README.md](../agent/README.md)와 [평가 보고서](../agent/eval_reports/) |
 | --- | --- |
 
-검증 세트는 `shared/fixtures/validation/`의 24개 질문입니다. 평가는 agent 폴더에서 `uv run python scripts/eval_decomposition.py --set validation --repeat 3`으로 실행합니다.
+검증 세트는 `shared/fixtures/validation/`의 50개 질문입니다. 평가는 agent 폴더에서 `uv run python scripts/eval_decomposition.py --set validation --repeat 3`으로 실행합니다.
 모델을 바꿀 때는 기존 평가 보고서와 현재 설정을 먼저 확인합니다. 실제 모델 평가 명령은 네트워크를 사용하며 공급자에 따라 비용이 발생합니다. 모델 호출 없는 단위 테스트와 구분해 실행합니다.
 
 ## 4. 공용 스키마 연결하기

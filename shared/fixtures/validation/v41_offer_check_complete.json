@@ -1,0 +1,30 @@
+{
+  "note": "협력사·RFQ·숫자·연동이 모두 있는 협상안",
+  "query": "SUP-0030에 RFQ-2026-004 단가 15,200원, 결제 30일, 연동 약정 없이 제안할게. 괜찮아?",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "SUP-0030에 RFQ-2026-004 단가 15,200원, 결제 30일, 연동 약정 없이 제안할게. 괜찮아?",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "SUP-0030에 RFQ-2026-004 단가 15,200원, 지급 30일, 연동 약정 없음 협상안의 하도급법 위반 여부",
+        "original_text": "SUP-0030에 RFQ-2026-004 단가 15,200원, 결제 30일, 연동 약정 없이 제안할게. 괜찮아?",
+        "intent": "offer_check",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "supplier": "SUP-0030",
+          "rfq_id": "RFQ-2026-004",
+          "unit_price": 15200,
+          "payment_days": 30,
+          "price_linkage": false
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

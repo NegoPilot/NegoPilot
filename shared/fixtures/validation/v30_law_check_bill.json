@@ -1,0 +1,24 @@
+{
+  "note": "숫자 없는 지급 수단 질문",
+  "query": "대금을 어음으로 주면 문제없어?",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "대금을 어음으로 주면 문제없어?",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "하도급대금을 어음으로 지급하는 경우의 법적 요건",
+        "original_text": "대금을 어음으로 주면 문제없어?",
+        "intent": "law_check",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {},
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

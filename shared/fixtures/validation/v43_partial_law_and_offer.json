@@ -1,0 +1,38 @@
+{
+  "note": "실행 가능한 법 검색과 인자가 부족한 협상안은 부분 실행 (#47 규칙)",
+  "query": "하도급대금 지급 기한 알려 주고 SUP-0040에 단가 11,000원 제안해도 되는지도 봐 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "하도급대금 지급 기한 알려 주고 SUP-0040에 단가 11,000원 제안해도 되는지도 봐 줘",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "하도급대금 지급 기한",
+        "original_text": "하도급대금 지급 기한 알려 주고",
+        "intent": "law_check",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {},
+        "inputs": [],
+        "depends_on": []
+      },
+      {
+        "id": "q2",
+        "question": "SUP-0040에 단가 11,000원 협상안의 하도급법 위반 여부",
+        "original_text": "SUP-0040에 단가 11,000원 제안해도 되는지도 봐 줘",
+        "intent": "offer_check",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "supplier": "SUP-0040",
+          "unit_price": 11000
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

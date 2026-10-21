@@ -1,0 +1,19 @@
+{
+  "note": "가리키는 RFQ를 이력에서 찾을 수 없음",
+  "query": "그 RFQ 순위 다시 보여 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "clarify",
+    "original_query": "그 RFQ 순위 다시 보여 줘",
+    "sub_queries": [],
+    "clarification": {
+      "reason": "'그 RFQ'가 어느 RFQ인지 대화에서 찾을 수 없음",
+      "question": "어떤 RFQ의 순위를 볼까요?",
+      "options": [
+        "RFQ 번호 입력 (예: RFQ-2026-001)",
+        "최근 RFQ 목록에서 선택"
+      ]
+    },
+    "assumptions": []
+  }
+}

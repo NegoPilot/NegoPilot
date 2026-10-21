@@ -1,0 +1,28 @@
+{
+  "note": "인증·공정·개수 조건 검색",
+  "query": "IATF 인증 있는 단조 업체 3곳 찾아 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "IATF 인증 있는 단조 업체 3곳 찾아 줘",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "IATF 16949 인증이 있는 단조 공정 2차 협력사 3곳",
+        "original_text": "IATF 인증 있는 단조 업체 3곳",
+        "intent": "supplier_search",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "process": "단조",
+          "iatf_required": true,
+          "top_n": 3
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

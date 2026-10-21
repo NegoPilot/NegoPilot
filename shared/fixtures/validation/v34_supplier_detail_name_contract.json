@@ -1,0 +1,26 @@
+{
+  "note": "회사명으로 상세 조회",
+  "query": "대성정밀 계약 조건 알려 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "대성정밀 계약 조건 알려 줘",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "대성정밀의 계약 조건",
+        "original_text": "대성정밀 계약 조건",
+        "intent": "supplier_detail",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "supplier": "대성정밀"
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

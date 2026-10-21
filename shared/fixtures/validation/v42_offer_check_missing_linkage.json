@@ -1,0 +1,19 @@
+{
+  "note": "협상안 검사만 요청했는데 연동 여부가 없으면 되묻는다 (#47 규칙)",
+  "query": "SUP-0033에 RFQ-2026-002 단가 7,900원, 결제 50일로 검사해 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "clarify",
+    "original_query": "SUP-0033에 RFQ-2026-002 단가 7,900원, 결제 50일로 검사해 줘",
+    "sub_queries": [],
+    "clarification": {
+      "reason": "협상안 검사에 필요한 납품대금 연동 약정 포함 여부가 없음",
+      "question": "이 협상안에 납품대금 연동 약정을 포함하나요?",
+      "options": [
+        "연동 약정 포함",
+        "연동 약정 미포함"
+      ]
+    },
+    "assumptions": []
+  }
+}
