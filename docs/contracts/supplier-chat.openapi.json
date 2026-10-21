@@ -201,6 +201,14 @@
             }
           },
           {
+            "name": "iso14001_required",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
             "name": "min_monthly_capacity",
             "in": "query",
             "schema": {
@@ -506,6 +514,14 @@
           },
           {
             "name": "iatf_required",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "iso14001_required",
             "in": "query",
             "schema": {
               "type": "boolean",
@@ -1256,6 +1272,9 @@
           "iatf16949": {
             "type": "boolean"
           },
+          "iso14001": {
+            "type": "boolean"
+          },
           "matched_capabilities": {
             "type": "array",
             "items": {
@@ -1272,6 +1291,7 @@
           "name",
           "region",
           "iatf16949",
+          "iso14001",
           "matched_capabilities",
           "provenance"
         ],
@@ -1299,6 +1319,9 @@
             "pattern": "\\S"
           },
           "iatf16949": {
+            "type": "boolean"
+          },
+          "iso14001": {
             "type": "boolean"
           },
           "capabilities": {
@@ -1342,6 +1365,7 @@
           "name",
           "region",
           "iatf16949",
+          "iso14001",
           "capabilities",
           "quality",
           "financials",
