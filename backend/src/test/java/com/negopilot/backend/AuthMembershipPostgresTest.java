@@ -84,6 +84,7 @@ class AuthMembershipPostgresTest {
 
     @Test void sessionsRotateAndPendingIsLimitedUntilAdminApproval() throws Exception {
         try (var applicant = new Browser(); var administrator = new Browser()) {
+            assertError(applicant.get("/api/v2/business/catalog"), 401, "UNAUTHENTICATED");
             applicant.csrf();
             String before = applicant.cookie();
             String oldCsrf = applicant.token;
@@ -91,6 +92,7 @@ class AuthMembershipPostgresTest {
             assertThat(applicant.cookie()).isNotEqualTo(before);
             assertThat(applicant.get("/api/v1/auth/me").statusCode()).isEqualTo(200);
             assertError(applicant.get("/api/v1/admin/members"), 403, "FORBIDDEN");
+            assertError(applicant.get("/api/v2/business/catalog"), 403, "FORBIDDEN");
             applicant.token = oldCsrf;
             assertError(applicant.send("POST", "/api/v1/auth/logout", null, true), 403, "CSRF_INVALID");
             applicant.csrf();

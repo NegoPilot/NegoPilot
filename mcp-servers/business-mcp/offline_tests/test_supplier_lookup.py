@@ -167,6 +167,19 @@ def test_search_without_process_accepts_region_and_certification(monkeypatch):
     assert params == ["경남", 20]
 
 
+def test_iso14001_filter_and_column_are_added_only_when_required(monkeypatch):
+    rows = [{"supplier_id": "SUP-0001", "iso14001": True}]
+    calls = mock_query(monkeypatch, rows, rows)
+
+    assert server.search_suppliers(region="부산", iatf_required=True, iso14001_required=True) == rows
+    assert server.search_suppliers(region="부산") == rows
+
+    assert "o.iatf16949, o.iso14001," in calls[0][0]
+    assert "WHERE o.status = 'ACTIVE' AND o.region = %s AND o.iatf16949 AND o.iso14001 ORDER BY" in calls[0][0]
+    assert "AND o.iso14001" not in calls[1][0]
+    assert calls[0][1] == calls[1][1] == ["부산", 20]
+
+
 def test_search_with_no_filters_is_still_bounded_and_deterministic(monkeypatch):
     calls = mock_query(monkeypatch, [])
     assert server.search_suppliers() == []
@@ -174,6 +187,29 @@ def test_search_with_no_filters_is_still_bounded_and_deterministic(monkeypatch):
     assert "WHERE o.status = 'ACTIVE'" in sql
     assert sql.endswith("ORDER BY o.defect_ppm, o.supplier_id, c.process, c.material LIMIT %s")
     assert params == [20]
+
+
+def test_search_returns_independent_source_metadata_without_quality_join(monkeypatch):
+    rows = [{"supplier_id": "SUP-10000", "source": "MANUAL", "defect_ppm": None,
+             "financial_sources": [], "has_contract": False, "has_quotes": False}]
+    calls = mock_query(monkeypatch, rows)
+    assert server.search_suppliers() == rows
+    sql = calls[0][0]
+    assert "ARRAY(SELECT DISTINCT f.source FROM financials f WHERE f.supplier_id = o.supplier_id ORDER BY f.source) AS financial_sources" in sql
+    assert "EXISTS(SELECT 1 FROM contracts ct WHERE ct.supplier_id = o.supplier_id) AS has_contract" in sql
+    assert "EXISTS(SELECT 1 FROM quotes qt WHERE qt.supplier_id = o.supplier_id) AS has_quotes" in sql
+    assert "JOIN quality" not in sql
+    assert "WHERE o.status = 'ACTIVE'" in sql
+
+
+@pytest.mark.parametrize("supplier_id", ["SUP-10000", "SUP-123456789012345678"])
+def test_long_canonical_id_uses_active_exact_query(monkeypatch, supplier_id):
+    calls = mock_query(monkeypatch, [candidate(supplier_id=supplier_id)])
+    result = server.find_suppliers(supplier_id)
+    assert result["matches"][0]["supplier_id"] == supplier_id
+    assert result["match_type"] == "id"
+    assert calls[0][1] == (supplier_id, 10)
+    assert "WHERE supplier_id = %s AND status = 'ACTIVE'" in calls[0][0]
 
 
 @pytest.mark.parametrize(("material", "expected"), [

@@ -15,9 +15,11 @@ Vue 가입과 로그인 및 /chat
   → Vue: 답변과 개인 대화 기록 및 근거 표시
 ```
 
-기업 선택은 필수가 아닙니다. 실제 모델 실행에는 `live`를 사용합니다. `stub`은 정해진 질문의 테스트 응답을 반환하며 실제 모델이나 업무 MCP를 실행한 결과가 아닙니다. 두 모드 모두 기본 Spring 실행에는 회원과 세션 및 대화 저장용 PostgreSQL이 필요합니다.
+기업 선택은 필수가 아닙니다. 채팅의 실제 모델 실행에는 `live`를 사용합니다. 채팅의 `stub`은 정해진 질문의 테스트 응답을 반환하며 실제 모델이나 업무 MCP를 실행한 결과가 아닙니다. 두 모드 모두 기본 Spring 실행에는 회원과 세션 및 대화 저장용 PostgreSQL이 필요합니다.
 
 가입과 로그인 및 개인 대화 화면은 서버에 연결돼 있습니다. 관리자 화면과 별도 협력사 검색 화면은 연결 준비 안내를 표시합니다. 관리자 백엔드 API는 구현돼 있으므로 현재 가입 승인은 관리자 세션으로 API를 호출해야 합니다. RFQ 개요와 법규 검토 화면의 예시는 실제 조회 결과와 구분합니다.
+
+별도 [협력사 조회 v2 API](contracts/supplier-lookup.md)는 `/api/v2/business/catalog`과 `/api/v2/suppliers` 및 `/api/v2/suppliers/{id}`로 제공합니다. 이 API는 채팅 모드와 관계없이 Python을 거쳐 business MCP를 조회합니다. 모델은 호출하지 않습니다. 채팅이 stub이어도 v2 조회에는 business MCP와 DB가 필요합니다. 별도 검색 화면은 아직 이 API에 연결하지 않았습니다.
 
 Agent 그래프는 `agent/src/negopilot_agent/graph.py`에 있습니다. CLI 진입점 `agent/scripts/ask.py`는 회원 인증이나 개인 대화 저장을 수행하지 않습니다. 브라우저 대화는 Spring의 `/api/v2/conversations` 경로를 사용합니다.
 
@@ -35,6 +37,7 @@ Agent 그래프는 `agent/src/negopilot_agent/graph.py`에 있습니다. CLI 진
 | 8 | [회원 계약](contracts/membership.md) | 가입과 세션 및 최초 관리자 생성과 승인 |
 | 9 | [개인 대화 계약](contracts/history.md) | 계정별 저장과 페이지 조회 및 제목 변경과 삭제 |
 | 10 | [협력사 관리 계약](contracts/admin-suppliers.md)과 [법령 관리 계약](contracts/admin-laws.md) | 관리자 API와 DB migration 및 법령 최신화 |
+| 11 | [협력사 조회 v2 계약](contracts/supplier-lookup.md) | 모델 호출 없는 MCP 조회와 검색 조건 및 출처 |
 
 ## 3. 담당별 시작점
 

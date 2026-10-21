@@ -26,13 +26,15 @@ final class SupplierChatGateway {
     private final AgentProperties properties;
     private final JsonMapper mapper;
     private final SupplierChatResponseValidator validator;
+    private final SupplierLookupResponseValidator liveValidator;
 
     SupplierChatGateway(RestClient agentRestClient, AgentProperties properties, JsonMapper mapper,
-                        SupplierChatResponseValidator validator) {
+                        SupplierChatResponseValidator validator, SupplierLookupResponseValidator liveValidator) {
         this.client = agentRestClient;
         this.properties = properties;
         this.mapper = mapper;
         this.validator = validator;
+        this.liveValidator = liveValidator;
     }
 
     JsonNode catalog(UUID requestId) {
@@ -41,20 +43,44 @@ final class SupplierChatGateway {
     }
 
     JsonNode search(JsonNode filters, UUID requestId) {
-        var uri = UriComponentsBuilder.fromUri(properties.baseUrl()).replacePath("/internal/v1/suppliers");
+        return exchange(HttpMethod.GET, searchUri("/internal/v1/suppliers", filters), null, requestId,
+                body -> validator.validateSearch(body, filters));
+    }
+
+    JsonNode detail(String supplierId, UUID requestId) {
+        return exchange(HttpMethod.GET, detailUri("/internal/v1/suppliers/", supplierId), null, requestId,
+                body -> validator.validateDetail(body, supplierId));
+    }
+
+    // v2 live lookups: same transport, business-mcp data validated by shape and filters.
+    JsonNode liveCatalog(UUID requestId) {
+        return exchange(HttpMethod.GET, path("/internal/v2/business/catalog"), null, requestId,
+                liveValidator::validateCatalog);
+    }
+
+    JsonNode liveSearch(JsonNode filters, UUID requestId) {
+        return exchange(HttpMethod.GET, searchUri("/internal/v2/suppliers", filters), null, requestId,
+                body -> liveValidator.validateSearch(body, filters));
+    }
+
+    JsonNode liveDetail(String supplierId, UUID requestId) {
+        return exchange(HttpMethod.GET, detailUri("/internal/v2/suppliers/", supplierId), null, requestId,
+                body -> liveValidator.validateDetail(body, supplierId));
+    }
+
+    private URI searchUri(String path, JsonNode filters) {
+        var uri = UriComponentsBuilder.fromUri(properties.baseUrl()).replacePath(path);
         var variables = new HashMap<String, String>();
         for (String field : filters.propertyNames()) {
             uri.queryParam(field, "{" + field + "}");
             variables.put(field, filters.get(field).asString());
         }
-        return exchange(HttpMethod.GET, uri.encode().buildAndExpand(variables).toUri(), null, requestId,
-                body -> validator.validateSearch(body, filters));
+        return uri.encode().buildAndExpand(variables).toUri();
     }
 
-    JsonNode detail(String supplierId, UUID requestId) {
-        URI uri = UriComponentsBuilder.fromUri(properties.baseUrl()).replacePath("/internal/v1/suppliers/")
+    private URI detailUri(String path, String supplierId) {
+        return UriComponentsBuilder.fromUri(properties.baseUrl()).replacePath(path)
                 .pathSegment("{supplierId}").encode().buildAndExpand(supplierId).toUri();
-        return exchange(HttpMethod.GET, uri, null, requestId, body -> validator.validateDetail(body, supplierId));
     }
 
     JsonNode chat(JsonNode request, UUID requestId, UUID conversationId, JsonNode context, String query) {

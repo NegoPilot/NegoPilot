@@ -175,7 +175,11 @@ uv run python scripts/eval_generation.py --offline                  # Generation
 uv run python scripts/eval_generation.py --backend openai --repeat 3   # Generation 생성 + 채점 (비용 있음)
 uv run python scripts/eval_generation.py --backend openai --repeat 3 --set validation   # Generation 검증 세트
 uv run python scripts/route_generation_set.py    # Generation 검증 세트 입력을 실제 MCP 서버로 다시 Routing (서버 2개를 먼저 띄움)
+uv run python scripts/bench_latency.py --set validation             # 전체 그래프 단계별 시간 (서버 2개, 비용 있음)
 ```
+
+`ask.py`는 답변 끝에, `bench_latency.py`는 질문마다 단계별 시간(분해·Routing·생성 노드, LLM 호출 수와 토큰, MCP 도구 호출 수)을 출력합니다.
+측정은 `negopilot_agent.timing.collect()` 안에서만 기록되고, v2 HTTP API는 요청마다 같은 요약을 `negopilot_agent.api.generation_execution` 로거(INFO)에 남깁니다.
 
 Generation 평가는 `shared/fixtures/routing` 11개를 입력으로 쓰고, 정답은 [`eval_data/generation_gold.json`](eval_data/generation_gold.json)에 있습니다 (기대 답변 종류, 근거에 꼭 있어야 할 문구, 답변에 담길 정답 포인트).
 `--set validation`은 [`eval_data/generation_validation/`](eval_data/generation_validation/) 12개(질문, 정답 분해 결과, 실제 MCP Routing 결과를 한 파일에)를 입력으로, [`eval_data/generation_validation_gold.json`](eval_data/generation_validation_gold.json)을 정답으로 씁니다. 분해 검증 세트와 같이 점수만 보고, 오답을 보고 프롬프트를 고치지 않습니다.
@@ -272,7 +276,7 @@ stub 모드에서 지원하는 질문은 다음 세 개입니다. 실제 Router�
 
 ### v0.2 협력사 조회와 템플릿 대화
 
-다음 경로는 `stub`에서만 사용할 수 있습니다. `live`에서는 503 `DEMO_MODE_REQUIRED`와 `retryable: false`를 반환합니다. 데이터 원본은 [supplier-chat.json](../docs/contracts/fixtures/supplier-chat.json)입니다. 모든 기업과 수치는 가상 데이터입니다.
+다음 경로는 `stub`에서만 사용할 수 있습니다. `live`에서는 503 `DEMO_MODE_REQUIRED`와 `retryable: false`를 반환합니다. 데이터 원본은 [supplier-chat.json](../docs/contracts/fixtures/supplier-chat.json)입니다. 모든 기업과 수치는 가상 데이터입니다. 협력사 DB를 읽는 live 조회는 `/internal/v2/business/catalog`, `/internal/v2/suppliers`, `/internal/v2/suppliers/{supplier_id}`이며 실행 모드와 관계없이 `BUSINESS_MCP_URL`의 business-mcp를 호출합니다. 규칙은 [협력사 live 조회 계약](../docs/contracts/supplier-lookup.md)을 따릅니다.
 
 | Python 내부 경로 | 동작 |
 | --- | --- |
@@ -281,7 +285,7 @@ stub 모드에서 지원하는 질문은 다음 세 개입니다. 실제 Router�
 | `GET /internal/v1/suppliers/{supplier_id}` | 선택 기업 상세 조회 |
 | `POST /internal/v1/chat/responses` | 선택 기업의 템플릿 응답 |
 
-기업 검색은 `process`가 필수입니다. `material`과 `region`은 선택입니다. `iatf_required`의 기본값은 `false`이며 인증 여부 전체를 뜻합니다. `limit`은 1..100이며 기본값은 20입니다. 알 수 없는 query parameter와 중복 parameter는 거절합니다. 기업 ID는 대소문자를 구분하며 `^[A-Za-z0-9_-]{1,100}$` 형식입니다. 존재하지 않는 ID는 404 `SUPPLIER_NOT_FOUND`입니다.
+기업 검색은 `process`가 필수입니다. `material`과 `region`은 선택입니다. `iatf_required`와 `iso14001_required`의 기본값은 `false`이며 인증 여부 전체를 뜻합니다. `limit`은 1..100이며 기본값은 20입니다. 알 수 없는 query parameter와 중복 parameter는 거절합니다. 기업 ID는 대소문자를 구분하며 `^[A-Za-z0-9_-]{1,100}$` 형식입니다. 존재하지 않는 ID는 404 `SUPPLIER_NOT_FOUND`입니다.
 
 ```bash
 curl --fail-with-body --get http://127.0.0.1:9200/internal/v1/suppliers \

@@ -18,6 +18,8 @@ from pydantic import BaseModel
 from negopilot_shared import DecompositionResult
 from negopilot_agent.ollama import OllamaBackend  # re-export alongside the other providers
 
+from negopilot_agent import timing
+
 log = logging.getLogger(__name__)
 
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
@@ -42,15 +44,19 @@ class AnthropicBackend:
 
     async def generate(self, system: str, user: str) -> str | None:
         kwargs = {"betas": [FALLBACK_BETA], "fallbacks": "default"} if self.use_fallbacks else {}
-        response = await self.client.beta.messages.create(
-            model=self.model,
-            max_tokens=self.max_tokens,
-            # 요청마다 바뀌지 않는 부분이라 캐시한다
-            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
-            messages=[{"role": "user", "content": user}],
-            output_config={"effort": self.effort, "format": self.OUTPUT_FORMAT},
-            **kwargs,
-        )
+        with timing.span("llm", self.model) as meta:
+            response = await self.client.beta.messages.create(
+                model=self.model,
+                max_tokens=self.max_tokens,
+                # 요청마다 바뀌지 않는 부분이라 캐시한다
+                system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+                messages=[{"role": "user", "content": user}],
+                output_config={"effort": self.effort, "format": self.OUTPUT_FORMAT},
+                **kwargs,
+            )
+            if usage := getattr(response, "usage", None):
+                meta.update(input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
+                            cached_tokens=usage.cache_read_input_tokens or 0)
         # 거절이나 잘림은 본문을 읽기 전에 확인한다 (이때 본문은 비었거나 미완성 JSON이다)
         if response.stop_reason == "refusal":
             log.warning("분해 요청 거절: %s", getattr(response.stop_details, "category", None))
@@ -79,15 +85,20 @@ class OpenAIBackend:
         self.max_tokens = max_tokens
 
     async def generate(self, system: str, user: str) -> str | None:
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            # 시스템 프롬프트를 앞에 두면 OpenAI가 같은 앞부분을 자동으로 캐시한다
-            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-            temperature=0,
-            max_completion_tokens=self.max_tokens,
-            response_format={"type": "json_schema", "json_schema": {
-                "name": self.OUTPUT_MODEL.__name__, "schema": self.OUTPUT_SCHEMA, "strict": True}},
-        )
+        with timing.span("llm", self.model) as meta:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                # 시스템 프롬프트를 앞에 두면 OpenAI가 같은 앞부분을 자동으로 캐시한다
+                messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+                temperature=0,
+                max_completion_tokens=self.max_tokens,
+                response_format={"type": "json_schema", "json_schema": {
+                    "name": self.OUTPUT_MODEL.__name__, "schema": self.OUTPUT_SCHEMA, "strict": True}},
+            )
+            if usage := getattr(response, "usage", None):
+                details = usage.prompt_tokens_details
+                meta.update(input_tokens=usage.prompt_tokens, output_tokens=usage.completion_tokens,
+                            cached_tokens=(details.cached_tokens or 0) if details else 0)
         choice = response.choices[0]
         if choice.message.refusal:
             log.warning("모델 요청 거절")

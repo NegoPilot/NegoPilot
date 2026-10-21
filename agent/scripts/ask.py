@@ -8,6 +8,8 @@
     uv run python scripts/ask.py --backend anthropic "하도급법 제4조 보여줘"   # Claude (ANTHROPIC_API_KEY)
     uv run python scripts/ask.py --json "..."                               # 상태 전체를 JSON으로
 
+끝에 단계별 시간(노드, LLM 호출과 토큰, MCP 도구 호출)을 시작 순서대로 출력한다.
+
 모델 호출에는 비용이 든다. agent/.env가 있으면 읽는다.
 """
 
@@ -31,12 +33,14 @@ def load_env(skip: tuple[str, ...] = ()) -> None:
 
 
 async def main(query: str, as_json: bool) -> None:
+    from negopilot_agent import timing
     from negopilot_agent.graph import build_graph   # 환경 변수를 읽은 뒤 import (설정 기본값이 env를 본다)
 
-    state = await build_graph().ainvoke({"query": query})
+    with timing.collect() as t:
+        state = await build_graph().ainvoke({"query": query})
     if as_json:
-        print(json.dumps({k: v.model_dump(mode="json") if hasattr(v, "model_dump") else v for k, v in state.items()},
-                         ensure_ascii=False, indent=2))
+        out = {k: v.model_dump(mode="json") if hasattr(v, "model_dump") else v for k, v in state.items()}
+        print(json.dumps(out | {"timings": t.summary()}, ensure_ascii=False, indent=2))
         return
 
     d = state["decomposition"]
@@ -55,6 +59,8 @@ async def main(query: str, as_json: bool) -> None:
         print(f"  [{c.n}] {c.label}")
     for option in answer.options:
         print(f"  - {option}")
+    print()
+    print(t.report())
 
 
 if __name__ == "__main__":

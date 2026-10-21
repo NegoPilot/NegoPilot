@@ -12,6 +12,7 @@ from typing import Any, Protocol
 from negopilot_shared import DecompositionResult, IntentSpec, RouteResult, SubQueryOutcome, ToolCall, load_intents
 from negopilot_shared.decomposition import SubQuery
 
+from negopilot_agent import timing
 from negopilot_agent.routing.extract import select_values
 
 MAX_FANOUT = 10      # top(n)/all로 값이 여러 개일 때 하위 질문 하나가 부를 수 있는 최대 호출 수
@@ -259,7 +260,8 @@ class Router:
 
     async def _call(self, server: str, tool: str, args: dict[str, Any]) -> ToolCall:
         try:
-            result = await self.caller(server, tool, args)
+            with timing.span("tool", f"{server}.{tool}"):
+                result = await self.caller(server, tool, args)
         except Exception as e:  # noqa: BLE001  도구 오류도 결과로 Generation에 넘긴다
             return ToolCall(server=server, tool=tool, args=args, error=f"{type(e).__name__}: {e}")
         return ToolCall(server=server, tool=tool, args=args, result=result)

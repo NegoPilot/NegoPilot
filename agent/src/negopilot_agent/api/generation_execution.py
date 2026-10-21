@@ -1,6 +1,7 @@
 """Run one complete Agent graph with request-owned lazy model clients."""
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Literal, Protocol
 
@@ -13,6 +14,7 @@ from negopilot_agent.decomposition import DecomposerSettings, QueryDecomposer
 from negopilot_agent.decomposition.backends import AnthropicBackend, Backend, OpenAIBackend, OllamaBackend
 from negopilot_agent.generation import Answer, AnswerGenerator, GeneratorSettings
 from negopilot_agent.generation.backends import GenerationAnthropicBackend, GenerationOpenAIBackend, GenerationOllamaBackend
+from negopilot_agent import timing
 from negopilot_agent.graph import build_graph
 from negopilot_agent.routing import McpToolCaller, ToolCaller
 
@@ -21,6 +23,8 @@ from .generation_models import GenerationExecutionRequest, GenerationExecutionRe
 from .generation_stubs import FixtureDecompositionBackend, FixtureGenerationBackend, GenerationStubToolCaller
 from .models import ErrorDetail
 from .settings import ApiSettings
+
+log = logging.getLogger(__name__)
 
 
 class ContextDecomposer(Protocol):
@@ -124,11 +128,14 @@ class GenerationExecutor:
                 caller = GenerationStubToolCaller() if self.settings.mode == "stub" else McpToolCaller()
             graph = build_graph(decomposer=decomposer, caller=SafeToolCaller(caller),
                                 generator=SafeGenerator(AnswerGenerator(backend=backend)))
-            state = await graph.ainvoke({
-                "query": request.query,
-                "history": [entry.model_dump() for entry in request.history],
-                "context": request.context.model_dump(),
-            })
+            with timing.collect() as timings:
+                state = await graph.ainvoke({
+                    "query": request.query,
+                    "history": [entry.model_dump() for entry in request.history],
+                    "context": request.context.model_dump(),
+                })
+            # 단계별 시간과 호출 수. 질문 원문은 남기지 않는다
+            log.info("request %s timings %s", request.request_id, timings.summary())
             decomposition = state["decomposition"]
             routing = public_routing(state.get("routing") or RouteResult(status="not_routed"))
             answer = state["answer"]

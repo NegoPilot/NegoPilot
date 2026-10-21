@@ -67,6 +67,8 @@ business MCP의 flat 응답을 화면용 형식으로 변환합니다. `on_time_
 
 협력사 조회용 기존 `/api/v1/business/catalog`와 `/api/v1/suppliers` 코드는 남아 있지만 현재 기본 서버와 연결된 기능으로 제공하지 않습니다. 기업 정보는 AI 대화의 business MCP 도구 조회로 확인합니다.
 
+백엔드에는 [협력사 조회 v2 API](../docs/contracts/supplier-lookup.md)가 추가됐습니다. `/api/v2/business/catalog`과 `/api/v2/suppliers` 및 `/api/v2/suppliers/{id}`는 실행 모드와 관계없이 business MCP를 조회하며 모델은 호출하지 않습니다. 이 API는 `schema_version: "0.3"`과 `mode: "live"`를 반환합니다. 프런트의 별도 검색 화면과 기존 v1 조회 클라이언트는 아직 v2로 전환하지 않았습니다. 채팅을 stub으로 실행해도 v2 조회에는 business MCP와 DB가 필요합니다.
+
 ## 로컬 실행
 
 Node.js 22.12 이상이 필요합니다. 먼저 [백엔드 실행 안내](../backend/README.md)와 [개발 시작 가이드](../docs/GETTING_STARTED.md)를 따라 PostgreSQL 애플리케이션 DB와 Spring 및 Python Agent를 준비합니다. stub 모드에서도 회원과 세션 및 대화 이력을 저장할 애플리케이션 DB는 필요합니다.

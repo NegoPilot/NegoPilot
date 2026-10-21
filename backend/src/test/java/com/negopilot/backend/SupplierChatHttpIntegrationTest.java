@@ -131,6 +131,11 @@ class SupplierChatHttpIntegrationTest {
         assertThat(body(empty).path("data").path("returned_count").intValue()).isZero();
         var noncertified = get("/api/v1/suppliers?process=" + encode("프레스") + "&iatf_required=false");
         assertThat(body(noncertified).path("data").path("items").size()).isEqualTo(1);
+        var iso = get("/api/v1/suppliers?process=" + encode("다이캐스팅") + "&iso14001_required=true");
+        assertThat(iso.statusCode()).isEqualTo(200);
+        assertThat(body(iso).path("data").path("items").size()).isEqualTo(1);
+        assertThat(body(iso).path("data").path("items").get(0).path("supplier_id").stringValue()).isEqualTo("SUP-0034");
+        assertThat(REQUESTS.getLast().parameters().get("iso14001_required")).isEqualTo("true");
     }
 
     @Test
@@ -525,6 +530,7 @@ class SupplierChatHttpIntegrationTest {
             for (JsonNode supplier : suppliers) {
                 if (filters.containsKey("region") && !supplier.path("region").stringValue().equals(filters.get("region"))) continue;
                 if ("true".equals(filters.get("iatf_required")) && !supplier.path("iatf16949").booleanValue()) continue;
+                if ("true".equals(filters.get("iso14001_required")) && !supplier.path("iso14001").booleanValue()) continue;
                 ArrayNode capabilities = JSON.createArrayNode();
                 for (JsonNode capability : supplier.path("capabilities")) {
                     if (capability.path("process").stringValue().equals(filters.get("process"))
@@ -535,7 +541,7 @@ class SupplierChatHttpIntegrationTest {
                 }
                 if (!capabilities.isEmpty() && items.size() < limit) {
                     ObjectNode summary = JSON.createObjectNode();
-                    for (String field : List.of("supplier_id", "name", "region", "iatf16949", "provenance")) summary.set(field, supplier.get(field).deepCopy());
+                    for (String field : List.of("supplier_id", "name", "region", "iatf16949", "iso14001", "provenance")) summary.set(field, supplier.get(field).deepCopy());
                     summary.set("matched_capabilities", capabilities);
                     items.add(summary);
                 }
