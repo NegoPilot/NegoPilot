@@ -138,7 +138,7 @@ graph.add_node("generate", make_generate_node())   # 상태: decomposition, rout
    | 근거 | 출처 이름 | 인용 |
    | --- | --- | --- |
    | `search_regulation` 결과 | 항 단위 `citation` 그대로 | O |
-   | `law_check`의 `get_article` 조문 전문 | `citation` | X (설명할 때 참고만) |
+   | `law_check`의 `get_article` 조문 전문 | 전체 조문의 `citation` | 출처 URL과 인용문 및 본문이 확인되면 O. 출처가 불완전하면 X |
    | `law_article`의 `get_article` | `citation` | O |
    | `referenced_articles` (flags·`check_offer`의 `law_refs`) | `citation` | O. 조회 실패한 조문은 검사 항목의 "관련 조문"에 번호만 남음 |
 2. **초안**: 모델이 근거 id를 붙여 씁니다 (`{"answer", "used_evidence"}` 구조화 출력). 따로 실행된 하위 질문 결과(예: 1위 업체 + 5% 인하 법 검토)는 한 흐름으로 잇습니다
@@ -412,8 +412,13 @@ export NEGOPILOT_DECOMPOSER_MODEL=qwen3:8b
 export NEGOPILOT_GENERATOR_BACKEND=ollama
 export NEGOPILOT_GENERATOR_MODEL=qwen3:8b
 export OLLAMA_BASE_URL=http://localhost:11434
+export BUSINESS_MCP_URL=http://127.0.0.1:9102/mcp
+export LAW_MCP_URL=http://127.0.0.1:9103/mcp
+export AGENT_REQUEST_TIMEOUT_SECONDS=300
 uv run uvicorn negopilot_agent.api.app:app --host 127.0.0.1 --port 9200
 ```
+
+로컬 모델의 실행 시간이 기본 제한보다 길면 위 예시처럼 Python 제한을 조정합니다. 같은 연결을 쓰는 Spring은 `AGENT_EXECUTION_MODE=live`와 같은 내부 키를 설정하고 `AGENT_RESPONSE_TIMEOUT_SECONDS=310`처럼 Python보다 긴 제한을 사용합니다. MCP 주소는 실제 실행 중인 서버 주소로 지정합니다. business-mcp에는 PostgreSQL 연결이 필요하고 law-mcp에는 저장된 법령 인덱스가 필요합니다.
 
 모델 설정이나 연결 실패는 503 `UPSTREAM_UNAVAILABLE`입니다. 전체 처리 제한 시간 초과는 504 `UPSTREAM_TIMEOUT`입니다. live 실패에 테스트 답변을 반환하지 않습니다.
 
@@ -424,3 +429,9 @@ cd agent
 uv sync --locked
 uv run --locked python -m pytest -q
 ```
+
+### 채팅에서 바로 질문하기
+
+기업을 미리 선택하지 않아도 v2 대화 API로 질문할 수 있습니다. 지역만으로 기업을 검색하거나 이름으로 기업을 찾고 관련 법령을 조회합니다. 기업 후보가 여러 곳이거나 필수 거래 조건이 없을 때만 추가로 묻습니다. 조회 0건과 연결 실패는 추가 입력 부족과 구분합니다.
+
+[직접 질문 계약](../docs/contracts/direct-chat.md)에 질문별 처리 기준과 stub 예시 및 추가 질문 이후의 대화 규칙을 정리했습니다. 기업명 조회에는 최신 business-mcp의 `find_suppliers`가 필요합니다. Agent와 business-mcp를 함께 갱신해 실행하세요.

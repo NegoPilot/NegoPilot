@@ -119,9 +119,14 @@ async def test_clarify_shows_options_without_calling_model():
     assert gen._backend is None
 
 
-async def test_failed_asks_to_rephrase():
-    answer, _ = await run("11_failed")
-    assert "다시 물어봐 주세요" in answer.text
+async def test_decomposition_failure_requests_retry_without_company_or_rfq_details():
+    backend = FakeBackend(cite_first)
+    answer, _ = await run("11_failed", backend=backend)
+    assert answer.kind == "failed"
+    assert "다시 시도해 주세요" in answer.text
+    assert all(label not in answer.text for label in ("기업", "협력사", "RFQ"))
+    assert answer.options == []
+    assert backend.prompts == []
 
 
 async def test_out_of_scope_refuses_and_lists_capabilities():
@@ -142,25 +147,25 @@ async def test_assumptions_are_shown():
 
 # ---------- 근거 인용 규칙 (Routing 계약 1절 5·6) ----------
 
-async def test_law_check_cites_search_hits_and_uses_articles_as_reference():
+async def test_law_check_can_cite_search_hits_and_valid_full_articles():
     _, r = load("07_number_needs_grounding")
     ev = build_evidence(r)
     hits = [e for e in ev if e.kind == "regulation_hit"]
     refs = [e for e in ev if e.kind == "article_reference"]
     assert hits and all(e.citable for e in hits)
-    assert refs and not any(e.citable for e in refs)
+    assert refs and all(e.citable and e.source_url for e in refs)
     search = next(c for c in r.outcome("q1").calls if c.tool == "search_regulation")
     assert hits[0].label == search.result[0]["citation"]    # 항 단위 citation 그대로
 
 
-async def test_citing_article_reference_is_rejected():
+async def test_citing_valid_full_article_is_allowed():
     _, r = load("07_number_needs_grounding")
-    ref = next(e for e in build_evidence(r) if not e.citable)
-    hit = next(e for e in build_evidence(r) if e.citable)
-    backend = FakeBackend(draft(f"조문 전문입니다. [{ref.id}]"), draft(f"지급 기한 조항입니다. [{hit.id}]"))
+    ref = next(e for e in build_evidence(r) if e.kind == "article_reference")
+    backend = FakeBackend(draft(f"조문 전문입니다. [{ref.id}]"))
     answer, _ = await run("07_number_needs_grounding", backend=backend)
-    assert answer.verification.attempts == 2 and answer.verification.ok
-    assert ref.id in backend.prompts[1]
+    assert answer.verification.attempts == 1 and answer.verification.ok
+    assert answer.citations[0].label == ref.label
+    assert answer.citations[0].source_url == ref.source_url
 
 
 async def test_law_article_cites_get_article_citation():
@@ -303,7 +308,10 @@ async def test_model_refusal_returns_failed():
 
 async def test_prompt_marks_citable_evidence():
     d, r = load("04_business_wording")
-    user = build_user_message(d, build_evidence(r), [])
+    ev = build_evidence(r)
+    ev.append(Evidence(id="E999", sub_query="q1", source="law", kind="reference", label="참고 자료",
+                       text="인용할 수 없는 참고 자료", citable=False))
+    user = build_user_message(d, ev, [])
     assert 'citable="yes"' in user and 'citable="no"' in user and "<question>" in user
 
 

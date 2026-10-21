@@ -62,6 +62,11 @@ class RecordingCaller:
 
     async def __call__(self, server, tool, args):
         self.calls.append((server, tool, deepcopy(args)))
+        if (server, tool) == ("business-mcp", "find_suppliers"):
+            return {
+                "match_type": "exact", "total": 1,
+                "matches": [{"supplier_id": "SUP-0088", "name": args["supplier"]}],
+            }
         assert (server, tool) == ("business-mcp", "get_supplier")
         return {"supplier_id": args["supplier"], "name": "테스트 기업", "source": "MOCK"}
 
@@ -80,8 +85,7 @@ def test_context_is_separate_json_and_does_not_rewrite_question_or_history():
 
     assert context_in(user) == {"selected_supplier_ids": ["SUP-0034"]}
     assert "전달하면 안 되는" not in user
-    assert "이전 질문 0" not in user and "이전 질문 1" not in user
-    assert all(f"이전 질문 {i}" in user for i in range(2, 8))
+    assert all(entry["content"] in user for entry in history)
     assert user.endswith(f"분해할 질문:\n{query}")
     assert (history, context) == originals
 
@@ -163,6 +167,11 @@ async def test_context_reaches_decomposition_without_overwriting_the_model_targe
     assert state["decomposition"].sub_queries[0].entities.supplier == supplier
     assert context_in(backend.requests[0][1]) == context
     assert backend.requests[0][1].endswith(f"분해할 질문:\n{query}")
-    assert caller.calls == [("business-mcp", "get_supplier", {"supplier": supplier})]
+    expected_calls = ([("business-mcp", "get_supplier", {"supplier": supplier})]
+                      if supplier.startswith("SUP-") else [
+                          ("business-mcp", "find_suppliers", {"supplier": supplier, "limit": 10}),
+                          ("business-mcp", "get_supplier", {"supplier": "SUP-0088"}),
+                      ])
+    assert caller.calls == expected_calls
     assert state["answer"].kind == "answer"
     assert state["answer"].citations[0].evidence_id == state["answer"].evidence[0].id

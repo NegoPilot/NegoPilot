@@ -336,8 +336,8 @@ async def test_empty_result_keeps_alias_and_skipped_outcomes():
     data = response.json()
     assert data["execution_status"] == "COMPLETED"
     assert data["generation_status"] == "NOT_IMPLEMENTED"
-    assert [outcome["status"] for outcome in data["routing"]["outcomes"]] == ["ok", "empty", "skipped"]
-    assert data["routing"]["halted"] is True
+    assert [outcome["status"] for outcome in data["routing"]["outcomes"]] == ["empty", "skipped", "skipped"]
+    assert data["routing"]["halted"] is False
     assert data["decomposition"]["sub_queries"][1]["inputs"][0] == {
         "slot": "rfq_id", "from": "q1", "select": "top1"}
     assert len(caller.calls) == 1

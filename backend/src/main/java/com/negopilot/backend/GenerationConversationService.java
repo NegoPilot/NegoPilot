@@ -12,6 +12,8 @@ import tools.jackson.databind.node.ObjectNode;
 
 @Service
 final class GenerationConversationService {
+    private static final int HISTORY_CONTENT_LIMIT = 4000;
+    private static final String OPTIONS_SEPARATOR = "\n\n선택지 데이터:\n";
     private final ConcurrentHashMap<String, Conversation> conversations = new ConcurrentHashMap<>();
     private final GenerationGateway gateway;
     private final JsonMapper mapper;
@@ -45,7 +47,7 @@ final class GenerationConversationService {
                 String role = stored.get("role").stringValue();
                 String content = stored.get("content").stringValue();
                 history.addObject().put("role", role)
-                        .put("content", "assistant".equals(role) ? historyContent(content) : content);
+                        .put("content", "assistant".equals(role) ? historyContent(stored) : content);
             }
             JsonNode upstream = gateway.execute(requestId, request);
             if (upstream == null || !upstream.isObject()) throw ApiException.invalidResponse(requestId);
@@ -75,9 +77,26 @@ final class GenerationConversationService {
         }
     }
 
-    private static String historyContent(String content) {
-        if (content.codePointCount(0, content.length()) <= 4000) return content;
-        int prefixEnd = content.offsetByCodePoints(0, 4000);
+    private String historyContent(ObjectNode stored) {
+        String content = stored.get("content").stringValue();
+        JsonNode options = stored.path("response").path("answer").path("options");
+        if (!options.isArray() || options.isEmpty()) return clipHistoryContent(content, HISTORY_CONTENT_LIMIT);
+
+        var numberedOptions = mapper.createArrayNode();
+        int number = 1;
+        for (JsonNode option : options) {
+            if (!option.isString()) return clipHistoryContent(content, HISTORY_CONTENT_LIMIT);
+            numberedOptions.addObject().put("number", number++).put("text", option.stringValue());
+        }
+        String suffix = OPTIONS_SEPARATOR + mapper.writeValueAsString(numberedOptions);
+        int contentLimit = HISTORY_CONTENT_LIMIT - suffix.codePointCount(0, suffix.length());
+        if (contentLimit < 1) return clipHistoryContent(content, HISTORY_CONTENT_LIMIT);
+        return clipHistoryContent(content, contentLimit) + suffix;
+    }
+
+    private static String clipHistoryContent(String content, int limit) {
+        if (content.codePointCount(0, content.length()) <= limit) return content;
+        int prefixEnd = content.offsetByCodePoints(0, limit);
         String prefix = content.substring(0, prefixEnd);
         if (prefix.codePoints().anyMatch(codePoint -> !whitespace(codePoint))) return prefix;
 
@@ -86,7 +105,7 @@ final class GenerationConversationService {
         while (start < content.length() && whitespace(content.codePointAt(start))) {
             start += Character.charCount(content.codePointAt(start));
         }
-        int length = Math.min(4000, content.codePointCount(start, content.length()));
+        int length = Math.min(limit, content.codePointCount(start, content.length()));
         return content.substring(start, content.offsetByCodePoints(start, length));
     }
 

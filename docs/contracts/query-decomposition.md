@@ -27,7 +27,7 @@ for group in result.parallel_groups():              # [["q1", "q2"], ["q3"]] →
 | 3 | 엔티티 이름 | **MCP 도구 인자명과 같게** 쓴다 (`rfq_id`, `supplier`, `unit_price` ...) |
 | 4 | 의존 관계 | `depends_on` 목록. 비어 있으면 병렬 실행 가능. **앞에 나온 하위 질문만** 가리킬 수 있다 |
 | 5 | 앞 결과를 뒤 질문에 넣기 | 분해는 `inputs`에 **정해진 선택어**만 쓴다. 실제 값을 꺼내는 일은 **Routing의 결과 대응표(코드)**가 한다 |
-| 6 | 정보가 부족할 때 | **분해 단계에서 되묻는다.** 선택지 2~4개를 함께 낸다 |
+| 6 | 정보가 부족할 때 | 질문과 관련 이력 및 조회로 해결할 수 없는 필수 정보만 되묻는다. 분해 단계의 선택지는 2~4개다 |
 | 7 | 도구 없이 답할 질문 | 아래 [5. 근거와 되묻기 규칙](#5-근거와-되묻기-규칙) |
 | 8 | 용어 정규화 | `question`은 **법률·코드 용어로 정규화**하고, 원래 표현은 `original_text`에 보존한다 |
 | 9 | 분해 실패 | 스키마 검증 실패 시 오류를 알려주고 **1회 재시도**. 그래도 실패하면 `status: "failed"`. **추측해서 넘기지 않는다** |
@@ -100,7 +100,7 @@ for group in result.parallel_groups():              # [["q1", "q2"], ["q3"]] →
 | --- | --- | --- | --- |
 | `rfq_lookup` | business-mcp | `list_rfqs` | – |
 | `supplier_search` | business-mcp | `search_suppliers` | process, material, region, iatf_required, min_monthly_capacity, top_n |
-| `supplier_detail` | business-mcp | `get_supplier` | supplier |
+| `supplier_detail` | business-mcp | 기업명은 `find_suppliers` → 유일 후보의 `get_supplier`. 명시 ID는 `get_supplier` | supplier |
 | `supplier_ranking` | business-mcp | `rank_suppliers` | rfq_id, top_n |
 | `offer_check` | business-mcp | `check_offer` | supplier, rfq_id, unit_price, payment_days, price_linkage, raw_material_ratio, contract_days, linkage_waived_by_agreement, buyer_is_small_business |
 | `law_check` | law-mcp | `search_regulation` → `get_article` | law, as_of, price_change_pct |
@@ -111,7 +111,9 @@ for group in result.parallel_groups():              # [["q1", "q2"], ["q3"]] →
 
 - `price_change_pct`는 도구 인자가 아니라 판단 근거라 모든 intent에 허용한다.
 - `draft_email`은 `status: planned`. 분해 결과에 나올 수 있고, mail-mcp가 생기기 전까지는 Routing이 "아직 지원하지 않는 기능"으로 처리한다.
-- **`offer_check`와 `law_check` 구분:** 단가·지급 일수처럼 **숫자가 정해진 협상안**이면 `offer_check`(코드 규칙 검사), 숫자 없이 **행위가 허용되는지** 묻는 질문이면 `law_check`(조문 검색).
+- **`offer_check`와 `law_check` 구분:** 특정 거래의 협상안 전체에 대한 규칙 검사는 `offer_check`다. 일반적인 행위나 조건의 법적 허용 여부는 숫자가 있어도 `law_check`로 조회한다. 숫자가 있다는 이유로 기업과 RFQ 및 단가를 요구하지 않는다.
+- `supplier_search`는 공정이 없어도 주어진 조건으로 검색한다. 기업 선택은 필수가 아니다.
+- 추가 질문에 대한 짧은 답변은 원래 요청의 목적과 이미 주어진 조건을 함께 해석한다. 새로운 명시적 질문은 이전 요청보다 우선한다. [직접 질문 계약](direct-chat.md)에 상태별 기준과 예시가 있다.
 
 ## 4. 엔티티 사전
 
@@ -173,7 +175,7 @@ for group in result.parallel_groups():              # [["q1", "q2"], ["q3"]] →
 | `02_parallel_suppliers` | SUP-0001이랑 SUP-0002 품질 비교해줘 | 독립 질문 → 병렬 |
 | `03_rank_then_law` | RFQ-2026-001 추천하고 1등에 5% 깎아도 돼? | 문장이 이어져도 도구 입력이 필요 없으면 병렬 |
 | `04_business_wording` | 2차 업체 단가 일괄로 깎아도 돼? | 현업 표현 → 법률 용어 정규화 |
-| `05_offer_check` | SUP-0003에 단가 12,000원, 결제 75일로 제안해도 돼? | 숫자가 정해진 협상안은 `offer_check` |
+| `05_offer_check` | SUP-0003에 단가 12,000원, 결제 75일로 제안해도 돼? | 특정 기업의 협상안을 검사하는 기존 fixture |
 | `06_general_knowledge` | RFQ가 뭐야? | 도구 없이 답할 질문 |
 | `07_number_needs_grounding` | 하도급법상 대금 지급 기한은 며칠이야? | 숫자가 답이면 근거 필요 |
 | `08_assumption_instead_of_clarify` | 최근 RFQ 협력사 추천해줘 | 가정을 밝히고 진행, `inputs`로 앞 결과 사용 |

@@ -413,7 +413,8 @@ class GenerationHttpIntegrationTest {
         assertThat(request.path("query").stringValue()).isEqualTo("다른 기업 CUSTOM_42의 정보");
         assertThat(request.path("history").size()).isEqualTo(2);
         assertThat(request.at("/history/0/content").stringValue()).isEqualTo("첫 번째 질문 😀");
-        assertThat(request.at("/history/1/content")).isEqualTo(first.at("/answer/text"));
+        assertThat(request.at("/history/1/content").stringValue()).isEqualTo(first.at("/answer/text").stringValue()
+                + "\n\n선택지 데이터:\n[{\"number\":1,\"text\":\"추가 질문\"}]");
         assertThat(snapshot(cid).path("context")).isEqualTo(context("NEXT-company"));
         assertThat(CALLS.get()).isEqualTo(2);
     }
@@ -512,7 +513,8 @@ class GenerationHttpIntegrationTest {
         RESPONSE.set(request -> StubResponse.json(200, completed(request)));
         assertThat(post(messages(cid), JSON.createObjectNode().put("query", "second")).statusCode()).isEqualTo(200);
         String forwarded = LAST_REQUEST.get().at("/history/1/content").stringValue();
-        assertThat(forwarded).isEqualTo("😀".repeat(4000));
+        String options = "\n\n선택지 데이터:\n[{\"number\":1,\"text\":\"추가 질문\"}]";
+        assertThat(forwarded).isEqualTo("😀".repeat(4000 - options.codePointCount(0, options.length())) + options);
         assertThat(forwarded.codePointCount(0, forwarded.length())).isEqualTo(4000);
         assertThat(LAST_REQUEST.get().path("history").size()).isEqualTo(2);
         assertThat(snapshot(cid).at("/messages/1/content").stringValue()).isEqualTo(generated);

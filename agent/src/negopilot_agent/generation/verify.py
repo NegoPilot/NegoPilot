@@ -5,7 +5,7 @@
 
 검사 항목
 1. 인용 id: 본문의 [E3]이 실제 근거 목록에 있고, 인용해도 되는 근거(citable)인가
-2. 숫자: 단위가 붙은 숫자(12,000원, 75일, 5%)가 근거 본문이나 사용자 질문에 있는가
+2. 숫자: 단위가 붙은 숫자가 근거 본문이나 사용자 질문에 있는가. 금액은 값과 단위를 함께 비교한다
 3. 조문 번호: 본문의 '제13조'가 근거 본문에 있는가
 
 한계: 근거에 있는 숫자로 계산한 값(예: 12,000원의 5% 인하 → 11,400원)도 걸린다.
@@ -18,9 +18,23 @@ from collections.abc import Iterable
 from negopilot_agent.generation.answer import Citation, Evidence, VerificationReport
 
 CITE_RE = re.compile(r"\[\s*(E\d+(?:\s*,\s*E\d+)*)\s*\]")
-NUMBER_WITH_UNIT_RE = re.compile(r"(?<![\w.])(-?\d[\d,]*(?:\.\d+)?)\s*(원|억|만\s*원|일|%|퍼센트|개|곳|ppm|배)")
+# 긴 단위를 먼저 잡아 '3억원'을 '3억' 또는 '3원'으로 잘라 비교하지 않는다.
+MONEY_UNIT = r"(?:(?:[십백천]\s*)?[경조억만](?:\s*원)?|[십백천]\s*원|원)"
+NUMBER_WITH_UNIT_RE = re.compile(
+    rf"(?<![A-Za-z0-9_.])(-?\d[\d,]*(?:\.\d+)?)\s*({MONEY_UNIT}|일|%|퍼센트|개|곳|ppm|배)")
+MONEY_UNIT_RE = re.compile(MONEY_UNIT)
+NON_MONEY_WITH_UNIT_RE = re.compile(r"(?<![\w.])(-?\d[\d,]*(?:\.\d+)?)\s*(일|%|퍼센트|개|곳|ppm|배)")
 NUMBER_RE = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
 ARTICLE_RE = re.compile(r"제\s*\d+\s*조(?:\s*의\s*\d+)?")
+# business-mcp의 구조화된 금액 단위. 다른 숫자(연도/비율 등)는 금액 근거가 아니다.
+# Evidence는 길이 제한으로 JSON 끝이 잘릴 수 있어 완성된 숫자 필드만 읽는다.
+MONEY_FIELDS = {
+    "revenue_eok": "억원",
+    **dict.fromkeys(("revenue", "operating_income", "net_income", "total_assets", "total_liabilities",
+                     "total_equity", "unit_price", "target_price", "last_price", "contract_amount"), "원"),
+}
+MONEY_FIELD_RE = re.compile(
+    r'"(' + "|".join(MONEY_FIELDS) + r')"\s*:\s*(-?\d+(?:\.\d+)?)(?=\s*[,}\]])')
 MASK = "[확인 필요]"
 
 
@@ -47,6 +61,36 @@ def known_numbers(texts: Iterable[str]) -> set[str]:
     return nums
 
 
+def number_tokens(text: str) -> Iterable[re.Match]:
+    """한글에 붙은 금액도 검사하되 법령의 '제13조'는 금액으로 보지 않는다."""
+    article_spans = [m.span() for m in ARTICLE_RE.finditer(text)]
+    for match in NUMBER_WITH_UNIT_RE.finditer(text):
+        if (MONEY_UNIT_RE.fullmatch(match.group(2))
+                and not any(start <= match.start() < end for start, end in article_spans)):
+            yield match
+    # 일수와 비율 등 기존 검사의 토큰 경계 및 숫자 처리 규칙은 유지한다.
+    yield from NON_MONEY_WITH_UNIT_RE.finditer(text)
+
+
+def money_key(number: str, unit: str) -> tuple[str, str]:
+    """쉼표/공백과 억·억원 표기만 정규화한다. 환산과 반올림은 하지 않는다."""
+    unit = re.sub(r"\s+", "", unit)
+    value = canon(number)
+    if number.startswith("-") and value != "0":
+        value = "-" + value
+    return value, unit if unit.endswith("원") else unit + "원"
+
+
+def known_money(texts: Iterable[str]) -> set[tuple[str, str]]:
+    amounts: set[tuple[str, str]] = set()
+    for text in texts:
+        amounts.update(money_key(m.group(1), m.group(2)) for m in number_tokens(text)
+                       if MONEY_UNIT_RE.fullmatch(m.group(2)))
+        amounts.update(money_key(m.group(2), MONEY_FIELDS[m.group(1)])
+                       for m in MONEY_FIELD_RE.finditer(text))
+    return amounts
+
+
 def normalize_article(a: str) -> str:
     return re.sub(r"\s+", "", a)
 
@@ -66,13 +110,20 @@ def check(text: str, evidence: list[Evidence], allowed_texts: Iterable[str] = ()
     sources = [f"{e.label}\n{e.text}" for e in evidence]   # 숫자·조문은 참고용 근거에 있어도 근거 있음
     allowed = list(allowed_texts)
     numbers = known_numbers(sources + allowed)
+    amounts = known_money(sources + allowed)
     articles = {normalize_article(a) for s in sources + allowed for a in ARTICLE_RE.findall(s)}
 
     body = CITE_RE.sub("", text)
+    ungrounded_numbers: set[str] = set()
+    for match in number_tokens(body):
+        number, unit = match.groups()
+        grounded = (money_key(number, unit) in amounts if MONEY_UNIT_RE.fullmatch(unit)
+                    else canon(number) in numbers)
+        if not grounded:
+            ungrounded_numbers.add(match.group(0))
     return VerificationReport(
         unknown_citations=[i for i in cited_ids(text) if i not in ids],
-        ungrounded_numbers=sorted({m.group(0) for m in NUMBER_WITH_UNIT_RE.finditer(body)
-                                   if canon(m.group(1)) not in numbers}),
+        ungrounded_numbers=sorted(ungrounded_numbers),
         ungrounded_articles=sorted({a for a in ARTICLE_RE.findall(body) if normalize_article(a) not in articles}),
     )
 
@@ -83,7 +134,8 @@ def feedback(report: VerificationReport) -> str:
     if report.unknown_citations:
         lines.append(f"- 근거 목록에 없거나 인용할 수 없는(citable=\"no\") id: {', '.join(report.unknown_citations)}")
     if report.ungrounded_numbers:
-        lines.append(f"- 근거·질문에 없는 숫자: {', '.join(report.ungrounded_numbers)}")
+        lines.append(f"- 근거·질문에 없는 숫자 또는 금액 단위: {', '.join(report.ungrounded_numbers)}")
+        lines.append("  금액은 근거의 값과 단위를 그대로 써라. 원을 만원·억원·조원으로 환산하거나 반올림하지 마라.")
     if report.ungrounded_articles:
         lines.append(f"- 근거에 없는 조문 번호: {', '.join(report.ungrounded_articles)}")
     return "\n".join(lines)

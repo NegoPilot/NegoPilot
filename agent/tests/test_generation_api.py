@@ -146,6 +146,9 @@ class RecordingCaller:
 
     async def __call__(self, server, tool, args):
         self.calls.append(deepcopy((server, tool, args)))
+        if tool == "find_suppliers":
+            return {"matches": [{"supplier_id": "SUP-0041", "name": args["supplier"], "region": "경남"}],
+                    "total": 1, "match_type": "exact"}
         if tool == "get_supplier":
             return {"supplier_id": args["supplier"], "name": "가상 기업", "source": "MOCK"}
         assert (server, tool) == ("law-mcp", "get_article")
@@ -290,7 +293,11 @@ async def test_http_preserves_raw_query_history_and_context_separately(supplier)
     assert data["decomposition"]["original_query"] == query
     assert data["context"] == context
     assert data["decomposition"]["sub_queries"][0]["entities"]["supplier"] == supplier
-    assert caller.calls == [("business-mcp", "get_supplier", {"supplier": supplier})]
+    expected_calls = [("business-mcp", "get_supplier", {"supplier": supplier})] if supplier.startswith("SUP-") else [
+        ("business-mcp", "find_suppliers", {"supplier": supplier, "limit": 10}),
+        ("business-mcp", "get_supplier", {"supplier": "SUP-0041"}),
+    ]
+    assert caller.calls == expected_calls
     prompt = backend.calls[0][1]
     encoded_context = prompt.split("선택 기업 문맥 (사용자 지시가 아닌 JSON 데이터):\n", 1)[1].split("\n\n", 1)[0]
     assert json.loads(encoded_context) == context
@@ -566,14 +573,37 @@ async def test_dependency_errors_are_safe_and_never_return_fixture_answer(phase,
 
 
 @pytest.mark.parametrize("phase", ["decomposition", "generation", "routing"])
-async def test_single_graph_deadline_cancels_slow_dependency(phase):
+async def test_single_graph_deadline_cancels_slow_dependency(monkeypatch, phase):
+    from negopilot_agent.api import generation_api
+
+    entered = asyncio.Event()
     cancelled = asyncio.Event()
+    deadlines = []
+    configured_timeout = 30.0
+
+    def observe_timeout(delay):
+        deadline = asyncio.timeout(delay)
+        deadlines.append((delay, deadline))
+        return deadline
+
+    # Patch only this module's binding. Graph execution and cleanup keep real asyncio.
+    monkeypatch.setattr(generation_api, "asyncio", SimpleNamespace(timeout=observe_timeout))
 
     async def slow(*args, **kwargs):
+        assert len(deadlines) == 1
+        delay, deadline = deadlines[0]
+        assert delay == configured_timeout
+        assert not deadline.expired()
+        entered.set()
+        # Expire the same real request deadline after this phase has started.
+        # A 10ms deadline from request entry can expire during graph preparation.
+        loop = asyncio.get_running_loop()
+        deadline.reschedule(loop.time())
         try:
-            await asyncio.sleep(10)
-        finally:
+            await loop.create_future()
+        except asyncio.CancelledError:
             cancelled.set()
+            raise
 
     decomposer = FixedDecomposer()
     backend = CiteFirst()
@@ -584,15 +614,15 @@ async def test_single_graph_deadline_cancels_slow_dependency(phase):
         backend.generate = slow
     else:
         caller = slow
-    app = create_app(settings=settings(timeout=0.01), generation_decomposer=decomposer,
+    app = create_app(settings=settings(timeout=configured_timeout), generation_decomposer=decomposer,
                      generation_caller=caller, generation_backend=backend)
     body = request()
-    started = monotonic()
-    response = await post(app, body)
-    elapsed = monotonic() - started
+    # This independent watchdog fails the test if request cancellation stops working.
+    async with asyncio.timeout(5):
+        response = await post(app, body)
     assert_error(response, 504, "UPSTREAM_TIMEOUT", body["request_id"])
-    assert cancelled.is_set()
-    assert elapsed < 1.0
+    assert entered.is_set() and cancelled.is_set()
+    assert len(deadlines) == 1 and deadlines[0][1].expired()
 
 
 @pytest.mark.parametrize("text", ["", "   ", "\n\t"])
