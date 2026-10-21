@@ -6,21 +6,24 @@
 - API 장애(네트워크, 5xx, 429)는 재시도한 뒤에도 실패하면 예외로 올려 Harness의 Recovery가 처리한다
 """
 
+import json
 import logging
 import os
 from dataclasses import dataclass, field
+from datetime import date
 
 import anthropic
+import openai
 from pydantic import ValidationError
 
-from negopilot_shared import DecompositionResult
+from negopilot_shared import DecompositionResult, load_intents
 
-from negopilot_agent.decomposition.backends import AnthropicBackend, Backend, OllamaBackend
+from negopilot_agent.decomposition.backends import AnthropicBackend, Backend, OllamaBackend, OpenAIBackend
 from negopilot_agent.decomposition.prompt import build_system_prompt, build_user_message
 
 log = logging.getLogger(__name__)
 
-DEFAULT_MODELS = {"anthropic": "claude-opus-5-5", "ollama": "llama3.1:8b"}
+DEFAULT_MODELS = {"anthropic": "claude-opus-5-5", "ollama": "llama3.1:8b", "openai": "gpt-4.1-mini"}
 
 
 def _env_backend() -> str:
@@ -29,7 +32,7 @@ def _env_backend() -> str:
 
 @dataclass(frozen=True)
 class DecomposerSettings:
-    backend: str = field(default_factory=_env_backend)  # anthropic | ollama
+    backend: str = field(default_factory=_env_backend)  # anthropic | ollama | openai
     model: str = field(default_factory=lambda: os.getenv(
         "NEGOPILOT_DECOMPOSER_MODEL", DEFAULT_MODELS.get(_env_backend(), DEFAULT_MODELS["anthropic"])))
     # 분류에 가까운 작업이라 low로 시작한다. 평가 결과를 보고 조정한다 (anthropic 전용)
@@ -58,10 +61,12 @@ def _format_errors(err: ValidationError) -> str:
 def make_backend(settings: DecomposerSettings, client: anthropic.AsyncAnthropic | None = None) -> Backend:
     if settings.backend == "ollama":
         return OllamaBackend(settings.model, settings.ollama_base_url)
+    if settings.backend == "openai":
+        return OpenAIBackend(openai.AsyncOpenAI(), settings.model, settings.max_tokens)  # OPENAI_API_KEY
     if settings.backend == "anthropic":
         return AnthropicBackend(client or anthropic.AsyncAnthropic(), settings.model, settings.effort,
                                 settings.max_tokens, settings.use_fallbacks)
-    raise ValueError(f"알 수 없는 백엔드 '{settings.backend}'. anthropic 또는 ollama")
+    raise ValueError(f"알 수 없는 백엔드 '{settings.backend}'. anthropic, ollama 또는 openai")
 
 
 class QueryDecomposer:
@@ -72,7 +77,8 @@ class QueryDecomposer:
         self.system = build_system_prompt()
 
     async def decompose(self, query: str, history: list[dict] | None = None) -> DecompositionResult:
-        user_message = build_user_message(query, history)
+        today = date.today()
+        user_message = build_user_message(query, history, today)
         feedback = ""
         for attempt in range(1, self.settings.max_attempts + 1):
             text = await self.backend.generate(self.system, user_message + feedback)
@@ -80,7 +86,8 @@ class QueryDecomposer:
                 return failed_result(query)
             try:
                 # 스키마 형식은 모델 쪽 구조화 출력이 맞추고, 필드 사이 규칙은 여기서 검증한다
-                result = DecompositionResult.model_validate_json(text)
+                cleaned = drop_redundant_as_of(drop_disallowed_inputs(text), today)
+                result = DecompositionResult.model_validate_json(cleaned)
             except ValidationError as err:
                 log.warning("분해 결과 형식 오류 (시도 %d): %s", attempt, err.error_count())
                 feedback = ("\n\n직전 출력이 계약 형식을 어겼다. 아래 오류를 고쳐서 다시 출력해라.\n"
@@ -91,6 +98,66 @@ class QueryDecomposer:
                 result = result.model_copy(update={"original_query": query})
             return drop_unused_dependencies(result)
         return failed_result(query)
+
+
+def drop_disallowed_inputs(text: str) -> str:
+    """intent가 허용하지 않는 slot의 inputs를 검증 전에 지운다.
+
+    예: law_check에 supplier를 앞 결과에서 받겠다는 inputs. 법 검색 도구는 협력사를 입력으로 받지 않아
+    쓸모가 없는 값이고, 이 하나 때문에 재시도하면 호출만 늘어난다. 남은 depends_on은 drop_unused_dependencies가 정리한다.
+    JSON이 아니거나 모양이 다르면 그대로 돌려줘 검증 오류로 처리되게 한다.
+    """
+    try:
+        data = json.loads(text)
+        sub_queries = data["sub_queries"]
+    except (ValueError, TypeError, KeyError):
+        return text
+    intents = load_intents()
+    changed = False
+    for sq in sub_queries if isinstance(sub_queries, list) else []:
+        spec = intents.get(sq.get("intent")) if isinstance(sq, dict) else None
+        if spec is None or not isinstance(sq.get("inputs"), list):
+            continue
+        allowed = set(spec.entities) | {"price_change_pct"}
+        kept = [i for i in sq["inputs"] if not isinstance(i, dict) or i.get("slot") in allowed]
+        if len(kept) != len(sq["inputs"]):
+            changed = True
+            dropped = [i.get("slot") for i in sq["inputs"] if i not in kept]
+            log.info("%s(%s)의 inputs에서 허용되지 않는 slot %s 제거", sq.get("id"), spec.intent, dropped)
+            sq["inputs"] = kept
+    return json.dumps(data, ensure_ascii=False) if changed else text
+
+
+def drop_redundant_as_of(text: str, today: date) -> str:
+    """entities.as_of가 오늘 날짜이거나 intent가 as_of를 받지 않으면 검증 전에 지운다.
+
+    as_of는 생략하면 오늘 기준이라, 사용자 메시지에 넣은 오늘 날짜를 모델이 채워도 조회 결과는 같다.
+    strict 구조화 출력(openai)은 모든 필드를 채우게 해 이런 값이 자주 생기고, offer_check처럼 as_of를
+    받지 않는 intent에 들어가면 이 하나 때문에 재시도한다. 사용자가 적은 다른 날짜는 그대로 둔다.
+    JSON이 아니거나 모양이 다르면 그대로 돌려줘 검증 오류로 처리되게 한다.
+    """
+    try:
+        data = json.loads(text)
+        sub_queries = data["sub_queries"]
+    except (ValueError, TypeError, KeyError):
+        return text
+    intents = load_intents()
+    changed = False
+    for sq in sub_queries if isinstance(sub_queries, list) else []:
+        entities = sq.get("entities") if isinstance(sq, dict) else None
+        if not isinstance(entities, dict) or entities.get("as_of") is None:
+            continue
+        spec = intents.get(sq.get("intent"))
+        if entities["as_of"] == today.isoformat():
+            reason = "오늘 날짜"
+        elif spec is not None and "as_of" not in spec.entities:
+            reason = f"{spec.intent}는 as_of를 받지 않음"
+        else:
+            continue
+        changed = True
+        log.info("%s의 as_of %s 제거 (%s)", sq.get("id"), entities["as_of"], reason)
+        del entities["as_of"]
+    return json.dumps(data, ensure_ascii=False) if changed else text
 
 
 def drop_unused_dependencies(result: DecompositionResult) -> DecompositionResult:
