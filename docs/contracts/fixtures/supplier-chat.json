@@ -1,0 +1,33 @@
+{
+  "schema_version": "0.2",
+  "mode": "stub",
+  "notice": "모든 기업과 수치는 API 연결 검증용 가상 데이터입니다.",
+  "supported_queries": ["이 회사에 대해 알려줘", "이 회사의 재무 상태를 알려줘", "납기와 품질은 어때?"],
+  "suppliers": [
+    {
+      "supplier_id": "SUP-0034", "name": "새길다이캐스팅", "region": "인천", "iatf16949": true,
+      "capabilities": [{"process": "다이캐스팅", "material": "ADC12", "monthly_capacity": 60000}, {"process": "다이캐스팅", "material": "ALDC6", "monthly_capacity": 30000}],
+      "quality": {"defect_ppm": 420, "on_time_delivery_rate": 96.5},
+      "financials": [{"year": 2025, "revenue_krw": 12000000000, "operating_profit_krw": 900000000, "debt_ratio": 80.0, "source": "STUB"}],
+      "recent_quotes": [{"process": "다이캐스팅", "material": "ADC12", "unit_price_krw": 3800, "quoted_at": "2026-10-01"}],
+      "existing_contract": {"payment_days": 60, "price_linkage": true},
+      "provenance": {"profile": "STUB", "financials": "STUB", "operations": "STUB"}
+    },
+    {
+      "supplier_id": "SUP-0041", "name": "해솔정밀", "region": "부산", "iatf16949": true,
+      "capabilities": [{"process": "다이캐스팅", "material": "ADC12", "monthly_capacity": 42000}],
+      "quality": {"defect_ppm": 650, "on_time_delivery_rate": 94.0},
+      "financials": [{"year": 2025, "revenue_krw": 8500000000, "operating_profit_krw": 510000000, "debt_ratio": 105.0, "source": "STUB"}],
+      "recent_quotes": [{"process": "다이캐스팅", "material": "ADC12", "unit_price_krw": 3950, "quoted_at": "2026-10-02"}],
+      "existing_contract": null,
+      "provenance": {"profile": "STUB", "financials": "STUB", "operations": "STUB"}
+    },
+    {
+      "supplier_id": "SUP-0052", "name": "다온프레스", "region": "대구", "iatf16949": false,
+      "capabilities": [{"process": "프레스", "material": "SPCC", "monthly_capacity": 90000}],
+      "quality": {"defect_ppm": null, "on_time_delivery_rate": null},
+      "financials": [], "recent_quotes": [], "existing_contract": null,
+      "provenance": {"profile": "STUB", "financials": "STUB", "operations": "STUB"}
+    }
+  ]
+}

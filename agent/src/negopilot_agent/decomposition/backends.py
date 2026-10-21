@@ -2,6 +2,7 @@
 
 - anthropic: Claude 구조화 출력 (기본)
 - ollama: 로컬 모델(Llama 등). 비용 없이 평가·개발할 때 쓴다
+- openai: OpenAI Chat Completions (gpt-4.1-mini 등)
 
 거절이나 출력 잘림이면 None을 돌려준다. 네트워크·서버 오류는 예외로 올린다.
 """
@@ -12,6 +13,9 @@ from typing import Protocol
 
 import anthropic
 import httpx2
+import openai
+from openai.lib._pydantic import to_strict_json_schema
+from pydantic import BaseModel
 
 from negopilot_shared import DecompositionResult
 
@@ -106,3 +110,40 @@ class OllamaBackend:
             log.warning("분해 출력이 길이 제한에서 잘림")
             return None
         return data["message"]["content"]
+
+
+class OpenAIBackend:
+    """OpenAI Chat Completions. strict 구조화 출력으로 스키마(허용 값 목록 포함)를 지키게 한다.
+
+    strict 모드는 모든 필드를 required로, additionalProperties를 false로 바꾼 스키마가 필요하다.
+    그 변환은 SDK의 to_strict_json_schema를 쓴다 (chat.completions.parse가 내부에서 쓰는 함수).
+    parse를 직접 쓰지 않는 이유: parse는 응답을 바로 모델로 검증해서, 계약 위반이 우리 재시도(오류 알려 주고 다시 쓰기)
+    전에 예외로 나간다. 다른 백엔드처럼 JSON 문자열을 돌려주고 검증은 분해기가 한다.
+    """
+
+    OUTPUT_MODEL: type[BaseModel] = DecompositionResult
+    OUTPUT_SCHEMA = to_strict_json_schema(DecompositionResult)
+
+    def __init__(self, client: openai.AsyncOpenAI, model: str, max_tokens: int):
+        self.client = client
+        self.model = model
+        self.max_tokens = max_tokens
+
+    async def generate(self, system: str, user: str) -> str | None:
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            # 시스템 프롬프트를 앞에 두면 OpenAI가 같은 앞부분을 자동으로 캐시한다
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            temperature=0,
+            max_completion_tokens=self.max_tokens,
+            response_format={"type": "json_schema", "json_schema": {
+                "name": self.OUTPUT_MODEL.__name__, "schema": self.OUTPUT_SCHEMA, "strict": True}},
+        )
+        choice = response.choices[0]
+        if choice.message.refusal:
+            log.warning("분해 요청 거절: %s", choice.message.refusal)
+            return None
+        if choice.finish_reason == "length":
+            log.warning("분해 출력이 max_completion_tokens에서 잘림")
+            return None
+        return choice.message.content or ""

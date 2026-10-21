@@ -12,6 +12,7 @@ from pathlib import Path
 
 import anthropic
 import httpx2
+import openai
 import pytest
 from langgraph.graph import END, START, StateGraph
 
@@ -23,7 +24,7 @@ from negopilot_agent.decomposition import (
     QueryDecomposer,
     make_decompose_node,
 )
-from negopilot_agent.decomposition.backends import OllamaBackend
+from negopilot_agent.decomposition.backends import OllamaBackend, OpenAIBackend
 from negopilot_agent.decomposition.prompt import EXAMPLES, build_system_prompt
 
 FIXTURES = sorted((Path(__file__).resolve().parents[2] / "shared" / "fixtures" / "decomposition").glob("*.json"))
@@ -233,6 +234,78 @@ async def test_ollama_retry_and_truncation():
     assert (await cut.decomposer().decompose(data["query"])).status == "failed"
 
 
+class FakeOpenAI:
+    """OpenAI Chat Completions 응답을 흉내 낸다."""
+
+    def __init__(self, *contents: str | None, finish_reason: str = "stop", refusal: str | None = None):
+        self.contents = list(contents)
+        self.finish_reason = finish_reason
+        self.refusal = refusal
+        self.requests: list[httpx2.Request] = []
+
+    def handler(self, request: httpx2.Request) -> httpx2.Response:
+        self.requests.append(request)
+        return httpx2.Response(200, json={
+            "id": "chatcmpl-test", "object": "chat.completion", "created": 0, "model": "gpt-4.1-mini",
+            "choices": [{"index": 0, "finish_reason": self.finish_reason, "logprobs": None,
+                         "message": {"role": "assistant", "content": self.contents.pop(0), "refusal": self.refusal}}]})
+
+    def client(self) -> openai.AsyncOpenAI:
+        return openai.AsyncOpenAI(api_key="test-key", max_retries=0,
+                                  http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(self.handler)))
+
+    def decomposer(self) -> QueryDecomposer:
+        backend = OpenAIBackend(self.client(), "gpt-4.1-mini", max_tokens=16000)
+        return QueryDecomposer(settings=DecomposerSettings(backend="openai", model="gpt-4.1-mini"), backend=backend)
+
+
+async def test_openai_backend_request_and_parse():
+    data = fixture("08")
+    fake = FakeOpenAI(json.dumps(data["expected"], ensure_ascii=False))
+    result = await fake.decomposer().decompose(data["query"])
+
+    assert result == DecompositionResult.model_validate(data["expected"])
+    body = json.loads(fake.requests[0].content)
+    assert fake.requests[0].url.path.endswith("/chat/completions")
+    assert body["model"] == "gpt-4.1-mini" and body["temperature"] == 0
+    assert body["messages"][0]["role"] == "system" and body["messages"][1]["role"] == "user"
+    fmt = body["response_format"]
+    assert fmt["type"] == "json_schema" and fmt["json_schema"]["name"] == "DecompositionResult"
+    assert fmt["json_schema"]["strict"] is True
+    # strict 스키마: 모든 객체가 추가 필드를 막고, 모든 필드가 required다
+    schema = fmt["json_schema"]["schema"]
+    assert schema["additionalProperties"] is False and set(schema["required"]) == set(schema["properties"])
+
+
+async def test_openai_retry_truncation_and_refusal():
+    data = fixture("01")
+    fake = FakeOpenAI("{\"status\": \"ok\"}", json.dumps(data["expected"], ensure_ascii=False))
+    assert (await fake.decomposer().decompose(data["query"])).status == "ok"
+    assert len(fake.requests) == 2
+
+    cut = FakeOpenAI("{\"schema_version\": ", finish_reason="length")
+    assert (await cut.decomposer().decompose(data["query"])).status == "failed"
+
+    refused = FakeOpenAI(None, refusal="I can't help with that.")
+    assert (await refused.decomposer().decompose(data["query"])).status == "failed"
+    assert len(refused.requests) == 1   # 거절은 다시 묻지 않는다
+
+
+def test_openai_default_model():
+    from negopilot_agent.decomposition.decomposer import DEFAULT_MODELS
+    from negopilot_agent.generation.generator import DEFAULT_MODELS as GENERATION_DEFAULTS
+    assert DEFAULT_MODELS["openai"] == GENERATION_DEFAULTS["openai"] == "gpt-4.1-mini"
+
+
+async def test_generation_openai_backend_uses_draft_schema():
+    from negopilot_agent.generation.backends import GenerationOpenAIBackend
+    fake = FakeOpenAI('{"text": "x"}')
+    text = await GenerationOpenAIBackend(fake.client(), "gpt-4.1-mini", max_tokens=16000).generate("s", "u")
+    assert text == '{"text": "x"}'
+    fmt = json.loads(fake.requests[0].content)["response_format"]["json_schema"]
+    assert fmt["name"] == "GenerationDraft" and fmt["strict"] is True
+
+
 def test_unknown_backend():
     with pytest.raises(ValueError, match="알 수 없는 백엔드"):
         QueryDecomposer(settings=DecomposerSettings(backend="gpt"))
@@ -293,3 +366,37 @@ def test_drop_redundant_as_of_leaves_other_output_alone():
     assert drop_redundant_as_of(plain, today) == plain                    # as_of가 없으면 그대로
     assert drop_redundant_as_of("not json", today) == "not json"          # 검증 단계가 오류로 처리
     assert drop_redundant_as_of('{"status": "failed"}', today) == '{"status": "failed"}'
+
+
+async def test_disallowed_input_slot_is_dropped_without_retry():
+    """law_check는 supplier를 받지 않는다. 그 inputs 하나 때문에 재시도하지 않고 지운다 (#31)."""
+    data = fixture("03")
+    with_input = json.loads(json.dumps(data["expected"]))
+    with_input["sub_queries"][1]["inputs"] = [{"slot": "supplier", "from": "q1", "select": "top1"}]
+    with_input["sub_queries"][1]["depends_on"] = ["q1"]
+    fake = FakeClaude(message_json(json.dumps(with_input, ensure_ascii=False)))
+    result = await fake.decomposer().decompose(data["query"])
+    assert len(fake.requests) == 1
+    assert result == DecompositionResult.model_validate(data["expected"])
+    assert result.parallel_groups() == [["q1", "q2"]]
+
+
+def test_drop_disallowed_inputs_leaves_other_output_alone():
+    from negopilot_agent.decomposition.decomposer import drop_disallowed_inputs
+    allowed = json.dumps(fixture("08")["expected"], ensure_ascii=False)
+    assert drop_disallowed_inputs(allowed) == allowed            # 허용된 slot은 그대로
+    assert drop_disallowed_inputs("not json") == "not json"      # 검증 단계가 오류로 처리
+    assert drop_disallowed_inputs('{"status": "failed"}') == '{"status": "failed"}'
+
+
+async def test_both_cleanups_apply_together():
+    """허용되지 않는 inputs(#31)와 오늘 as_of(#39)가 한 출력에 같이 있어도 재시도 없이 정리된다."""
+    data = fixture("03")
+    messy = json.loads(json.dumps(data["expected"]))
+    messy["sub_queries"][1]["inputs"] = [{"slot": "supplier", "from": "q1", "select": "top1"}]
+    messy["sub_queries"][1]["depends_on"] = ["q1"]
+    messy["sub_queries"][1]["entities"]["as_of"] = date.today().isoformat()
+    fake = FakeClaude(message_json(json.dumps(messy, ensure_ascii=False)))
+    result = await fake.decomposer().decompose(data["query"])
+    assert len(fake.requests) == 1
+    assert result == DecompositionResult.model_validate(data["expected"])
