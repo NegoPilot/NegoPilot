@@ -22,6 +22,8 @@ NegoPilot 팀원이 자기 담당 부분을 개발하기 전에 무엇을 읽고
 | 2 | [docs/contracts/query-decomposition.md](contracts/query-decomposition.md) | **분해 결과 형식.** intent, 엔티티, 근거·되묻기 규칙, 선택어, 역할 분담 |
 | 3 | [shared/fixtures/decomposition/](../shared/fixtures/decomposition/) | 질문별 분해 결과 예시 11개. **Routing·Generation 개발의 입력 데이터** |
 | 4 | [shared/src/negopilot_shared/intents.yaml](../shared/src/negopilot_shared/intents.yaml) | intent → MCP 서버·도구 등록표 |
+| 5 | [docs/contracts/routing.md](contracts/routing.md) | **Routing 결과 형식.** status별 Generation 처리, 근거 인용 규칙 |
+| 6 | [shared/fixtures/routing/](../shared/fixtures/routing/) | fixtures를 실제 MCP 서버로 Routing한 결과. **Generation 개발의 입력 데이터** |
 
 ## 3. 담당별 시작점
 
@@ -30,7 +32,7 @@ NegoPilot 팀원이 자기 담당 부분을 개발하기 전에 무엇을 읽고
 | 볼 것 | 계약 3절(intent 등록표), 6절(선택어), `intents.yaml`, `DecompositionResult.parallel_groups()` |
 | --- | --- |
 | 입력 | `DecompositionResult` (fixtures의 `expected`) |
-| 출력 | 하위 질문별 MCP 도구 호출 결과 (Generation과 형식 합의 필요) |
+| 출력 | `RouteResult` ([Routing 결과 계약](contracts/routing.md)) |
 
 할 일
 1. fixtures 11개를 입력으로 받아, `intents.yaml`에서 서버·도구를 찾아 호출하는 `route` 노드
@@ -41,9 +43,9 @@ NegoPilot 팀원이 자기 담당 부분을 개발하기 전에 무엇을 읽고
 
 ### Generation
 
-| 볼 것 | 계약 5절(근거와 되묻기 규칙), 8절(역할) |
+| 볼 것 | 계약 5절(근거와 되묻기 규칙), 8절(역할), [Routing 결과 계약](contracts/routing.md) 3·4절 |
 | --- | --- |
-| 입력 | `DecompositionResult` + Routing의 도구 결과 |
+| 입력 | `DecompositionResult` + `RouteResult` (`shared/fixtures/routing`) |
 | 출력 | 사용자에게 보여 줄 답변 |
 
 할 일 (fixtures에서 각 경우가 하나씩 있음)

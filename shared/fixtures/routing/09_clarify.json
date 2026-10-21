@@ -1,0 +1,11 @@
+{
+  "query": "그 업체 괜찮아?",
+  "decomposition": "decomposition/09_clarify.json",
+  "routing": {
+    "schema_version": "0.1",
+    "status": "not_routed",
+    "outcomes": [],
+    "halted": false,
+    "halt_reason": null
+  }
+}
