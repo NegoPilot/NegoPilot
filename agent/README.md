@@ -262,7 +262,7 @@ stub 모드에서 지원하는 질문은 다음 세 개입니다. 실제 Router�
 
 ### v0.2 협력사 조회와 템플릿 대화
 
-다음 경로는 `stub`에서만 사용할 수 있습니다. `live`에서는 503 `DEMO_MODE_REQUIRED`와 `retryable: false`를 반환합니다. 데이터 원본은 [supplier-chat.json](../docs/contracts/fixtures/supplier-chat.json)입니다. 모든 기업과 수치는 가상 데이터입니다.
+조회 경로(카탈로그, 기업 검색, 상세)는 `stub`이면 [supplier-chat.json](../docs/contracts/fixtures/supplier-chat.json)의 가상 데이터를, `live`이면 `BUSINESS_MCP_URL`의 business-mcp를 통해 협력사 DB를 읽습니다. live 규칙은 [계약 문서의 live 조회](../docs/contracts/supplier-chat.md#live-조회)를 따릅니다. 챗봇 경로는 `stub`에서만 사용할 수 있습니다. `live`에서는 503 `DEMO_MODE_REQUIRED`와 `retryable: false`를 반환합니다.
 
 | Python 내부 경로 | 동작 |
 | --- | --- |

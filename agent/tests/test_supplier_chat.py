@@ -284,9 +284,9 @@ async def test_detail_rejects_invalid_single_segment_supplier_id(supplier_id):
 @pytest.mark.parametrize(("mode", "headers", "status", "code"), [
     ("stub", HEADERS, 400, "VALIDATION_ERROR"),
     ("stub", {}, 401, "UNAUTHORIZED"),
-    ("live", HEADERS, 503, "DEMO_MODE_REQUIRED"),
+    ("live", HEADERS, 400, "VALIDATION_ERROR"),
 ])
-async def test_slash_supplier_path_preserves_authentication_and_demo_guards(suffix, mode, headers, status, code):
+async def test_slash_supplier_path_preserves_authentication_guard_in_both_modes(suffix, mode, headers, status, code):
     response = await request(app_for(mode=mode), "GET", SEARCH + "/" + suffix, headers=headers)
     assert_error(response, status, code)
 
@@ -428,8 +428,8 @@ async def test_all_new_routes_require_internal_key(method, path, headers):
     assert "private-wrong-key" not in response.text
 
 
-@pytest.mark.parametrize(("method", "path"), ROUTES)
-async def test_live_mode_rejects_demo_routes_without_external_calls(method, path):
+@pytest.mark.parametrize(("method", "path"), [("POST", CHAT)])
+async def test_live_mode_rejects_chat_without_external_calls(method, path):
     service = BlockingService(error=AssertionError("Live demo guard must run before the service"))
     app = create_app(settings=ApiSettings(mode="live", internal_api_key=API_KEY),
                      supplier_chat_service=service)

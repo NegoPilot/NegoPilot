@@ -20,6 +20,10 @@ UuidString = Annotated[str, StringConstraints(
 FilterText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
 QueryText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
 Number = int | float
+# 조회 경로는 stub이면 fixture, live면 business-mcp DB를 읽는다. 대화 경로는 stub 전용이다.
+LookupMode = Literal["stub", "live"]
+# STUB은 fixture, DART는 공시 값, MOCK은 business-mcp의 가상 값이다.
+Source = Literal["STUB", "DART", "MOCK"]
 
 
 class Capability(StrictModel):
@@ -29,9 +33,9 @@ class Capability(StrictModel):
 
 
 class Provenance(StrictModel):
-    profile: Literal["STUB"]
-    financials: Literal["STUB"]
-    operations: Literal["STUB"]
+    profile: Source
+    financials: Source
+    operations: Source
 
 
 class Quality(StrictModel):
@@ -44,7 +48,7 @@ class Financials(StrictModel):
     revenue_krw: Number | None
     operating_profit_krw: Number | None
     debt_ratio: Number | None
-    source: Literal["STUB"]
+    source: Source
 
 
 class RecentQuote(StrictModel):
@@ -241,19 +245,19 @@ class ChatResponse(StrictModel):
 
 class CatalogResponse(StrictModel):
     schema_version: Literal["0.2"]
-    mode: Literal["stub"]
+    mode: LookupMode
     data: CatalogData
 
 
 class SupplierSearchResponse(StrictModel):
     schema_version: Literal["0.2"]
-    mode: Literal["stub"]
+    mode: LookupMode
     data: SupplierListData
 
 
 class SupplierDetailResponse(StrictModel):
     schema_version: Literal["0.2"]
-    mode: Literal["stub"]
+    mode: LookupMode
     data: SupplierDetail
 
 

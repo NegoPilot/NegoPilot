@@ -22,7 +22,9 @@ from negopilot_shared import DecompositionResult, RouteResult
 
 from negopilot_agent.api import execution
 from negopilot_agent.api.app import create_app
+from negopilot_agent.api.business_supplier_service import BusinessSupplierService
 from negopilot_agent.api.settings import ApiSettings
+from tests.test_supplier_lookup_live import FakeBusiness
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -426,8 +428,8 @@ async def test_v2_authentication_errors_match_each_fixed_route_schema(method, pa
     assert_error_wire(response, V2, schema_path, method, 401, "UNAUTHORIZED", request_id)
 
 
-@pytest.mark.parametrize(("method", "path", "schema_path"), V2_ROUTES)
-async def test_v2_live_mode_rejection_matches_fixed_contract_without_model_creation(method, path, schema_path):
+@pytest.mark.parametrize(("method", "path", "schema_path"), [("POST", CHAT, CHAT)])
+async def test_v2_live_mode_chat_rejection_matches_fixed_contract_without_model_creation(method, path, schema_path):
     arguments = route_arguments(method, path)
     response = await request(app_for(mode="live"), method, path, **arguments)
     request_id = arguments["json"]["request_id"] if method == "POST" else None
@@ -468,3 +470,18 @@ async def test_v2_service_failures_match_each_fixed_route_schema(
     response = await request(app_for(service=FailingSupplierService(failure)), method, path, **arguments)
     request_id = arguments["json"]["request_id"] if method == "POST" else None
     assert_error_wire(response, V2, schema_path, method, status, code, request_id, retryable)
+
+
+@pytest.mark.parametrize(("path", "schema_path", "params"), [
+    (CATALOG, CATALOG, None),
+    (SEARCH, SEARCH, {"process": "다이캐스팅"}),
+    (SEARCH + "/SUP-0001", DETAIL_SCHEMA, None),
+])
+async def test_v2_live_lookups_match_fixed_contract(path, schema_path, params):
+    app = create_app(
+        settings=ApiSettings(mode="live", internal_api_key=API_KEY, request_timeout_seconds=1),
+        supplier_lookup_service=BusinessSupplierService(session=FakeBusiness().session),
+    )
+    response = await request(app, "GET", path, params=params)
+    data = assert_wire(response, V2, schema_path, "GET")
+    assert data["mode"] == "live"
