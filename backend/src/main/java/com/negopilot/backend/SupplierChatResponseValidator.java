@@ -84,6 +84,11 @@ public final class SupplierChatResponseValidator {
             require(normalizedFilters.get("iatf_required").isBoolean());
             iatf = normalizedFilters.get("iatf_required").booleanValue();
         }
+        boolean iso = false;
+        if (normalizedFilters.has("iso14001_required")) {
+            require(normalizedFilters.get("iso14001_required").isBoolean());
+            iso = normalizedFilters.get("iso14001_required").booleanValue();
+        }
         int minCapacity = 0;
         if (normalizedFilters.has("min_monthly_capacity")) {
             integer(normalizedFilters.get("min_monthly_capacity"), 1, 10_000_000);
@@ -96,14 +101,15 @@ public final class SupplierChatResponseValidator {
         }
         require(data.get("limit").intValue() == limit);
         if (live) {
-            liveSearch(data.get("items"), process, material, region, iatf, minCapacity, limit);
+            liveSearch(data.get("items"), process, material, region, iatf, iso, minCapacity, limit);
             require(data.get("returned_count").intValue() == data.get("items").size());
             return;
         }
         List<JsonNode> expected = new ArrayList<>();
         for (JsonNode supplier : suppliers.values()) {
             if ((region != null && !region.equals(supplier.get("region").stringValue()))
-                    || (iatf && !supplier.get("iatf16949").booleanValue())) continue;
+                    || (iatf && !supplier.get("iatf16949").booleanValue())
+                    || (iso && !supplier.get("iso14001").booleanValue())) continue;
             ArrayNode matched = JsonNodeFactory.instance.arrayNode();
             for (JsonNode capability : supplier.get("capabilities")) {
                 if (process.equals(capability.get("process").stringValue())
@@ -114,7 +120,7 @@ public final class SupplierChatResponseValidator {
             }
             if (!matched.isEmpty()) {
                 ObjectNode summary = JsonNodeFactory.instance.objectNode();
-                for (String field : List.of("supplier_id", "name", "region", "iatf16949", "provenance")) {
+                for (String field : List.of("supplier_id", "name", "region", "iatf16949", "iso14001", "provenance")) {
                     summary.set(field, supplier.get(field));
                 }
                 summary.set("matched_capabilities", matched);
@@ -126,7 +132,8 @@ public final class SupplierChatResponseValidator {
         require(items.size() == expected.size() && data.get("returned_count").intValue() == items.size());
         for (int index = 0; index < items.size(); index++) {
             JsonNode item = items.get(index);
-            object(item, "supplier_id", "name", "region", "iatf16949", "matched_capabilities", "provenance");
+            object(item, "supplier_id", "name", "region", "iatf16949", "iso14001", "matched_capabilities",
+                    "provenance");
             capabilities(item.get("matched_capabilities"));
             require(sameJson(item, expected.get(index)));
         }
@@ -143,17 +150,19 @@ public final class SupplierChatResponseValidator {
     }
 
     private static void liveSearch(JsonNode items, String process, String material, String region, boolean iatf,
-                                   int minCapacity, int limit) {
+                                   boolean iso, int minCapacity, int limit) {
         require(items.size() <= limit);
         String previous = null;
         for (JsonNode item : items) {
-            object(item, "supplier_id", "name", "region", "iatf16949", "matched_capabilities", "provenance");
+            object(item, "supplier_id", "name", "region", "iatf16949", "iso14001", "matched_capabilities",
+                    "provenance");
             String id = text(item.get("supplier_id"), 100);
             require(previous == null || previous.compareTo(id) < 0);
             previous = id;
             text(item.get("name"), 100);
             require(region == null || region.equals(text(item.get("region"), 100)));
             require(item.get("iatf16949").isBoolean() && (!iatf || item.get("iatf16949").booleanValue()));
+            require(item.get("iso14001").isBoolean() && (!iso || item.get("iso14001").booleanValue()));
             provenance(item.get("provenance"), LIVE_SOURCES);
             capabilities(item.get("matched_capabilities"));
             for (JsonNode capability : item.get("matched_capabilities")) {
@@ -224,10 +233,10 @@ public final class SupplierChatResponseValidator {
     }
 
     private static void supplierShape(JsonNode supplier, Set<String> sources) {
-        object(supplier, "supplier_id", "name", "region", "iatf16949", "capabilities", "quality", "financials",
+        object(supplier, "supplier_id", "name", "region", "iatf16949", "iso14001", "capabilities", "quality", "financials",
                 "recent_quotes", "existing_contract", "provenance");
         for (String field : List.of("supplier_id", "name", "region")) text(supplier.get(field), 100);
-        require(supplier.get("iatf16949").isBoolean());
+        require(supplier.get("iatf16949").isBoolean() && supplier.get("iso14001").isBoolean());
         capabilities(supplier.get("capabilities"));
         JsonNode quality = supplier.get("quality");
         object(quality, "defect_ppm", "on_time_delivery_rate");

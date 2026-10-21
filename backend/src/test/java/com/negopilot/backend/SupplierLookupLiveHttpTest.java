@@ -118,6 +118,16 @@ class SupplierLookupLiveHttpTest {
         assertError(response, 502, "UPSTREAM_INVALID_RESPONSE", false);
     }
 
+    @Test
+    void rejectsLiveSearchItemWithoutRequiredIso14001() throws Exception {
+        var response = get("/api/v1/suppliers?process=" + encode("다이캐스팅") + "&iso14001_required=true");
+        assertError(response, 502, "UPSTREAM_INVALID_RESPONSE", false);
+        CORRUPT.set(body -> ((ArrayNode) body.at("/data/items")).remove(1));
+        CORRUPT.set(CORRUPT.get().andThen(body -> ((ObjectNode) body.get("data")).put("returned_count", 1)));
+        var filtered = get("/api/v1/suppliers?process=" + encode("다이캐스팅") + "&iso14001_required=true");
+        assertThat(filtered.statusCode()).as(filtered.body()).isEqualTo(200);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"other-supplier", "stub-financials", "extra-field"})
     void rejectsLiveDetailThatDoesNotMatchContract(String kind) throws Exception {
@@ -173,13 +183,13 @@ class SupplierLookupLiveHttpTest {
         ObjectNode data = body.putObject("data").put("returned_count", 2).put("limit", 20);
         ArrayNode items = data.putArray("items");
         ObjectNode first = items.addObject().put("supplier_id", "SUP-0001").put("name", "공시기업").put("region", "경남")
-                .put("iatf16949", true);
+                .put("iatf16949", true).put("iso14001", true);
         ArrayNode firstCapabilities = first.putArray("matched_capabilities");
         capability(firstCapabilities, "A380", 8000);
         capability(firstCapabilities, "ADC12", 20000);
         provenance(first, "DART");
         ObjectNode second = items.addObject().put("supplier_id", "SUP-0040").put("name", "가상기업").put("region", "경남")
-                .put("iatf16949", false);
+                .put("iatf16949", false).put("iso14001", false);
         capability(second.putArray("matched_capabilities"), "ADC12", 5000);
         provenance(second, "MOCK");
         return body;
@@ -188,7 +198,7 @@ class SupplierLookupLiveHttpTest {
     private static ObjectNode detail() {
         ObjectNode body = envelope();
         ObjectNode data = body.putObject("data").put("supplier_id", "SUP-0001").put("name", "공시기업")
-                .put("region", "경남").put("iatf16949", true);
+                .put("region", "경남").put("iatf16949", true).put("iso14001", true);
         capability(data.putArray("capabilities"), "ADC12", 20000);
         data.putObject("quality").put("defect_ppm", 120).put("on_time_delivery_rate", 95.7);
         data.putArray("financials").addObject().put("year", 2024).put("revenue_krw", 500_000_000_000L)
