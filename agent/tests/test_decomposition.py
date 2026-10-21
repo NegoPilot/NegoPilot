@@ -425,3 +425,23 @@ async def test_compact_openai_output_is_cleaned_without_retry():
     result = await fake.decomposer().decompose(data["query"])
     assert len(fake.requests) == 1
     assert result == DecompositionResult.model_validate(data["expected"])
+
+
+@pytest.mark.parametrize("loose, fixed", [("top3", "top(3)"), ("top 3", "top(3)"), ("TOP(3)", "top(3)"),
+                                          ("top_2", "top(2)"), ("top(1)", "top(1)"), ("Top 1", "top1")])
+async def test_loose_select_is_normalized_without_retry(loose, fixed):
+    """top3처럼 뜻이 분명한 select 표기는 검증 전에 계약 형식으로 고친다 (#99)."""
+    data = fixture("08")
+    messy = json.loads(json.dumps(data["expected"]))
+    messy["sub_queries"][1]["inputs"][0]["select"] = loose
+    fake = FakeClaude(message_json(json.dumps(messy, ensure_ascii=False)))
+    result = await fake.decomposer().decompose(data["query"])
+    assert len(fake.requests) == 1
+    assert result.sub_queries[1].inputs[0].select == fixed
+
+
+def test_unclear_select_is_left_for_validation():
+    from negopilot_agent.decomposition.decomposer import normalize_select
+    for value in ("first", "top", "top(0)", "best3"):
+        text = json.dumps({"sub_queries": [{"inputs": [{"slot": "supplier", "from": "q1", "select": value}]}]})
+        assert normalize_select(text) == text
