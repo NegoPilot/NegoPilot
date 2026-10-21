@@ -72,6 +72,17 @@ class SupplierChatResponseValidatorTest {
         assertDoesNotThrow(() -> validator.validateSearch(search(20), filters("없는 공정")));
     }
 
+    @Test
+    void validatesSearchByMinimumMonthlyCapacity() {
+        ObjectNode filters = filters("다이캐스팅").put("min_monthly_capacity", 40000);
+        assertDoesNotThrow(() -> validator.validateSearch(search(20, summary(0, 0), summary(1, 0)), filters));
+        filters.put("min_monthly_capacity", 50000);
+        assertDoesNotThrow(() -> validator.validateSearch(search(20, summary(0, 0)), filters));
+        invalid(() -> validator.validateSearch(search(20, summary(0, 0), summary(1, 0)), filters));
+        invalid(() -> validator.validateSearch(search(20, summary(0, 0, 1)), filters));
+        assertDoesNotThrow(() -> validator.validateSearch(search(20), filters.put("min_monthly_capacity", 70000)));
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"wrong-count", "count-string", "wrong-limit", "unsorted", "missing-company", "duplicate-company",
             "wrong-capability", "extra-capability", "wrong-number", "wrong-provenance", "wrong-type"})

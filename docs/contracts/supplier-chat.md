@@ -22,7 +22,7 @@ Spring과 Python 모두 AGENT_EXECUTION_MODE=stub을 명시한다. Spring도 새
 
 조회 성공 응답은 {schema_version:"0.2",mode:"stub",data:{...}}다. 카탈로그 processes는 {process:string,materials:string[]}[]다. regions는 string[]다. fixture에서 도출하며 중복을 제거한다.
 
-검색 query parameter는 process 필수다. material과 region은 선택이다. 각 문자열은 앞뒤 공백 제거 후 1..100자다. iatf_required는 true 또는 false이며 기본값 false다. false는 인증 여부 전체다. limit은 정수 1..100이며 기본값 20이다. 알 수 없는 query parameter와 중복 parameter는 400으로 거절한다. 빈 선택값은 프런트가 생략한다. 존재하지 않는 유효 검색 조건은 200과 빈 items를 반환한다. 필터를 만족하는 기업을 supplier_id 순서로 정렬하고 기업별로 묶은 뒤 limit을 적용한다. returned_count는 반환 기업 수다. total과 offset은 제공하지 않는다. 상세 ID가 없으면 404 SUPPLIER_NOT_FOUND다.
+검색 query parameter는 process 필수다. material과 region은 선택이다. 각 문자열은 앞뒤 공백 제거 후 1..100자다. iatf_required는 true 또는 false이며 기본값 false다. false는 인증 여부 전체다. min_monthly_capacity는 선택이며 정수 1..10000000이다. 월 생산능력이 이 값 이상인 capability만 matched_capabilities에 포함한다. limit은 정수 1..100이며 기본값 20이다. 알 수 없는 query parameter와 중복 parameter는 400으로 거절한다. 빈 선택값은 프런트가 생략한다. 화면의 인증 라디오 버튼은 전체(iatf_required 생략 또는 false)와 IATF 16949 보유(true)에 대응한다. 지역 드롭다운 값은 카탈로그 regions에서 가져온다. 존재하지 않는 유효 검색 조건은 200과 빈 items를 반환한다. 필터를 만족하는 기업을 supplier_id 순서로 정렬하고 기업별로 묶은 뒤 limit을 적용한다. returned_count는 반환 기업 수다. total과 offset은 제공하지 않는다. 상세 ID가 없으면 404 SUPPLIER_NOT_FOUND다.
 
 SupplierSummary는 supplier_id와 name 및 region과 iatf16949 및 matched_capabilities와 provenance를 갖는다. matched_capabilities는 검색 조건에 맞는 {process,material,monthly_capacity}[]다. provenance는 {profile:"STUB",financials:"STUB",operations:"STUB"}다.
 
