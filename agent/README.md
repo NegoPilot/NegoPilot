@@ -197,6 +197,8 @@ temperature 0이어도 결과가 흔들리므로 변경 전후를 비교할 때�
 | 2026-10-21 | gpt-4.1-mini | 개발용 55% (1회, #40 반영 전) | [2026-10-21_gpt-4.1-mini.md](eval_reports/2026-10-21_gpt-4.1-mini.md) |
 | 2026-10-21 | gpt-4.1-mini / llama3.1:8b | **검증용 88% / 33%** (3회 평균) | [2026-10-21_validation-set.md](eval_reports/2026-10-21_validation-set.md) |
 | 2026-10-21 | gpt-4.1-mini (#72 프롬프트 보강) | 검증용 79% → **94~97%**, 개발용 21개 67% → 90% (3회 평균) | PR 본문 |
+| 2026-10-21 | gpt-4.1-mini (#98 간결한 출력 형식) | 정확도 유지, 분해 시간 2.58초 → 1.66초, 출력 토큰 518 → 344 | PR 본문 |
+| 2026-10-21 | gpt-4.1-mini (#114 검증 세트 50개로 확대) | 검증용 50개 92% | PR 본문 |
 
 프롬프트 예시는 개발용·검증용 fixture와 겹치지 않게 따로 두었습니다 (테스트로 확인).
 
@@ -500,6 +502,18 @@ uv run python scripts/eval_pipeline.py --set dev --limit 3 --no-judge
 전체 답변(인용·검증 포함), 필수 근거 포함, 재생성·가림, 토큰과 시간 기록이 있습니다.
 `summary.agent`와 `summary.judge`는 토큰·호출 수·시간을 분리합니다. Agent 시간에는
 채점 시간을 포함하지 않으며, 금액 비용은 산출하지 않습니다. 실패 호출의 기록도 보존합니다.
+
+요약에는 다음 지표도 있습니다 (#116).
+
+| 키 | 뜻 |
+| --- | --- |
+| `intent_match` | 실제 분해의 intent 목록이 정답 분해와 같은 비율 |
+| `grounded_when_needed` | 근거가 필요한 답변(개념 설명·범위 밖 제외)에 근거 표시가 붙은 비율 |
+| `cross_judge` | `--cross-judge MODEL`을 주면 같은 답변을 다른 모델로 한 번 더 채점해 포인트 커버, 근거 없는 주장 수, 포인트 판정 일치율을 비교 |
+
+```bash
+uv run python scripts/eval_pipeline.py --set validation --cross-judge gpt-5.4-mini
+```
 
 `point_coverage`는 모든 정답 포인트를 채점한 경우에만 값이 나옵니다. 채점 생략/오류가
 있으면 null이며, `scored_points`와 `expected_points`로 평가 범위를 확인합니다.

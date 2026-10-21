@@ -60,20 +60,21 @@ Agent는 이 내용을 보고 law-mcp에서 해당 조문을 찾아 근거로 �
 | [`mcp-servers/law-mcp`](mcp-servers/law-mcp) | 하도급법, 상생협력법(연동제), 중소기업기본법의 조문을 조회하고 검색합니다. 로컬 색인 파일만 읽습니다 | 완료 |
 | [`mcp-servers/business-mcp`](mcp-servers/business-mcp) | 협력사 150곳(OpenDART 공시 기업 30곳, 가상 기업 120곳)과 완성차, RFQ 데이터를 조회하고 RFQ별 후보 순위를 계산합니다 | 완료 |
 | `mcp-servers/mail-mcp` | 메일 발송과 협상 문서 템플릿 | 예정 |
-| [`agent`](agent) | 분해와 Routing 및 Generation을 실행하는 LangGraph Agent와 내부 HTTP API | 구현 |
-| [`shared`](shared) | 컴포넌트끼리 같이 쓰는 계약입니다. 분해 결과 스키마, intent 등록표, 예시 11개가 들어 있습니다 | 완료 |
+| [`agent`](agent) | 쿼리 분해, MCP Routing, 근거 검사를 거친 답변 생성을 잇는 LangGraph Agent와 내부 HTTP API. 분해·생성·전체 그래프 평가 스크립트 포함 | 질문 응답 구현. 협상 흐름은 설계 중 |
+| [`shared`](shared) | 컴포넌트끼리 같이 쓰는 계약입니다. 분해 결과 스키마, intent 등록표, 분해 예시 11개, 개발용 질문 10개, 검증용 질문 50개, Routing 결과 11개가 들어 있습니다 | 완료 |
 | [`backend`](backend) | 회원 승인과 관리자 API 및 Agent 연결과 개인 대화 저장 | Spring 인증과 PostgreSQL 영구 저장 구현 |
-| [`frontend`](frontend) | Vue 로그인과 회원가입 및 개인 채팅과 근거 상세 | 인증과 채팅 이력 연결. 관리자와 별도 협력사 검색 화면은 연결 준비 중 |
+| [`frontend`](frontend) | Vue 로그인과 회원가입 및 개인 채팅과 근거 상세, 관리자 화면 | 인증, 채팅 이력, 관리자 회원 목록과 가입 승인 연결 |
 
 ### MCP 서버
 
 | 서버 | 도구와 리소스 | 데이터 | HTTP 포트 |
 | --- | --- | --- | --- |
-| law-mcp | `list_laws`, `get_article`, `search_regulation`, `law://catalog`, `law://{law_key}/{article_no}` | `data/index/*.json` | 9103 |
-| business-mcp | `list_rfqs`, `search_suppliers`, `get_supplier`, `rank_suppliers`, `business://catalog` | PostgreSQL 16 (Docker) | 9102 |
+| law-mcp | `list_laws`, `get_article`, `search_regulation`, `law://catalog`, `law://{law_key}/{article_no}`<br/>관리자 화면용 `admin_law_catalog`, `admin_law_versions`, `admin_law_articles`, `admin_law_article` | `data/index/*.json` | 9103 |
+| business-mcp | `list_rfqs`, `search_suppliers`, `find_suppliers`, `get_supplier`, `rank_suppliers`, `check_offer`, `business://catalog` | PostgreSQL 16 (Docker) | 9102 |
 
 두 서버 모두 기본은 stdio로 실행되고, `--http PORT`를 붙이면 Streamable HTTP로 열립니다.
-도구는 전부 데이터를 바꾸지 않는 조회용이라 `readOnlyHint`를 달아 두었고, 입력이 잘못되면 `ToolError`로 쓸 수 있는 값을 알려 줍니다.
+도구는 전부 데이터를 바꾸지 않아 `readOnlyHint`를 달아 두었습니다. 협상안 검사(`check_offer`)도 위반 여부만 돌려주고 DB는 바꾸지 않습니다.
+입력이 잘못되면 `ToolError`로 쓸 수 있는 값을 알려 줍니다.
 실행 중에는 외부 API를 호출하지 않습니다. law-mcp는 로컬 색인을, business-mcp는 PostgreSQL만 읽습니다.
 
 ```
@@ -96,19 +97,31 @@ NegoPilot/
 │       └── SETUP.md           단계별 실행 방법
 ├── agent/
 │   ├── src/negopilot_agent/
-│   │   └── decomposition/     쿼리 분해 노드 (프롬프트, Claude와 OpenAI 백엔드, LangGraph 노드)
-│   ├── scripts/               분해 평가 스크립트
+│   │   ├── graph.py           LangGraph 그래프 (decompose_query → route → generate)
+│   │   ├── decomposition/     쿼리 분해 (프롬프트, OpenAI·Claude·Ollama 백엔드, 결과 정리)
+│   │   ├── routing/           하위 질문을 MCP 도구 호출로 바꾸고 실행
+│   │   ├── generation/        답변 생성과 근거 검사(숫자·조문·인용)
+│   │   ├── api/               Spring이 부르는 내부 HTTP API
+│   │   └── timing.py          단계별 시간, 토큰, 비용 기록
+│   ├── scripts/               ask.py(질문 하나 실행), 분해·생성·전체 그래프 평가, 지연 측정
+│   ├── eval_data/             Generation 평가 정답과 검증 입력
 │   ├── eval_reports/          평가 결과 보고서
-│   ├── tests/                 분해 단위 테스트 (가짜 응답 사용, 비용 없음)
+│   ├── tests/                 단위 테스트 (가짜 응답 사용, 비용 없음)
 │   └── .env.example           모델, 백엔드 설정 예시
 ├── shared/
 │   ├── src/negopilot_shared/  분해 결과 스키마(decomposition.py), intent 등록표(intents.yaml)
-│   ├── fixtures/              질문별 분해 결과 예시 11개 (decomposition/)
+│   ├── fixtures/              분해 예시 11개(decomposition/), 개발용 10개(decomposition_dev/),
+│   │                          검증용 50개(validation/), Routing 결과 11개(routing/)
 │   └── tests/                 계약 테스트
+├── backend/                   Spring Boot (회원 승인, 관리자 API, Agent 연결, 대화 저장)
+├── frontend/                  Vue (로그인, 채팅, 관리자 화면)
+├── deploy/local/              루트 Docker Compose용 Dockerfile과 nginx 설정
+├── scripts/integration/       Spring·Agent·MCP 통합 검사
 ├── docs/
 │   ├── GETTING_STARTED.md     담당별 개발 시작 가이드
-│   └── contracts/             컴포넌트 사이 데이터 형식 (쿼리 분해 계약)
-├── .github/                   이슈, PR 템플릿
+│   ├── LOCAL_DOCKER.md        루트 Docker Compose 실행 안내
+│   └── contracts/             컴포넌트 사이 데이터 형식 (쿼리 분해, Routing, Generation, HTTP API)
+├── .github/                   이슈, PR 템플릿, CI(workflows/ci.yml)
 ├── .coderabbit.yaml           CodeRabbit 자동 리뷰 설정
 └── CONTRIBUTING.md            협업 규칙
 ```
@@ -120,6 +133,17 @@ Spring은 `POST /api/v2/agent/queries`를 Python의 `POST /internal/v2/query-exe
 개별 서버의 기본 모드는 `live`입니다. 모델과 조회에 필요한 MCP 서버를 준비합니다. 루트 Docker Compose는 모델 키 없이 실행하도록 `stub`을 지정합니다. `stub`은 채팅의 모델과 도구 입출력을 테스트용으로 바꾸면서 실제 그래프와 생성기의 근거 검사를 실행합니다. 협력사 v2 조회는 모드와 관계없이 business MCP와 DB를 읽습니다. 회원 인증과 개인 대화 기록은 PostgreSQL에 저장합니다.
 
 실행 방법은 [Backend README](backend/README.md)와 [Agent README](agent/README.md)에 있습니다. 요청 형식은 [Generation HTTP 계약](docs/contracts/agent-generation.md)과 [OpenAPI](docs/contracts/agent-generation.openapi.json)를 확인합니다. 검증 명령은 [통합 검사 가이드](scripts/integration/README.md)를 따릅니다.
+
+## Agent 품질
+
+평가 방법과 보고서는 [Agent README](agent/README.md)에 있습니다. 아래는 gpt-4.1-mini 기준 최근 측정값입니다. 검증용 질문은 점수만 보고 프롬프트를 고치지 않습니다.
+
+| 항목 | 결과 | 측정 |
+| --- | --- | --- |
+| 쿼리 분해 완전 일치 | 검증용 50개 92% | `eval_decomposition.py --set validation` (#114) |
+| 분해 시간, 출력 토큰 | 2.58초 → 1.66초, 518 → 344 | 간결한 출력 형식 (#98) |
+| 최종 답변 정답 포인트 커버 | 검증용 91% | 실제 분해·MCP 조회·생성 후 채점 (`eval_pipeline.py`) |
+| 질문당 모델 비용 | 약 $0.0026 | `bench_latency.py` (#109) |
 
 ## 빠른 시작
 
@@ -174,3 +198,4 @@ Agent의 단계끼리 주고받는 데이터 형식은 [쿼리 분해 계약](do
 
 브랜치, 커밋, PR 규칙은 [CONTRIBUTING.md](CONTRIBUTING.md)에 있습니다.
 `main`에는 직접 푸시하지 않고, 팀원 한 명 이상이 승인한 PR로만 머지합니다.
+PR마다 GitHub Actions CI가 Python 컴포넌트 테스트, business-mcp DB 테스트, Spring과 Vue 빌드, 루트 Docker Compose 실행을 확인하며, CI가 실패한 PR은 머지하지 않습니다.
