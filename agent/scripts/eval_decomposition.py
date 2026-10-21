@@ -30,8 +30,8 @@ from negopilot_agent.decomposition import DecomposerSettings, QueryDecomposer  #
 FIXTURES = sorted((ROOT.parent / "shared" / "fixtures" / "decomposition").glob("*.json"))
 
 
-def load_dotenv(path: Path) -> None:
-    """agent/.env 가 있으면 환경 변수로 읽는다. 이미 설정된 값은 덮어쓰지 않는다."""
+def load_dotenv(path: Path, skip: tuple[str, ...] = ()) -> None:
+    """agent/.env 가 있으면 환경 변수로 읽는다. 이미 설정된 값과 skip에 있는 키는 건너뛴다."""
     if not path.exists():
         return
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -39,7 +39,7 @@ def load_dotenv(path: Path) -> None:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        if value.strip():
+        if value.strip() and key.strip() not in skip:
             os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
@@ -72,7 +72,8 @@ async def main() -> None:
     parser.add_argument("--model", help="기본: 백엔드별 기본 모델")
     args = parser.parse_args()
 
-    load_dotenv(ROOT / ".env")
+    # --backend를 주면 .env의 모델명은 다른 백엔드용일 수 있어 읽지 않는다 (--model이나 셸 값은 그대로 쓴다)
+    load_dotenv(ROOT / ".env", skip=("NEGOPILOT_DECOMPOSER_MODEL",) if args.backend else ())
     if args.backend:
         os.environ["NEGOPILOT_DECOMPOSER_BACKEND"] = args.backend
     settings = DecomposerSettings()
