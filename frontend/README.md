@@ -28,7 +28,8 @@
 | `/admin/data/suppliers/new` | 13 협력사 등록 | business-mcp 표(suppliers, capabilities, quality, contracts, quotes, financials)에 넣을 값 입력·검사, 저장 미리보기 |
 | `/admin/data/laws/new` | 14 법령 등록 | 저장된 법령과 시행 판, legalize-kr에서 새 법령 받기, 개정본 원문(.md) 올리기 |
 
-07~09는 상단 띠와 푸터만 있는 화면, 10~11은 관리자 전용 사이드바를 씁니다. 라우트의 `meta.layout`(`public`, `admin`)으로 고릅니다.
+07~09는 상단 띠와 푸터만 있는 화면, 10~14는 관리자 전용 사이드바를 씁니다. 라우트의 `meta.layout`(`public`, `admin`)으로 고릅니다.
+관리자 사이드바는 묶음 3개이고, 묶음 안 화면은 상단 탭으로 오갑니다: **현황**(관리 현황, 접근 이력, 데이터 현황), **회원 관리**(회원·권한 관리, 가입 승인), **등록**(협력사 등록, 법령 등록). 묶음은 [`src/layouts/AdminLayout.vue`](src/layouts/AdminLayout.vue)의 `GROUPS`에 있습니다.
 
 협력사 화면의 검색 조건, 선택 협력사(`selected`), AI 패널 열림(`ai=1`), RFQ(`rfq`)는 URL query에 둡니다. 새로고침이나 뒤로 가기에도 그대로 남습니다.
 
