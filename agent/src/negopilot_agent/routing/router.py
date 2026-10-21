@@ -12,7 +12,7 @@ from negopilot_shared import DecompositionResult, IntentSpec, load_intents
 from negopilot_shared.decomposition import SubQuery
 
 from negopilot_agent.routing.extract import select_values
-from negopilot_agent.routing.results import RouteResult, SubQueryOutcome, ToolCall
+from negopilot_agent.routing.results import OutcomeStatus, RouteResult, SubQueryOutcome, ToolCall
 
 MAX_FANOUT = 10      # top(n)/all로 값이 여러 개일 때 하위 질문 하나가 부를 수 있는 최대 호출 수
 LAW_ARTICLES = 3     # law_check에서 search_regulation 결과 중 get_article로 전문을 가져올 조문 수
@@ -30,6 +30,9 @@ TOOL_PARAMS: dict[str, dict[str, str]] = {
                                    "buyer_is_small_business")},
     "get_article": {"law": "law", "article_no": "article_no", "as_of": "as_of"},
 }
+
+# 도구 없는 intent → status. Generation이 답할지(general_knowledge) 거절할지(out_of_scope) 바로 알 수 있게 나눈다
+NO_TOOL_STATUS: dict[str, OutcomeStatus] = {"general_knowledge": "general_knowledge", "out_of_scope": "out_of_scope"}
 
 # 도구의 필수 인자 (엔티티 이름). 없으면 부르지 않고 missing_args로 Generation에 넘긴다
 REQUIRED: dict[str, list[str]] = {
@@ -80,8 +83,8 @@ class Router:
         if spec.status == "planned":
             return SubQueryOutcome(id=sq.id, intent=sq.intent, status="unsupported",
                                    message=f"{spec.server or sq.intent}가 아직 없어 지원하지 않는 기능")
-        if spec.server is None or not spec.tools:
-            return SubQueryOutcome(id=sq.id, intent=sq.intent, status="no_tool")
+        if spec.server is None or not spec.tools:      # general_knowledge, out_of_scope
+            return SubQueryOutcome(id=sq.id, intent=sq.intent, status=NO_TOOL_STATUS[sq.intent])
 
         if bad := [d for d in sq.depends_on if done[d].status != "ok"]:
             return SubQueryOutcome(id=sq.id, intent=sq.intent, status="skipped",

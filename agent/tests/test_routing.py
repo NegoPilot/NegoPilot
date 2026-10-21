@@ -85,8 +85,8 @@ def make(sub_queries: list[dict]) -> DecompositionResult:
 @pytest.mark.parametrize("path", sorted(FIXTURE_DIR.glob("*.json")), ids=lambda p: p.stem)
 async def test_every_fixture_routes(path):
     result = await Router(FakeCaller()).route(fixture(path.stem))
-    expected_statuses = {"09_clarify": [], "11_failed": [], "06_general_knowledge": ["no_tool"],
-                         "10_out_of_scope": ["no_tool"]}
+    expected_statuses = {"09_clarify": [], "11_failed": [], "06_general_knowledge": ["general_knowledge"],
+                         "10_out_of_scope": ["out_of_scope"]}
     statuses = [o.status for o in result.outcomes]
     assert statuses == expected_statuses.get(path.stem, ["ok"] * len(statuses))
 
@@ -133,11 +133,12 @@ async def test_inputs_top1_feeds_next_group():
     assert result.outcome("q2").calls[0].args == {"rfq_id": "RFQ-2026-002"}   # 마감일 순 첫 번째
 
 
-async def test_no_tool_and_not_routed():
+async def test_tool_less_intents_and_not_routed():
     caller = FakeCaller()
     assert (await Router(caller).route(fixture("09_clarify"))).status == "not_routed"
     assert (await Router(caller).route(fixture("11_failed"))).status == "not_routed"
-    assert (await Router(caller).route(fixture("06_general_knowledge"))).outcomes[0].status == "no_tool"
+    assert (await Router(caller).route(fixture("06_general_knowledge"))).outcomes[0].status == "general_knowledge"
+    assert (await Router(caller).route(fixture("10_out_of_scope"))).outcomes[0].status == "out_of_scope"
     assert caller.calls == []
 
 

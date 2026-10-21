@@ -8,13 +8,14 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 # ok          도구를 불러 결과를 받음
-# no_tool     도구가 없는 intent (general_knowledge, out_of_scope) → Generation이 바로 답함
+# general_knowledge 도구 없는 개념 설명 → Generation이 도구 없이 답하고 "근거 자료 없음" 표시
+# out_of_scope 업무와 무관 → Generation이 정중히 거절하고 할 수 있는 일 안내
 # unsupported status: planned intent (draft_email) → "아직 지원하지 않는 기능"
 # missing_args 도구 필수 인자가 분해 결과에 없음 → Generation이 되묻기
 # empty       inputs로 꺼낼 값이 앞 결과에 없음 (0건) → 실행을 멈추고 "조건에 맞는 결과 없음"
 # skipped     앞 하위 질문이 ok가 아니라서 실행하지 않음
 # error       도구 호출 실패 (ToolError, 연결 실패)
-OutcomeStatus = Literal["ok", "no_tool", "unsupported", "missing_args", "empty", "skipped", "error"]
+OutcomeStatus = Literal["ok", "general_knowledge", "out_of_scope", "unsupported", "missing_args", "empty", "skipped", "error"]
 
 
 class ToolCall(BaseModel):
