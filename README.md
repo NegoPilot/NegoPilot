@@ -77,6 +77,20 @@ NegoPilot/
 │       ├── docs/ERD.png       ERD
 │       ├── docker-compose.yml PostgreSQL 컨테이너
 │       └── SETUP.md           단계별 실행 방법
+├── agent/
+│   ├── src/negopilot_agent/
+│   │   └── decomposition/     쿼리 분해 노드 (프롬프트, Claude와 Ollama 백엔드, LangGraph 노드)
+│   ├── scripts/               분해 평가 스크립트
+│   ├── eval_reports/          평가 결과 보고서
+│   ├── tests/                 분해 단위 테스트 (가짜 응답 사용, 비용 없음)
+│   └── .env.example           모델, 백엔드 설정 예시
+├── shared/
+│   ├── src/negopilot_shared/  분해 결과 스키마(decomposition.py), intent 등록표(intents.yaml)
+│   ├── fixtures/              질문별 분해 결과 예시 11개 (decomposition/)
+│   └── tests/                 계약 테스트
+├── docs/
+│   ├── GETTING_STARTED.md     담당별 개발 시작 가이드
+│   └── contracts/             컴포넌트 사이 데이터 형식 (쿼리 분해 계약)
 ├── .github/                   이슈, PR 템플릿
 ├── .coderabbit.yaml           CodeRabbit 자동 리뷰 설정
 └── CONTRIBUTING.md            협업 규칙
