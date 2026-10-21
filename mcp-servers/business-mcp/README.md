@@ -25,7 +25,7 @@
 | 종류 | 이름 | 설명 |
 | --- | --- | --- |
 | Tool | `list_rfqs()` | 완성차 견적 요청(RFQ) 목록, 마감일 순 |
-| Tool | `search_suppliers(process?, material?, region?, iatf_required?, min_monthly_capacity?, limit?, distinct_suppliers?, iso14001_required?)` | 주어진 조건으로 협력사 후보 검색. 불량률 낮은 순 |
+| Tool | `search_suppliers(process?, material?, region?, iatf_required?, min_monthly_capacity?, limit?, distinct_suppliers?)` | 주어진 조건으로 협력사 후보 검색. 불량률 낮은 순 |
 | Tool | `find_suppliers(supplier, limit?)` | 이름이나 ID로 기업 후보 조회. 정확한 회사명 일치 우선 |
 | Tool | `get_supplier(supplier)` | 협력사 한 곳의 기본 정보, 품질, 계약, 생산능력, 재무, 최근 견적 |
 | Tool | `rank_suppliers(rfq_id, w_price?, w_quality?, w_delivery?, top_n?)` | RFQ 기준 후보 순위와 제외 사유. 점수는 코드로 계산 |

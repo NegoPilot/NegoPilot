@@ -114,8 +114,6 @@ class SupplierChatService:
                 continue
             if filters.iatf_required and not supplier.iatf16949:
                 continue
-            if filters.iso14001_required and not supplier.iso14001:
-                continue
             matched = [
                 capability.model_dump(mode="json")
                 for capability in supplier.capabilities
@@ -131,7 +129,6 @@ class SupplierChatService:
                 "name": supplier.name,
                 "region": supplier.region,
                 "iatf16949": supplier.iatf16949,
-                "iso14001": supplier.iso14001,
                 "matched_capabilities": matched,
                 "provenance": supplier.provenance.model_dump(mode="json"),
             })

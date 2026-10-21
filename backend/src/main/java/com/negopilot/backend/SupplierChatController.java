@@ -48,14 +48,14 @@ final class SupplierChatController {
 
     @PostMapping(value = "/api/v1/conversations", consumes = MediaType.APPLICATION_JSON_VALUE)
     ResponseEntity<JsonNode> create(@RequestBody(required = false) String raw, HttpServletRequest request) {
-        UUID id = beginDemo(request);
+        UUID id = begin(request);
         noParameters(request, id);
         return ResponseEntity.status(201).body(service.create(validator.create(parse(raw, id)), id));
     }
 
     @GetMapping("/api/v1/conversations/{conversationId}")
     JsonNode get(@PathVariable String conversationId, HttpServletRequest request) {
-        UUID id = beginDemo(request);
+        UUID id = begin(request);
         noParameters(request, id);
         return service.get(validator.conversationId(conversationId), id);
     }
@@ -63,7 +63,7 @@ final class SupplierChatController {
     @PostMapping(value = "/api/v1/conversations/{conversationId}/messages", consumes = MediaType.APPLICATION_JSON_VALUE)
     JsonNode message(@PathVariable String conversationId, @RequestBody(required = false) String raw,
                      HttpServletRequest request) {
-        UUID id = beginDemo(request);
+        UUID id = begin(request);
         noParameters(request, id);
         return service.message(validator.conversationId(conversationId), validator.message(parse(raw, id)), id);
     }
@@ -71,11 +71,6 @@ final class SupplierChatController {
     private UUID begin(HttpServletRequest request) {
         UUID id = UUID.randomUUID();
         request.setAttribute("request_id", id);
-        return id;
-    }
-
-    private UUID beginDemo(HttpServletRequest request) {
-        UUID id = begin(request);
         service.requireDemo(id);
         return id;
     }
