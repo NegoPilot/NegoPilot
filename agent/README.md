@@ -1,6 +1,6 @@
 # agent
 
-NegoPilot의 LangGraph Agent입니다. 지금은 **쿼리 분해**와 **Routing** 노드가 들어 있습니다.
+NegoPilot의 LangGraph Agent입니다. 지금은 **쿼리 분해**, **Routing**, **Generation** 노드가 들어 있습니다.
 
 ```
 [사용자 질문] → decompose_query → route → (MCP 병렬·순차 호출) → generate
@@ -75,6 +75,68 @@ graph.add_node("route", make_route_node())   # 상태: decomposition → routing
 | --- | --- |
 | `BUSINESS_MCP_URL` | `http://localhost:9102/mcp` |
 | `LAW_MCP_URL` | `http://localhost:9103/mcp` |
+
+## Generation (`negopilot_agent.generation`)
+
+`DecompositionResult`와 `RouteResult`를 받아 사용자에게 보여 줄 `Answer`를 만듭니다. status별 처리와 인용 규칙은 [Routing 결과 계약](../docs/contracts/routing.md) 1·3절을 따릅니다.
+
+```python
+from negopilot_agent.generation import AnswerGenerator, make_generate_node
+
+answer = await AnswerGenerator().generate(decomposition, routing)
+
+graph.add_node("generate", make_generate_node())   # 상태: decomposition, routing → answer
+```
+
+| 경우 | 처리 | `Answer.kind` |
+| --- | --- | --- |
+| Routing `not_routed` + 분해 `clarify` | `clarification.question`과 선택지 (모델 안 부름) | `clarify` |
+| Routing `not_routed` + 분해 `failed` | 다시 질문해 달라는 안내와 예시 (모델 안 부름) | `failed` |
+| `out_of_scope`만 있음 | 거절하고 할 수 있는 일 안내 (모델 안 부름) | `refusal` |
+| 답할 결과 없음, `missing_args` 있음 | `missing`을 사람 말로 바꿔 되물음 (`payment_days` → "결제 기간(일)") | `clarify` |
+| 답할 결과 없음 (`empty`, `error`, `unsupported`) | 하위 질문별 안내 | `no_result` |
+| `ok`가 하나라도 있음 | 근거로 답변, [1] 형식 인용. 나머지 status는 답변 끝 안내 | `answer` |
+| `general_knowledge` | 도구 없이 답변, `grounded: false` (화면에 "근거 자료 없음") | `answer` |
+
+하위 질문별 안내 문구 (답변 끝에 `※`로 모음)
+
+| status | 문구 |
+| --- | --- |
+| `unsupported` | '메일 써줘': 메일 작성은 아직 지원하지 않습니다. |
+| `empty` | '이번 주 마감 RFQ': 조건에 맞는 결과가 없습니다. |
+| `error` | 'SUP-0002' 부분은 자료를 가져오지 못했습니다. |
+| `skipped` | 원인(`empty`, `error`)을 이미 안내했으면 말하지 않고, 아니면 짧게 한 줄 |
+| `assumptions` | 가정: … |
+
+`message`, `halt_reason`, 도구 `error` 원문은 화면에 내보내지 않고 로그로만 남깁니다.
+
+모델로 답할 때의 흐름
+
+1. **근거 펼치기** ([`evidence.py`](src/negopilot_agent/generation/evidence.py)): 도구 결과를 근거 단위(`E1`, `E2` ...)로 나눕니다. `check_offer`는 판정과 검사 항목별로, `rank_suppliers`는 순위별로 나눕니다. 법령 근거는 아래처럼 인용 여부(`citable`)를 나눕니다
+
+   | 근거 | 출처 이름 | 인용 |
+   | --- | --- | --- |
+   | `search_regulation` 결과 | 항 단위 `citation` 그대로 | O |
+   | `law_check`의 `get_article` 조문 전문 | `citation` | X (설명할 때 참고만) |
+   | `law_article`의 `get_article` | `citation` | O |
+   | `referenced_articles` (flags·`check_offer`의 `law_refs`) | `citation` | O. 조회 실패한 조문은 검사 항목의 "관련 조문"에 번호만 남음 |
+2. **초안**: 모델이 근거 id를 붙여 씁니다 (`{"answer", "used_evidence"}` 구조화 출력). 따로 실행된 하위 질문 결과(예: 1위 업체 + 5% 인하 법 검토)는 한 흐름으로 잇습니다
+3. **근거 검사** ([`verify.py`](src/negopilot_agent/generation/verify.py)): 없거나 인용할 수 없는 근거 id, 근거·질문에 없는 숫자(단위가 붙은 것), 근거에 없는 조문 번호를 찾습니다. 있으면 오류를 알려 주고 1회 다시 쓰게 합니다
+4. 그래도 남으면 그 값을 `[확인 필요]`로 가립니다 (`verification.masked`)
+5. `[E3]` → `[1]` 번호로 바꾸고 `citations`에 출처 목록을 담습니다
+
+`Answer.evidence`와 `Answer.verification`은 화면에 쓰지 않고 평가·디버깅용으로 남깁니다.
+
+테스트는 [`shared/fixtures/routing`](../shared/fixtures/routing/) 11개(실제 MCP 서버로 Routing한 결과)를 입력으로 씁니다. 모델은 가짜 백엔드로 바꿔서 비용이 없고 MCP 서버도 필요 없습니다.
+
+### 설정
+
+| 환경 변수 | 기본값 |
+| --- | --- |
+| `NEGOPILOT_GENERATOR_BACKEND` | `anthropic` (또는 `ollama`) |
+| `NEGOPILOT_GENERATOR_MODEL` | anthropic `claude-opus-5-5`, ollama `llama3.1:8b` |
+| `NEGOPILOT_GENERATOR_EFFORT` | `medium` |
+| `NEGOPILOT_GENERATOR_FALLBACKS` | `1` |
 
 ## 실행
 
