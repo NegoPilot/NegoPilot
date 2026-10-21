@@ -372,3 +372,24 @@ async def test_both_cleanups_apply_together():
     result = await fake.decomposer().decompose(data["query"])
     assert len(fake.requests) == 1
     assert result == DecompositionResult.model_validate(data["expected"])
+
+
+async def test_disallowed_entity_is_dropped_without_retry():
+    """law_check는 rfq_id를 받지 않는다. strict 출력이 채운 그 값 하나로 재시도하지 않고 지운다 (#58)."""
+    data = fixture("03")
+    messy = json.loads(json.dumps(data["expected"]))
+    messy["sub_queries"][1]["entities"]["rfq_id"] = "RFQ-2026-001"
+    fake = FakeClaude(message_json(json.dumps(messy, ensure_ascii=False)))
+    result = await fake.decomposer().decompose(data["query"])
+    assert len(fake.requests) == 1
+    assert result == DecompositionResult.model_validate(data["expected"])
+
+
+def test_drop_disallowed_entities_leaves_other_output_alone():
+    from negopilot_agent.decomposition.decomposer import drop_disallowed_entities
+    allowed = json.dumps(fixture("05")["expected"], ensure_ascii=False)
+    assert drop_disallowed_entities(allowed) == allowed                    # 허용된 엔티티는 그대로
+    terms = json.loads(json.dumps(fixture("04")["expected"]))
+    terms["sub_queries"][0]["entities"]["payment_days"] = 90              # 협상 조건은 intent 오류 신호라 남긴다
+    assert drop_disallowed_entities(json.dumps(terms)) == json.dumps(terms)
+    assert drop_disallowed_entities("not json") == "not json"
