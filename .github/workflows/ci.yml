@@ -1,0 +1,159 @@
+# PR과 main에서 모든 구성 요소의 테스트를 돌린다.
+# 모델 API를 부르는 평가(agent/scripts/eval_*.py)는 비용이 들어 넣지 않는다. 테스트는 키 없이 돈다.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash   # 명시하면 pipefail이 켜져, 파이프 앞 명령(pytest | tee)의 실패도 잡힌다
+
+jobs:
+  python:
+    name: Python (${{ matrix.component }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [shared, agent, mcp-servers/law-mcp]
+    defaults:
+      run:
+        working-directory: ${{ matrix.component }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --locked
+      - run: uv run --locked python -m pytest -q
+
+  business-mcp:
+    name: Python (mcp-servers/business-mcp)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: agent
+          POSTGRES_PASSWORD: agent
+          POSTGRES_DB: supplier_db
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U agent -d supplier_db"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: mcp-servers/business-mcp
+    env:
+      DATABASE_URL: postgresql://agent:agent@localhost:5432/supplier_db
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --locked
+      # DB에 연결하지 못하면 테스트가 건너뛰어 통과처럼 보인다. 건너뛴 테스트가 있으면 실패로 본다
+      - run: uv run --locked python -m pytest -q -rs | tee pytest.log
+      - run: "! grep -q 'skipped' pytest.log"
+
+  integration-helpers:
+    name: Integration helpers (unittest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -B -m unittest discover -s tests/integration -p 'test_*.py'
+
+  backend:
+    name: Backend (Spring)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: agent
+          POSTGRES_PASSWORD: agent
+          POSTGRES_DB: business_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U agent -d business_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/business_test
+      TEST_DATABASE_USER: agent
+      TEST_DATABASE_PASSWORD: agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      # 테스트가 Flyway와 격리된 스키마로 DB를 초기화한다. 외부 서비스나 모델 API는 필요 없다.
+      - run: mvn -B -ntp test
+      - name: Verify PostgreSQL tests ran without skips
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          reports = list(Path("target/surefire-reports").glob("TEST-*.xml"))
+          if not reports:
+              raise SystemExit("No Surefire test reports were produced")
+          suites = [ET.parse(report).getroot() for report in reports]
+          totals = {
+              key: sum(int(suite.get(key, "0")) for suite in suites)
+              for key in ("tests", "failures", "errors", "skipped")
+          }
+          required = {
+              "com.negopilot.backend.AuthMembershipPostgresTest",
+              "com.negopilot.backend.PersistentConversationServiceTest",
+              "com.negopilot.backend.AdminSupplierPostgresTest",
+          }
+          executed = {
+              suite.get("name") for suite in suites
+              if int(suite.get("tests", "0")) > 0
+              and int(suite.get("skipped", "0")) == 0
+          }
+          print(f"Surefire totals: {totals}")
+          missing = required - executed
+          if missing:
+              raise SystemExit(f"Required PostgreSQL tests did not run: {sorted(missing)}")
+          if totals["failures"] or totals["errors"] or totals["skipped"]:
+              raise SystemExit("All backend tests must pass without skips")
+          PY
+
+  frontend:
+    name: Frontend (Vue)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run check:api
+      - run: npm run build

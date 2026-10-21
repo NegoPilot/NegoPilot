@@ -1,5 +1,5 @@
 {
-  "note": "현업 표현을 법률 용어로 정규화하고, 원문은 original_text에 보존",
+  "note": "현업 표현을 법률 용어로 정규화하고, 원문은 original_text에 보존 (#62: 법령 이름을 말하지 않았으면 law를 넣지 않는다)",
   "query": "2차 업체 단가 일괄로 깎아도 돼?",
   "expected": {
     "schema_version": "0.1",
@@ -13,9 +13,7 @@
         "intent": "law_check",
         "grounding": "required",
         "confidence": 0.9,
-        "entities": {
-          "law": "subcontract_act"
-        },
+        "entities": {},
         "inputs": [],
         "depends_on": []
       }

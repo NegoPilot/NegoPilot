@@ -1,6 +1,5 @@
 import { ApiError, DEFAULT_TIMEOUT_MS, request } from './client'
 import { parseConversationList, parseGenerationResponse, parseMessagePage, parseSavedResponse, parseSnapshot } from './conversation-contract'
-import type { ChatContext } from './types'
 
 // Python 300초와 Spring 310초 제한보다 길게 유지한다. 조회는 짧은 DB 트랜잭션만 기다린다.
 const GENERATION_TIMEOUT_MS = Math.max(330_000, DEFAULT_TIMEOUT_MS)
@@ -9,8 +8,9 @@ const path = (id: string) => `${ROOT}/${encodeURIComponent(id)}`
 function validated<T>(value: unknown, parse: (input: unknown) => T): T {
   try { return parse(value) } catch { throw new ApiError(502, 'INVALID_RESPONSE', 'Invalid conversation response.', false) }
 }
-export async function createConversation(supplierId: string | null = null, signal?: AbortSignal) {
-  const body = await request<unknown>(ROOT, { method: 'POST', body: JSON.stringify({ context: { selected_supplier_ids: supplierId ? [supplierId] : [] } }), signal })
+// 화면의 기업 선택은 전달하지 않는다. 기업은 질문과 서버의 이전 대화에서 찾는다.
+export async function createConversation(signal?: AbortSignal) {
+  const body = await request<unknown>(ROOT, { method: 'POST', body: JSON.stringify({ context: { selected_supplier_ids: [] } }), signal })
   return validated(body, parseSnapshot)
 }
 export async function getConversation(id: string, signal?: AbortSignal) {
@@ -31,9 +31,9 @@ export async function getMessages(id: string, before: string, signal?: AbortSign
 export async function getSavedResponse(id: string, responseId: string, signal?: AbortSignal) {
   return validated(await request(`${path(id)}/responses/${encodeURIComponent(responseId)}`, { signal }), (body) => parseSavedResponse(body, id, responseId))
 }
-export async function sendMessage(id: string, query: string, context?: ChatContext, key: string = crypto.randomUUID(), signal?: AbortSignal) {
+export async function sendMessage(id: string, query: string, key: string = crypto.randomUUID(), signal?: AbortSignal) {
   const body = await request(`${path(id)}/messages`, {
-    method: 'POST', body: JSON.stringify(context ? { query, context } : { query }), headers: { 'Idempotency-Key': key }, signal,
+    method: 'POST', body: JSON.stringify({ query }), headers: { 'Idempotency-Key': key }, signal,
   }, GENERATION_TIMEOUT_MS)
   return validated(body, (value) => parseGenerationResponse(value, id))
 }

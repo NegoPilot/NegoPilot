@@ -1,5 +1,5 @@
 {
-  "note": "인상은 양수 price_change_pct. 숫자 협상안이 아니라 의무를 묻는 질문이라 law_check",
+  "note": "인상은 양수 price_change_pct. 숫자 협상안이 아니라 의무를 묻는 질문이라 law_check (#62: price_change_pct는 넣지 않고 증액률은 question에 남긴다)",
   "query": "하도급법상 협력사가 단가 3% 인상을 요청하면 꼭 협의해야 해?",
   "expected": {
     "schema_version": "0.1",
@@ -14,8 +14,7 @@
         "grounding": "required",
         "confidence": 0.9,
         "entities": {
-          "law": "subcontract_act",
-          "price_change_pct": 3
+          "law": "subcontract_act"
         },
         "inputs": [],
         "depends_on": []

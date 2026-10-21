@@ -4,14 +4,14 @@ import { useRouter } from 'vue-router'
 
 import { createConversation, getConversation, getMessages, sendMessage } from '@/api/conversations'
 import { ApiError } from '@/api/client'
-import type { ChatContext, GenerationResponse, StoredMessage } from '@/api/types'
+import type { GenerationResponse, StoredMessage } from '@/api/types'
 import { describeError } from '@/utils/errors'
 import { parseSupplierEvidence, splitCitations } from '@/utils/evidence'
 import { NO_DATA, formatKrw, formatPercent, formatPpm } from '@/utils/format'
 import { provenanceLabel } from '@/utils/provenance'
 
+// 기업 선택 props 없이 질문과 이전 대화로 답한다 (#64).
 const props = defineProps<{
-  supplier: { id: string; name: string } | null
   conversationId?: string | null
   closable?: boolean
   /** 홈에서 넘어온 질문. 입력창에 채워 둔다 */
@@ -24,12 +24,18 @@ const props = defineProps<{
 const emit = defineEmits<{ close: []; open: [id: string | null]; changed: [] }>()
 const router = useRouter()
 
-const SUPPLIER_QUESTIONS = ['이 회사에 대해 알려줘', '이 회사의 재무 상태를 알려줘', '납기와 품질은 어때?']
-const GENERAL_QUESTIONS = ['부산 협력사 찾아줘', '하도급법상 대금 지급 기한은 며칠이야?', '계약 조건을 검토하려면 어떤 정보가 필요해?']
+const SUGGESTED_QUESTIONS = [
+  '부산 협력사 찾아줘',
+  '해솔정밀에 대해 알려줘',
+  '해솔에 대해 알려줘',
+  '하도급법상 대금 지급 기한은 며칠이야?',
+  '결제 90일로 해도 돼?',
+  'RFQ가 뭐야?',
+]
 const QUERY_MAX = 4000
 interface PanelMessage {
   key: string
-  role: 'user' | 'assistant' | 'note'
+  role: 'user' | 'assistant'
   text: string
   response?: GenerationResponse
 }
@@ -41,12 +47,11 @@ const loading = ref(false)
 const olderLoading = ref(false)
 const loaded = ref(true)
 const nextCursor = ref<string | null>(null)
-const selectedContext = ref<ChatContext>({ selected_supplier_ids: props.supplier ? [props.supplier.id] : [] })
 const error = ref<unknown>(null)
 const messageList = ref<HTMLOListElement | null>(null)
 let epoch = 0
 let pendingController: AbortController | null = null
-let retry: { id: string; query: string; context: string; key: string } | null = null
+let retry: { id: string; query: string; key: string } | null = null
 
 function cancelView() {
   epoch += 1
@@ -58,9 +63,6 @@ function cancelView() {
 }
 onBeforeUnmount(cancelView)
 watch(() => props.initialQuestion, (question) => { if (question) draft.value = question })
-watch(() => props.supplier?.id, (id) => {
-  selectedContext.value = { selected_supplier_ids: id ? [id] : [] }
-})
 function rows(items: StoredMessage[]): PanelMessage[] {
   return items.map((item) => ({ key: item.message_id, role: item.role, text: item.content, ...(item.response ? { response: item.response } : {}) }))
 }
@@ -84,7 +86,6 @@ async function loadConversation(id: string) {
     const snapshot = await getConversation(id, controller.signal)
     if (token !== epoch) return
     messages.value = rows(snapshot.messages)
-    selectedContext.value = snapshot.context
     nextCursor.value = snapshot.next_cursor
     loaded.value = true
     scrollToEnd()
@@ -97,7 +98,6 @@ function newConversation() {
   messages.value = []
   error.value = null
   nextCursor.value = null
-  selectedContext.value = { selected_supplier_ids: props.supplier ? [props.supplier.id] : [] }
   draft.value = ''
   retry = null
   loaded.value = true
@@ -125,7 +125,7 @@ async function loadOlder() {
   } catch (failure) { if (token === epoch) error.value = failure }
   finally { if (token === epoch) olderLoading.value = false }
 }
-const suggestions = computed(() => messages.value.length || loading.value || !loaded.value ? [] : props.supplier ? SUPPLIER_QUESTIONS : GENERAL_QUESTIONS)
+const suggestions = computed(() => messages.value.length || loading.value || !loaded.value ? [] : SUGGESTED_QUESTIONS)
 const canSend = computed(() => !sending.value && !loading.value && loaded.value && draft.value.trim().length > 0 && [...draft.value.trim()].length <= QUERY_MAX)
 const errorText = computed(() => error.value ? describeError(error.value).message : null)
 async function send(text: string) {
@@ -134,7 +134,6 @@ async function send(text: string) {
   const token = epoch
   const controller = new AbortController()
   pendingController = controller
-  const context = { selected_supplier_ids: [...selectedContext.value.selected_supplier_ids] }
   sending.value = true
   error.value = null
   draft.value = ''
@@ -143,24 +142,22 @@ async function send(text: string) {
   scrollToEnd()
   try {
     if (!conversationId.value) {
-      const snapshot = await createConversation(context.selected_supplier_ids[0] ?? null, controller.signal)
+      const snapshot = await createConversation(controller.signal)
       if (token !== epoch) return
       conversationId.value = snapshot.conversation_id
       emit('open', snapshot.conversation_id)
       emit('changed')
     }
     const id = conversationId.value
-    const serialized = JSON.stringify(context)
-    if (!retry || retry.id !== id || retry.query !== query || retry.context !== serialized) {
-      retry = { id, query, context: serialized, key: crypto.randomUUID() }
+    if (!retry || retry.id !== id || retry.query !== query) {
+      retry = { id, query, key: crypto.randomUUID() }
     }
-    const res = await sendMessage(id, query, context, retry.key, controller.signal)
+    const res = await sendMessage(id, query, retry.key, controller.signal)
     if (token !== epoch) return
     if (res.execution_status === 'FAILED') {
       throw new ApiError(200, res.error?.code ?? 'GENERATION_FAILED', 'Generation failed.', res.error?.retryable ?? false)
     }
     messages.value.push({ key: res.response_id, role: 'assistant', text: res.answer.text, response: res })
-    selectedContext.value = res.context
     retry = null
     emit('changed')
   } catch (failure) {
@@ -219,7 +216,7 @@ function supplierSummary(res: GenerationResponse) {
     <header class="ai-head">
       <div>
         <h2 id="ai-h"><span aria-hidden="true">✦</span> AI 도우미</h2>
-        <p class="muted">{{ supplier ? `선택 문맥: ${supplier.name}` : '기업 선택 없이 질문하고 이전 대화를 이어갈 수 있습니다.' }}</p>
+        <p class="muted">기업 선택 없이 질문하고 이전 대화를 이어갈 수 있습니다.</p>
       </div>
       <div class="head-actions">
         <button v-if="conversationId || messages.length" class="link-btn" type="button" @click="newConversation">새 대화</button>
@@ -235,12 +232,11 @@ function supplierSummary(res: GenerationResponse) {
       <li v-if="loading" class="muted">대화를 불러오는 중입니다…</li>
       <li v-if="nextCursor"><button class="btn" type="button" :disabled="olderLoading" @click="loadOlder">{{ olderLoading ? '불러오는 중…' : '이전 메시지 더 보기' }}</button></li>
       <li v-if="!messages.length && !loading && loaded" class="empty muted">
-        {{ supplier ? '선택한 협력사나 법령에 대해 물어보세요.' : '협력사를 고르지 않아도 기업 이름이나 지역 또는 법령으로 바로 물어볼 수 있습니다.' }}
+        기업 이름이나 지역 또는 법령으로 바로 물어보세요. 질문과 이전 대화에서 필요한 정보를 찾습니다.
       </li>
 
       <template v-for="m in messages" :key="m.key">
         <li v-if="m.role === 'user'" class="bubble">{{ m.text }}</li>
-        <li v-else-if="m.role === 'note'" class="note-line">{{ m.text }}</li>
 
         <li v-else-if="m.response" class="answer">
           <div class="who">

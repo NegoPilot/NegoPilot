@@ -64,7 +64,7 @@
   tools: [search_regulation, get_article]
   grounding: required
   status: active
-  description: 협상 행위나 일반 조건이 법령에서 어떻게 다뤄지는지 검색. 지급 90일이나 단가 5% 인하처럼 숫자가 있어도 일반 법적 조건 질문이면 사용. 법령명과 조문 번호 없이 검색 가능
+  description: 협상 행위나 일반 조건이 법령에서 어떻게 다뤄지는지 검색. 지급 90일이나 단가 5% 인하처럼 숫자가 있어도 일반 법적 조건 질문이면 사용. 법령명과 조문 번호 없이 검색 가능. law는 사용자가 법령 이름을 말했을 때만
   entities: [law, as_of, price_change_pct]
   examples:
     - 2차 협력사 단가를 일괄로 깎아도 돼?

@@ -112,13 +112,23 @@ async def test_law_check_searches_then_fetches_articles():
     caller = FakeCaller()
     result = await Router(caller).route(fixture("03_rank_then_law"))
     law = result.outcome("q2")
-    # 질문 문장으로 검색하고, 판단 근거인 price_change_pct는 도구에 넘기지 않는다
+    # 질문 문장으로 검색한다. 법령 이름을 말하지 않아 law가 없으면 모든 법령에서 찾는다 (#62)
     assert law.calls[0].tool == "search_regulation"
-    assert law.calls[0].args == {"query": fixture("03_rank_then_law").sub_queries[1].question,
-                                 "laws": ["subcontract_act"]}
+    assert law.calls[0].args == {"query": fixture("03_rank_then_law").sub_queries[1].question}
     # 조문만, 중복 없이 get_article
     assert [c.args["article_no"] for c in law.calls[1:]] == ["제4조", "제11조"]
     assert result.outcome("q1").calls[0].args == {"rfq_id": "RFQ-2026-001"}
+
+
+async def test_law_check_limits_search_to_named_law():
+    """law가 있으면 그 법령 안에서만 검색하고, 판단 근거인 price_change_pct는 도구에 넘기지 않는다."""
+    decomposition = fixture("03_rank_then_law")
+    q2 = decomposition.sub_queries[1]
+    named = q2.model_copy(update={"entities": q2.entities.model_copy(
+        update={"law": "subcontract_act", "price_change_pct": -5})})
+    decomposition = decomposition.model_copy(update={"sub_queries": [decomposition.sub_queries[0], named]})
+    law = (await Router(FakeCaller()).route(decomposition)).outcome("q2")
+    assert law.calls[0].args == {"query": q2.question, "laws": ["subcontract_act"]}
 
 
 async def test_offer_check_passes_entities_as_args():

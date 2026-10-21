@@ -86,7 +86,7 @@ class QueryDecomposer:
                 return failed_result(query)
             try:
                 # 스키마 형식은 모델 쪽 구조화 출력이 맞추고, 필드 사이 규칙은 여기서 검증한다
-                cleaned = drop_redundant_as_of(drop_disallowed_inputs(text), today)
+                cleaned = drop_redundant_as_of(drop_disallowed_entities(drop_disallowed_inputs(text)), today)
                 result = DecompositionResult.model_validate_json(cleaned)
             except ValidationError as err:
                 log.warning("분해 결과 형식 오류 (시도 %d): %s", attempt, err.error_count())
@@ -128,12 +128,17 @@ def drop_disallowed_inputs(text: str) -> str:
     return json.dumps(data, ensure_ascii=False) if changed else text
 
 
-def drop_redundant_as_of(text: str, today: date) -> str:
-    """entities.as_of가 오늘 날짜이거나 intent가 as_of를 받지 않으면 검증 전에 지운다.
+# intent가 받지 않아도 지워도 되는 엔티티: 대상(누구, 어느 RFQ)과 기준일만 가리키고 intent의 뜻을 바꾸지 않는다.
+# 협상 조건(payment_days, unit_price ...)이나 검색 조건이 엉뚱한 intent에 붙으면 intent를 잘못 고른 신호일 수 있어
+# 지우지 않고 검증 오류로 재시도한다 (test_wrong_legal_entity_slot_is_still_rejected_then_retried).
+DROPPABLE_ENTITIES = {"rfq_id", "supplier", "oem_id", "as_of"}
 
-    as_of는 생략하면 오늘 기준이라, 사용자 메시지에 넣은 오늘 날짜를 모델이 채워도 조회 결과는 같다.
-    strict 구조화 출력(openai)은 모든 필드를 채우게 해 이런 값이 자주 생기고, offer_check처럼 as_of를
-    받지 않는 intent에 들어가면 이 하나 때문에 재시도한다. 사용자가 적은 다른 날짜는 그대로 둔다.
+
+def drop_disallowed_entities(text: str) -> str:
+    """intent가 받지 않는 대상·기준일 엔티티(DROPPABLE_ENTITIES)를 검증 전에 지운다.
+
+    strict 구조화 출력(openai)은 모든 필드를 채우게 해서, law_check에 rfq_id처럼 그 intent의 도구가 쓰지 않는
+    값이 들어간다. 이 하나 때문에 재시도하면 호출만 늘어난다 (#58).
     JSON이 아니거나 모양이 다르면 그대로 돌려줘 검증 오류로 처리되게 한다.
     """
     try:
@@ -145,17 +150,39 @@ def drop_redundant_as_of(text: str, today: date) -> str:
     changed = False
     for sq in sub_queries if isinstance(sub_queries, list) else []:
         entities = sq.get("entities") if isinstance(sq, dict) else None
-        if not isinstance(entities, dict) or entities.get("as_of") is None:
+        spec = intents.get(sq.get("intent")) if isinstance(sq, dict) else None
+        if not isinstance(entities, dict) or spec is None:
             continue
-        spec = intents.get(sq.get("intent"))
-        if entities["as_of"] == today.isoformat():
-            reason = "오늘 날짜"
-        elif spec is not None and "as_of" not in spec.entities:
-            reason = f"{spec.intent}는 as_of를 받지 않음"
-        else:
+        allowed = set(spec.entities) | {"price_change_pct"}
+        extra = [k for k, v in entities.items() if v is not None and k in DROPPABLE_ENTITIES and k not in allowed]
+        if extra:
+            changed = True
+            log.info("%s(%s)의 엔티티 %s 제거 (intent가 받지 않음)", sq.get("id"), spec.intent, extra)
+            for k in extra:
+                del entities[k]
+    return json.dumps(data, ensure_ascii=False) if changed else text
+
+
+def drop_redundant_as_of(text: str, today: date) -> str:
+    """entities.as_of가 오늘 날짜이면 검증 전에 지운다.
+
+    as_of는 생략하면 오늘 기준이라, 사용자 메시지에 넣은 오늘 날짜를 모델이 채워도 조회 결과는 같다.
+    strict 구조화 출력(openai)은 모든 필드를 채우게 해 이런 값이 자주 생긴다. 사용자가 적은 다른 날짜는 그대로 둔다.
+    as_of를 받지 않는 intent의 as_of는 drop_disallowed_entities가 먼저 지운다.
+    JSON이 아니거나 모양이 다르면 그대로 돌려줘 검증 오류로 처리되게 한다.
+    """
+    try:
+        data = json.loads(text)
+        sub_queries = data["sub_queries"]
+    except (ValueError, TypeError, KeyError):
+        return text
+    changed = False
+    for sq in sub_queries if isinstance(sub_queries, list) else []:
+        entities = sq.get("entities") if isinstance(sq, dict) else None
+        if not isinstance(entities, dict) or entities.get("as_of") != today.isoformat():
             continue
         changed = True
-        log.info("%s의 as_of %s 제거 (%s)", sq.get("id"), entities["as_of"], reason)
+        log.info("%s의 as_of %s 제거 (오늘 날짜)", sq.get("id"), entities["as_of"])
         del entities["as_of"]
     return json.dumps(data, ensure_ascii=False) if changed else text
 

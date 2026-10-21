@@ -97,7 +97,7 @@ async function remove() {
         <button class="btn" type="button" :disabled="saving" @click="remove">삭제하기</button>
         <button class="btn" type="button" @click="deleting = false">취소</button>
       </div>
-      <AiAssistantPanel ref="assistant" :supplier="null" :initial-question="initialQuestion" :rfq="null" :conversation-id="conversationId" :closable="false" :back-path="route.fullPath" @open="open" @changed="loadList()" />
+      <AiAssistantPanel ref="assistant" :initial-question="initialQuestion" :rfq="null" :conversation-id="conversationId" :closable="false" :back-path="route.fullPath" @open="open" @changed="loadList()" />
     </section>
   </main>
 </template>
