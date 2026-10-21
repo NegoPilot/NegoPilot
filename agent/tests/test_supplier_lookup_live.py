@@ -23,9 +23,10 @@ CATALOG_RESOURCE = {
 }
 
 
-def row(supplier_id, material, capacity, *, region="경남", source="MOCK", process="다이캐스팅", iatf=True):
+def row(supplier_id, material, capacity, *, region="경남", source="MOCK", process="다이캐스팅", iatf=True,
+        iso=False):
     return {"supplier_id": supplier_id, "source": source, "name": f"기업 {supplier_id}", "region": region,
-            "employees": 120, "revenue_eok": 300, "iatf16949": iatf, "operating_margin": 0.05,
+            "employees": 120, "revenue_eok": 300, "iatf16949": iatf, "iso14001": iso, "operating_margin": 0.05,
             "debt_ratio": 1.2, "process": process, "material": material, "monthly_capacity": capacity,
             "defect_ppm": 150, "on_time_rate": 0.95, "audit_grade": "B", "years_dealing": 0}
 
@@ -142,12 +143,12 @@ async def test_search_groups_capabilities_by_supplier_in_id_order():
 async def test_search_passes_filters_and_keeps_exact_region():
     business = FakeBusiness()
     params = {"process": "다이캐스팅", "material": "A380", "region": "울산",
-              "iatf_required": "true", "min_monthly_capacity": "1000"}
+              "iatf_required": "true", "iso14001_required": "true", "min_monthly_capacity": "1000"}
     data = live_data(await get(live_app(business), SEARCH, params))
     assert [item["supplier_id"] for item in data["items"]] == ["SUP-0002"]
     assert business.calls[-1] == ("search_suppliers", {
         "process": "다이캐스팅", "material": "A380", "region": "울산", "iatf_required": True,
-        "min_monthly_capacity": 1000, "limit": MCP_ROW_LIMIT,
+        "iso14001_required": True, "min_monthly_capacity": 1000, "limit": MCP_ROW_LIMIT,
     })
 
 
@@ -173,7 +174,7 @@ async def test_possibly_truncated_search_is_an_internal_error():
 async def test_detail_maps_business_fields_to_contract():
     data = live_data(await get(live_app(FakeBusiness()), SEARCH + "/SUP-0001"))
     assert data == {
-        "supplier_id": "SUP-0001", "name": "공시기업", "region": "경남", "iatf16949": True,
+        "supplier_id": "SUP-0001", "name": "공시기업", "region": "경남", "iatf16949": True, "iso14001": False,
         "capabilities": [{"process": "다이캐스팅", "material": "ADC12", "monthly_capacity": 20000}],
         "quality": {"defect_ppm": 120, "on_time_delivery_rate": 95.7},
         "financials": [

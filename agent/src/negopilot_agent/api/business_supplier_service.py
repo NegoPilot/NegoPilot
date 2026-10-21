@@ -75,6 +75,7 @@ def _detail(raw: dict[str, Any]) -> SupplierDetail:
         "name": raw["name"],
         "region": raw["region"],
         "iatf16949": raw["iatf16949"],
+        "iso14001": raw["iso14001"],
         "capabilities": [_capability(row) for row in raw["capabilities"]],
         "quality": {
             "defect_ppm": raw["defect_ppm"],
@@ -136,7 +137,7 @@ class BusinessSupplierService:
             if filters.region is not None and filters.region not in {row["region"] for row in catalog["regions"]}:
                 materials = []
             args: dict[str, Any] = {"process": filters.process, "iatf_required": filters.iatf_required,
-                                    "limit": MCP_ROW_LIMIT}
+                                    "iso14001_required": filters.iso14001_required, "limit": MCP_ROW_LIMIT}
             if filters.region is not None:
                 args["region"] = filters.region
             if filters.min_monthly_capacity is not None:
@@ -164,6 +165,7 @@ class BusinessSupplierService:
                 "name": row["name"],
                 "region": row["region"],
                 "iatf16949": row["iatf16949"],
+                "iso14001": row["iso14001"],
                 "matched_capabilities": [],
                 "provenance": _provenance(row["source"]),
             })

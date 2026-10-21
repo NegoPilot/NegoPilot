@@ -313,7 +313,7 @@ async def test_supplier_search_matches_fixed_openapi_and_fixture_values(params, 
         matched = [cap for cap in supplier["capabilities"] if cap["process"] == params["process"].strip()
                    and ("material" not in params or cap["material"] == params["material"])]
         expected.append({key: supplier[key] for key in (
-            "supplier_id", "name", "region", "iatf16949", "provenance",
+            "supplier_id", "name", "region", "iatf16949", "iso14001", "provenance",
         )} | {"matched_capabilities": matched})
     assert data == {"items": expected, "returned_count": len(supplier_ids), "limit": limit}
 
