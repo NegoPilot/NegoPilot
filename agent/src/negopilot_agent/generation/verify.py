@@ -35,6 +35,11 @@ MONEY_FIELDS = {
 }
 MONEY_FIELD_RE = re.compile(
     r'"(' + "|".join(MONEY_FIELDS) + r')"\s*:\s*(-?\d+(?:\.\d+)?)(?=\s*[,}\]])')
+# business-mcp의 비율 필드. 화면에서는 100을 곱해 %로 쓰는 게 자연스럽다 (부채비율 1.85 → 185%).
+# 0~1 비율은 아래 일반 규칙으로도 잡히지만, 부채비율처럼 1을 넘거나 반올림해 쓰는 경우는 필드로 읽어야 한다.
+RATIO_FIELDS = ("debt_ratio", "operating_margin", "on_time_rate", "raw_material_ratio")
+RATIO_FIELD_RE = re.compile(
+    r'"(' + "|".join(RATIO_FIELDS) + r')"\s*:\s*(-?\d+(?:\.\d+)?)(?=\s*[,}\]])')
 MASK = "[확인 필요]"
 
 
@@ -58,6 +63,9 @@ def known_numbers(texts: Iterable[str]) -> set[str]:
                 continue
             if 0 < value < 1:                    # 비율 0.45 → 45(%)
                 nums.add(canon(f"{value * 100:.4f}"))
+        for m in RATIO_FIELD_RE.finditer(text):  # 비율 필드: 1.852 → 185.2%, 표시용 반올림 185% 도 허용
+            pct = abs(float(m.group(2))) * 100
+            nums.update(canon(f"{pct:.{digits}f}") for digits in (4, 1, 0))
     return nums
 
 
