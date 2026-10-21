@@ -50,6 +50,23 @@ def test_other_numbers_are_not_converted(source, answer):
     assert not report.ok and report.ungrounded_numbers
 
 
+@pytest.mark.parametrize("unit", ["일", "개", "곳", "ppm", "배", "원"])
+@pytest.mark.parametrize("number", ["185.2", "185"])
+def test_converted_ratio_does_not_ground_other_units(number, unit):
+    token = number + unit
+    report = verify.check(token, evidence('{"debt_ratio":1.852}'))
+    assert report.ungrounded_numbers == [token]
+
+
+@pytest.mark.parametrize("unit", ["%", "퍼센트"])
+def test_rounded_ratio_is_allowed_only_as_percentage(unit):
+    assert verify.check("185" + unit, evidence('{"debt_ratio":1.852}')).ok
+
+
+def test_same_number_is_allowed_when_independently_grounded():
+    assert verify.check("결제 185일", evidence('{"debt_ratio":1.852}'), ["결제 185일"]).ok
+
+
 class FakeBackend:
     def __init__(self, answer: str):
         self.answer = answer
