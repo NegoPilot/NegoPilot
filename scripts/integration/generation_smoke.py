@@ -325,7 +325,7 @@ def fixture_app():
 class GenerationSmoke(Smoke):
     def __init__(self, jar: Path):
         super().__init__(jar)
-        self.used_ports.update({5173, 8080, 9200, 11434})
+        self.used_ports.update({5173, 8080, 9200})
         self.cleanup_started = False
 
     def close(self):
@@ -351,7 +351,7 @@ class GenerationSmoke(Smoke):
         port = unused_port(self.used_ports)
         env = child_environment(self.key)
         env.update({"AGENT_REQUEST_TIMEOUT_SECONDS": "10"})
-        for name in ("LAW_MCP_URL", "BUSINESS_MCP_URL", "OLLAMA_BASE_URL", "ANTHROPIC_BASE_URL"):
+        for name in ("LAW_MCP_URL", "BUSINESS_MCP_URL", "ANTHROPIC_BASE_URL", "OPENAI_BASE_URL"):
             env[name] = f"http://127.0.0.1:{self.relay.port}/disabled"
         process = Process([str(ROOT / "agent/.venv/bin/python"), "-B", str(Path(__file__).resolve()),
                            "--serve-fixture", str(port)], ROOT / "agent", env, "Python Generation fake dependencies")

@@ -311,7 +311,7 @@ class DirectChatSmoke(GenerationSmoke):
     def tool_failure(self):
         port = unused_port(self.used_ports)
         env = child_environment(self.key)
-        for name in ("LAW_MCP_URL", "BUSINESS_MCP_URL", "OLLAMA_BASE_URL", "ANTHROPIC_BASE_URL", "OPENAI_BASE_URL"):
+        for name in ("LAW_MCP_URL", "BUSINESS_MCP_URL", "ANTHROPIC_BASE_URL", "OPENAI_BASE_URL"):
             env[name] = f"http://127.0.0.1:{self.relay.port}/disabled"
         process = Process([str(ROOT / "agent/.venv/bin/python"), "-B", str(Path(__file__).resolve()),
                            "--serve-tool-failure", str(port)], ROOT / "agent", env, "Python caller-only error injection")

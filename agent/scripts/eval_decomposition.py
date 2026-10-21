@@ -4,7 +4,6 @@ API를 실제로 호출하므로 비용이 든다. 실행 전에 질문 수(--li
 
     uv run python scripts/eval_decomposition.py
     uv run python scripts/eval_decomposition.py --limit 3 --effort medium
-    uv run python scripts/eval_decomposition.py --backend ollama --model llama3.1:8b   # 로컬, 비용 없음
     uv run python scripts/eval_decomposition.py --backend openai                        # gpt-4.1-mini (OPENAI_API_KEY)
 
 결과는 eval_results/<시각>.json 에 저장한다. 프롬프트·모델·effort를 바꾸면 다시 돌려 전후를 비교한다.
@@ -69,7 +68,7 @@ async def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, help="앞에서부터 이 개수만 평가")
     parser.add_argument("--effort", help="low / medium / high ... (기본: 설정값, anthropic 전용)")
-    parser.add_argument("--backend", choices=["anthropic", "ollama", "openai"], help="기본: 설정값")
+    parser.add_argument("--backend", choices=["anthropic", "openai"], help="기본: 설정값")
     parser.add_argument("--model", help="기본: 백엔드별 기본 모델")
     args = parser.parse_args()
 

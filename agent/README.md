@@ -38,29 +38,25 @@ graph.add_node("decompose_query", make_decompose_node())   # 상태: query, hist
 
 | 동작 | 내용 |
 | --- | --- |
-| 백엔드 | `anthropic`(기본, Claude 구조화 출력), `ollama`(로컬 모델, 비용 없음. `format`에 JSON 스키마 전달), `openai`(Chat Completions, `response_format`에 strict JSON 스키마 전달). 스키마는 모두 `DecompositionResult`에서 만든다 ([`backends.py`](src/negopilot_agent/decomposition/backends.py)) |
+| 백엔드 | `anthropic`(기본, Claude 구조화 출력) 또는 `openai`(Chat Completions, `response_format`에 strict JSON 스키마 전달). 스키마는 모두 `DecompositionResult`에서 만든다 ([`backends.py`](src/negopilot_agent/decomposition/backends.py)) |
 | 프롬프트 | intent 등록표(`intents.yaml`)로 자동 생성. 용어 사전, 근거·되묻기 규칙, 예시 포함 ([`prompt.py`](src/negopilot_agent/decomposition/prompt.py)) |
 | 프롬프트 캐시 | 시스템 프롬프트는 요청마다 같게 두고 캐시한다. 오늘 날짜와 최근 대화는 사용자 메시지에 넣는다 |
 | 형식 오류 | 필드 사이 규칙 위반을 오류 내용과 함께 알려 주고 1회 재시도. 그래도 실패하면 `status: "failed"` |
 | 의존 관계 정리 | `inputs`로 값을 받지 않는 `depends_on`은 코드로 지운다 (병렬로 돌 질문이 순서대로 묶이지 않게) |
-| 거절·잘림 | Claude는 `stop_reason`이 `refusal`·`max_tokens`, Ollama는 `done_reason`이 `length`(출력 상한 2,048토큰), OpenAI는 `refusal`이 있거나 `finish_reason`이 `length`면 `failed` |
+| 거절·잘림 | Claude는 `stop_reason`이 `refusal`·`max_tokens`, OpenAI는 `refusal`이 있거나 `finish_reason`이 `length`면 `failed` |
 | 안전 분류기 거절 | 서버 측 대체 모델(`fallbacks: "default"`)로 다시 실행. `NEGOPILOT_DECOMPOSER_FALLBACKS=0`으로 끈다 |
 | API 장애 | SDK 재시도 후에도 실패하면 예외를 그대로 올린다 (Harness의 Recovery가 처리) |
-
-분해와 Generation의 Ollama 백엔드는 `prepare_ollama_schema`를 공유합니다. Ollama에 보내는 스키마 사본에서 subquery의 `id`와 `rfq_id` 및 `article_no`와 `as_of`에 쓰이는 네 숫자 pattern의 `\d`만 `[0-9]`로 바꿔 이 네 필드에 생성하는 숫자를 ASCII `0`부터 `9`로 제한합니다. `pattern` 제약과 `format`의 JSON 스키마 전달은 유지합니다. 공용 Pydantic 모델과 후검증 및 Anthropic과 OpenAI용 스키마는 변경하지 않습니다.
 
 ### 설정 (`.env.example`)
 
 | 환경 변수 | 기본값 | 설명 |
 | --- | --- | --- |
-| `NEGOPILOT_DECOMPOSER_BACKEND` | `anthropic` | `anthropic` 또는 `ollama` 또는 `openai` |
-| `NEGOPILOT_DECOMPOSER_MODEL` | `claude-opus-5-5` / `llama3.1:8b` / `gpt-4.1-mini` | 백엔드별 기본 모델 |
+| `NEGOPILOT_DECOMPOSER_BACKEND` | `anthropic` | `anthropic` 또는 `openai` |
+| `NEGOPILOT_DECOMPOSER_MODEL` | `claude-opus-5-5` / `gpt-4.1-mini` | 백엔드별 기본 모델 |
 | `NEGOPILOT_DECOMPOSER_EFFORT` | `low` | Claude 전용. 분류에 가까운 작업이라 low로 시작. 평가 결과를 보고 조정 |
 | `NEGOPILOT_DECOMPOSER_FALLBACKS` | `1` | Claude 전용. 거절 시 대체 모델 사용 |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama 주소 |
 
 Claude는 `ANTHROPIC_API_KEY`(또는 `ant auth login` 프로필)가 필요합니다. 평가 스크립트는 `agent/.env`가 있으면 읽습니다 (git에 올라가지 않음).
-Ollama는 `ollama pull llama3.1:8b`로 모델을 받아 두면 키 없이 씁니다.
 OpenAI는 `OPENAI_API_KEY`가 필요합니다. 셸에 같은 이름의 변수가 있으면 `.env`보다 먼저 쓰입니다.
 
 ## Routing (`negopilot_agent.routing`)
@@ -154,8 +150,8 @@ graph.add_node("generate", make_generate_node())   # 상태: decomposition, rout
 
 | 환경 변수 | 기본값 |
 | --- | --- |
-| `NEGOPILOT_GENERATOR_BACKEND` | `anthropic`. `ollama`와 `openai`도 선택 가능 |
-| `NEGOPILOT_GENERATOR_MODEL` | anthropic은 `claude-opus-5-5`. ollama는 `llama3.1:8b`. openai는 `gpt-4.1-mini` |
+| `NEGOPILOT_GENERATOR_BACKEND` | `anthropic`. `openai`도 선택 가능 |
+| `NEGOPILOT_GENERATOR_MODEL` | anthropic은 `claude-opus-5-5`. openai는 `gpt-4.1-mini` |
 | `NEGOPILOT_GENERATOR_EFFORT` | `medium` |
 | `NEGOPILOT_GENERATOR_FALLBACKS` | `1` |
 
@@ -167,11 +163,9 @@ OpenAI를 선택한 Generation도 `OPENAI_API_KEY`를 사용합니다. 분해와
 uv sync
 uv run python -m pytest -q                       # 단위 테스트 (가짜 HTTP 전송·가짜 MCP, 비용 없음)
 uv run python scripts/ask.py "RFQ-2026-001 협력사 추천해줘"            # 전체 그래프 (서버 2개를 먼저 띄움, Claude 비용 발생)
-uv run python scripts/ask.py --backend ollama "하도급법 제4조 보여줘"   # 분해·생성 모두 로컬 모델 (비용 없음)
 uv run python scripts/ask.py --backend openai "하도급법 제4조 보여줘"   # 분해·생성 모두 gpt-4.1-mini
 uv run python scripts/route_fixtures.py          # fixtures를 실제 MCP 서버로 Routing (서버 2개를 먼저 띄움)
 uv run python scripts/route_fixtures.py --save   # 그 결과를 shared/fixtures/routing/에 저장 (계약을 바꿨을 때)
-uv run python scripts/eval_decomposition.py --backend ollama   # 로컬 모델 평가 (비용 없음)
 uv run python scripts/eval_decomposition.py --backend openai   # gpt-4.1-mini 평가 (비용 있음)
 uv run python scripts/eval_decomposition.py --limit 3          # Claude 평가 (비용 발생)
 ```
@@ -182,7 +176,7 @@ uv run python scripts/eval_decomposition.py --limit 3          # Claude 평가 (
 
 | 날짜 | 모델 | 완전 일치 | 보고서 |
 | --- | --- | --- | --- |
-| 2026-10-20 | llama3.1:8b (로컬) | 64% (7/11) | [2026-10-20_llama3.1-8b.md](eval_reports/2026-10-20_llama3.1-8b.md) |
+| 2026-10-20 | llama3.1:8b (로컬, 백엔드는 #49에서 제거) | 64% (7/11) | [2026-10-20_llama3.1-8b.md](eval_reports/2026-10-20_llama3.1-8b.md) |
 프롬프트 예시는 평가용 fixtures와 겹치지 않게 따로 두었습니다 (테스트로 확인).
 
 ## Python 내부 HTTP API (`negopilot_agent.api`)
@@ -298,7 +292,7 @@ Python 직접 호출에서는 `request_id`와 `conversation_id` 및 `query`와 `
 
 ### live 설정과 검증 범위
 
-`AGENT_EXECUTION_MODE=live`에서는 v0.1 경로가 기존 QueryDecomposer와 실제 McpToolCaller를 연결합니다. 위의 분해 및 Routing 환경 변수를 재사용합니다. 현재 기본 모델은 [DecomposerSettings](src/negopilot_agent/decomposition/decomposer.py)의 `DEFAULT_MODELS`에 정의돼 있습니다. `anthropic`은 `claude-opus-5-5`입니다. `ollama`는 `llama3.1:8b`이며 `openai`는 `gpt-4.1-mini`입니다. [모델 백엔드](src/negopilot_agent/decomposition/backends.py)는 이 설정을 받아 호출합니다.
+`AGENT_EXECUTION_MODE=live`에서는 v0.1 경로가 기존 QueryDecomposer와 실제 McpToolCaller를 연결합니다. 위의 분해 및 Routing 환경 변수를 재사용합니다. 현재 기본 모델은 [DecomposerSettings](src/negopilot_agent/decomposition/decomposer.py)의 `DEFAULT_MODELS`에 정의돼 있습니다. `anthropic`은 `claude-opus-5-5`이며 `openai`는 `gpt-4.1-mini`입니다. [모델 백엔드](src/negopilot_agent/decomposition/backends.py)는 이 설정을 받아 호출합니다.
 
 기본 모델을 사용하려면 `NEGOPILOT_DECOMPOSER_MODEL`을 설정하지 않아야 합니다. `.env.example`의 `NEGOPILOT_DECOMPOSER_MODEL=`을 그대로 불러오면 빈 문자열이 선택됩니다. 이 경우 HTTP 경로는 503 `UPSTREAM_UNAVAILABLE`을 반환합니다. 기본 모델을 선택할 때는 환경 파일에서 해당 줄을 제거하거나 환경 파일을 불러온 뒤 아래 명령을 실행합니다.
 
@@ -306,7 +300,7 @@ Python 직접 호출에서는 `request_id`와 `conversation_id` 및 `query`와 `
 unset NEGOPILOT_DECOMPOSER_MODEL
 ```
 
-Claude에는 유효한 인증이 필요합니다. Ollama에는 해당 모델과 실행 중인 Ollama 서버가 필요합니다. OpenAI에는 Python 서버 환경의 `OPENAI_API_KEY`가 필요합니다. 이 키는 Spring이나 프런트엔드에 전달하지 않습니다. Routing에는 `BUSINESS_MCP_URL`과 `LAW_MCP_URL`에 지정한 서버가 필요합니다.
+Claude에는 유효한 인증이 필요합니다. OpenAI에는 Python 서버 환경의 `OPENAI_API_KEY`가 필요합니다. 이 키는 Spring이나 프런트엔드에 전달하지 않습니다. Routing에는 `BUSINESS_MCP_URL`과 `LAW_MCP_URL`에 지정한 서버가 필요합니다.
 
 HTTP 경로는 SDK의 전송 오류 재시도를 끕니다. OpenAI 클라이언트도 `AsyncOpenAI(max_retries=0)`으로 만들고 요청 종료 시 제한 시간 안에서 `await client.close()`를 수행합니다. SDK의 재시도와 비동기 자원 해제 방식은 [공식 Python SDK 문서](https://developers.openai.com/api/reference/python)를 참고합니다. 분해 코어의 출력 형식 오류 재시도는 기존 규칙을 유지합니다. Generation 환경 변수는 기존 v0.1 실행과 v0.2 템플릿 경로에 사용하지 않습니다. 새 v2 전체 그래프 경로에서는 Generation 설정도 사용합니다.
 
@@ -369,14 +363,14 @@ curl --fail-with-body http://127.0.0.1:9200/internal/v2/query-executions \
 
 ### v2 live 모델 선택과 비용 없는 검사
 
-분해와 Generation의 백엔드는 독립적으로 설정합니다. 각 단계에서 `anthropic` 또는 `ollama` 또는 `openai`를 선택할 수 있습니다. 백엔드를 지정하지 않으면 기존 기본값인 `anthropic`을 사용합니다.
+분해와 Generation의 백엔드는 독립적으로 설정합니다. 각 단계에서 `anthropic` 또는 `openai`를 선택할 수 있습니다. 백엔드를 지정하지 않으면 기존 기본값인 `anthropic`을 사용합니다.
 
 | 환경 변수 | 기본값 |
 | --- | --- |
 | `NEGOPILOT_DECOMPOSER_BACKEND` | `anthropic` |
-| `NEGOPILOT_DECOMPOSER_MODEL` | anthropic은 `claude-opus-5-5`. ollama는 `llama3.1:8b`. openai는 `gpt-4.1-mini` |
+| `NEGOPILOT_DECOMPOSER_MODEL` | anthropic은 `claude-opus-5-5`. openai는 `gpt-4.1-mini` |
 | `NEGOPILOT_GENERATOR_BACKEND` | `anthropic` |
-| `NEGOPILOT_GENERATOR_MODEL` | anthropic은 `claude-opus-5-5`. ollama는 `llama3.1:8b`. openai는 `gpt-4.1-mini` |
+| `NEGOPILOT_GENERATOR_MODEL` | anthropic은 `claude-opus-5-5`. openai는 `gpt-4.1-mini` |
 | `NEGOPILOT_DECOMPOSER_EFFORT` | `low` |
 | `NEGOPILOT_GENERATOR_EFFORT` | `medium` |
 | `NEGOPILOT_DECOMPOSER_FALLBACKS` | `1` |
@@ -398,27 +392,9 @@ export NEGOPILOT_GENERATOR_BACKEND=openai
 unset NEGOPILOT_DECOMPOSER_MODEL NEGOPILOT_GENERATOR_MODEL
 ```
 
-한 단계만 OpenAI로 바꾸려면 해당 BACKEND 변수만 `openai`로 지정하고 해당 MODEL 변수만 제거합니다. 다른 단계의 설정은 그대로 사용합니다. 예를 들어 분해는 OpenAI를 쓰고 Generation은 Ollama를 쓸 수 있습니다. 실제 유료 모델 호출은 이 문서 갱신 과정에서 검사하지 않았습니다.
+한 단계만 OpenAI로 바꾸려면 해당 BACKEND 변수만 `openai`로 지정하고 해당 MODEL 변수만 제거합니다. 다른 단계의 설정은 그대로 사용합니다. 예를 들어 분해는 OpenAI를 쓰고 Generation은 Claude를 쓸 수 있습니다. 실제 유료 모델 호출은 이 문서 갱신 과정에서 검사하지 않았습니다.
 
-Ollama의 `qwen3:8b`를 분해와 생성에 선택하려면 환경 변수로 명시합니다. 아래는 저장소 루트에서 시작하는 실행 예시입니다. 기본 모델은 변경하지 않습니다. 해당 모델을 설치한 Ollama 서버와 필요한 MCP 서버를 별도로 준비해야 합니다. 이 모델의 응답과 연결 상태는 별도로 검증해야 합니다.
-
-```bash
-cd agent
-uv sync --locked
-export AGENT_EXECUTION_MODE=live
-export AGENT_INTERNAL_API_KEY='replace-with-a-local-test-key'
-export NEGOPILOT_DECOMPOSER_BACKEND=ollama
-export NEGOPILOT_DECOMPOSER_MODEL=qwen3:8b
-export NEGOPILOT_GENERATOR_BACKEND=ollama
-export NEGOPILOT_GENERATOR_MODEL=qwen3:8b
-export OLLAMA_BASE_URL=http://localhost:11434
-export BUSINESS_MCP_URL=http://127.0.0.1:9102/mcp
-export LAW_MCP_URL=http://127.0.0.1:9103/mcp
-export AGENT_REQUEST_TIMEOUT_SECONDS=300
-uv run uvicorn negopilot_agent.api.app:app --host 127.0.0.1 --port 9200
-```
-
-로컬 모델의 실행 시간이 기본 제한보다 길면 위 예시처럼 Python 제한을 조정합니다. 같은 연결을 쓰는 Spring은 `AGENT_EXECUTION_MODE=live`와 같은 내부 키를 설정하고 `AGENT_RESPONSE_TIMEOUT_SECONDS=310`처럼 Python보다 긴 제한을 사용합니다. MCP 주소는 실제 실행 중인 서버 주소로 지정합니다. business-mcp에는 PostgreSQL 연결이 필요하고 law-mcp에는 저장된 법령 인덱스가 필요합니다.
+모델 실행 시간이 기본 제한보다 길면 `AGENT_REQUEST_TIMEOUT_SECONDS`로 Python 제한을 조정합니다. 같은 연결을 쓰는 Spring은 `AGENT_EXECUTION_MODE=live`와 같은 내부 키를 설정하고 `AGENT_RESPONSE_TIMEOUT_SECONDS=310`처럼 Python보다 긴 제한을 사용합니다. MCP 주소는 실제 실행 중인 서버 주소로 지정합니다. business-mcp에는 PostgreSQL 연결이 필요하고 law-mcp에는 저장된 법령 인덱스가 필요합니다.
 
 모델 설정이나 연결 실패는 503 `UPSTREAM_UNAVAILABLE`입니다. 전체 처리 제한 시간 초과는 504 `UPSTREAM_TIMEOUT`입니다. live 실패에 테스트 답변을 반환하지 않습니다.
 

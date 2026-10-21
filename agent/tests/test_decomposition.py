@@ -24,7 +24,7 @@ from negopilot_agent.decomposition import (
     QueryDecomposer,
     make_decompose_node,
 )
-from negopilot_agent.decomposition.backends import OllamaBackend, OpenAIBackend
+from negopilot_agent.decomposition.backends import OpenAIBackend
 from negopilot_agent.decomposition.prompt import EXAMPLES, build_system_prompt
 
 FIXTURES = sorted((Path(__file__).resolve().parents[2] / "shared" / "fixtures" / "decomposition").glob("*.json"))
@@ -188,50 +188,6 @@ async def test_langgraph_node():
 
     assert isinstance(state["decomposition"], DecompositionResult)
     assert state["decomposition"].parallel_groups() == [["q1", "q2"]]
-
-
-class FakeOllama:
-    """Ollama /api/chat 응답을 흉내 낸다."""
-
-    def __init__(self, *contents: str, done_reason: str = "stop"):
-        self.contents = list(contents)
-        self.done_reason = done_reason
-        self.requests: list[httpx2.Request] = []
-
-    def handler(self, request: httpx2.Request) -> httpx2.Response:
-        self.requests.append(request)
-        return httpx2.Response(200, json={"model": "llama3.1:8b", "done": True, "done_reason": self.done_reason,
-                                          "message": {"role": "assistant", "content": self.contents.pop(0)}})
-
-    def decomposer(self) -> QueryDecomposer:
-        http = httpx2.AsyncClient(transport=httpx2.MockTransport(self.handler))
-        backend = OllamaBackend("llama3.1:8b", http_client=http)
-        return QueryDecomposer(settings=DecomposerSettings(backend="ollama", model="llama3.1:8b"), backend=backend)
-
-
-async def test_ollama_backend_request_and_parse():
-    data = fixture("08")
-    fake = FakeOllama(json.dumps(data["expected"], ensure_ascii=False))
-    result = await fake.decomposer().decompose(data["query"])
-
-    assert result == DecompositionResult.model_validate(data["expected"])
-    body = json.loads(fake.requests[0].content)
-    assert fake.requests[0].url.path == "/api/chat"
-    assert body["model"] == "llama3.1:8b" and body["stream"] is False
-    assert body["messages"][0]["role"] == "system" and body["messages"][1]["role"] == "user"
-    assert body["options"]["temperature"] == 0
-    # 로컬 모델용 스키마에는 $ref 가 남아 있지 않아야 한다
-    assert "$ref" not in json.dumps(body["format"]) and "$defs" not in body["format"]
-
-
-async def test_ollama_retry_and_truncation():
-    data = fixture("01")
-    fake = FakeOllama("{\"status\": \"ok\"}", json.dumps(data["expected"], ensure_ascii=False))
-    assert (await fake.decomposer().decompose(data["query"])).status == "ok"
-    assert len(fake.requests) == 2
-
-    cut = FakeOllama("{\"schema_version\": ", done_reason="length")
-    assert (await cut.decomposer().decompose(data["query"])).status == "failed"
 
 
 class FakeOpenAI:

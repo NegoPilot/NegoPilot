@@ -71,4 +71,4 @@ Routing 진단 필드는 v0.1의 고정 문구로 정제한 사본을 Generator�
 
 400 VALIDATION_ERROR와 내부 인증 401 UNAUTHORIZED 및 503 UPSTREAM_UNAVAILABLE과 504 UPSTREAM_TIMEOUT 및 500 INTERNAL_ERROR의 안전한 오류 envelope를 유지한다. Spring에서 내부 인증 실패와 잘못된 응답은 502 UPSTREAM_INVALID_RESPONSE다. 없는 대화는 404 CONVERSATION_NOT_FOUND다. 모델 설정과 연결 실패는 503이며 처리 제한 시간 초과는 504다. 상세 예외와 내부 키를 응답이나 로그로 노출하지 않는다.
 
-live는 최신 QueryDecomposer와 McpToolCaller 및 AnswerGenerator를 사용하는 전체 그래프다. Claude와 Ollama 및 최신 main의 OpenAI 모델 설정을 지원한다. HTTP 어댑터는 SDK 자동 재시도를 끄고 요청에서 실제 만든 클라이언트만 종료한다. 자동 검증의 stub은 모델과 도구의 입출력만 fake로 바꾸며 실제 그래프와 AnswerGenerator의 근거 및 인용 검증을 실행한다. 실행 모드를 응답에 표시한다. 실제 모델을 사용한 검증과 fake 의존성을 사용한 검증 결과를 구분한다.
+live는 최신 QueryDecomposer와 McpToolCaller 및 AnswerGenerator를 사용하는 전체 그래프다. Claude와 OpenAI 모델 설정을 지원한다. HTTP 어댑터는 SDK 자동 재시도를 끄고 요청에서 실제 만든 클라이언트만 종료한다. 자동 검증의 stub은 모델과 도구의 입출력만 fake로 바꾸며 실제 그래프와 AnswerGenerator의 근거 및 인용 검증을 실행한다. 실행 모드를 응답에 표시한다. 실제 모델을 사용한 검증과 fake 의존성을 사용한 검증 결과를 구분한다.
