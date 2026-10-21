@@ -147,9 +147,6 @@ function setAi(open: boolean) {
   }
   router.replace({ query })
 }
-const panelSupplier = computed(() =>
-  selectedDetail.value ? { id: selectedDetail.value.supplier_id, name: selectedDetail.value.name } : null,
-)
 const backPath = computed(() => route.fullPath)
 
 const headerContext = computed(() => {
@@ -252,7 +249,6 @@ const headerContext = computed(() => {
 
       <AiAssistantPanel
         v-if="aiOpen"
-        :supplier="panelSupplier"
         :initial-question="queryString('q') ?? ''"
         :rfq="rfq"
         :back-path="backPath"
