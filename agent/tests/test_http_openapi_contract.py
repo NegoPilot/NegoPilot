@@ -22,7 +22,9 @@ from negopilot_shared import DecompositionResult, RouteResult
 
 from negopilot_agent.api import execution
 from negopilot_agent.api.app import create_app
+from negopilot_agent.api.business_supplier_service import BusinessSupplierService
 from negopilot_agent.api.settings import ApiSettings
+from tests.test_supplier_lookup_live import FakeBusiness
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -30,6 +32,7 @@ CONTRACT_DIR = ROOT / "docs" / "contracts"
 FIXTURE_DIR = ROOT / "shared" / "fixtures"
 V1 = "agent-http.openapi.json"
 V2 = "supplier-chat.openapi.json"
+LOOKUP_V2 = "supplier-lookup.openapi.json"
 QUERY = "/internal/v1/query-executions"
 CATALOG = "/internal/v1/business/catalog"
 SEARCH = "/internal/v1/suppliers"
@@ -311,7 +314,7 @@ async def test_supplier_search_matches_fixed_openapi_and_fixture_values(params, 
         matched = [cap for cap in supplier["capabilities"] if cap["process"] == params["process"].strip()
                    and ("material" not in params or cap["material"] == params["material"])]
         expected.append({key: supplier[key] for key in (
-            "supplier_id", "name", "region", "iatf16949", "provenance",
+            "supplier_id", "name", "region", "iatf16949", "iso14001", "provenance",
         )} | {"matched_capabilities": matched})
     assert data == {"items": expected, "returned_count": len(supplier_ids), "limit": limit}
 
@@ -468,3 +471,30 @@ async def test_v2_service_failures_match_each_fixed_route_schema(
     response = await request(app_for(service=FailingSupplierService(failure)), method, path, **arguments)
     request_id = arguments["json"]["request_id"] if method == "POST" else None
     assert_error_wire(response, V2, schema_path, method, status, code, request_id, retryable)
+
+
+@pytest.mark.parametrize("mode", ["stub", "live"])
+@pytest.mark.parametrize(("path", "params"), [
+    ("/internal/v2/business/catalog", None),
+    ("/internal/v2/suppliers", {"process": "다이캐스팅", "iso14001_required": "true"}),
+    ("/internal/v2/suppliers/SUP-0001", None),
+])
+async def test_v2_live_lookups_match_fixed_contract(mode, path, params):
+    app = create_app(
+        settings=ApiSettings(mode=mode, internal_api_key=API_KEY, request_timeout_seconds=1),
+        supplier_lookup_service=BusinessSupplierService(session=FakeBusiness().session),
+    )
+    response = await request(app, "GET", path, params=params)
+    schema_path = "/internal/v2/suppliers/{supplier_id}" if path.endswith("SUP-0001") else path
+    data = assert_wire(response, LOOKUP_V2, schema_path, "GET")
+    assert (data["schema_version"], data["mode"]) == ("0.3", "live")
+
+
+async def test_v2_live_lookup_errors_match_fixed_contract():
+    app = create_app(
+        settings=ApiSettings(mode="live", internal_api_key=API_KEY, request_timeout_seconds=1),
+        supplier_lookup_service=BusinessSupplierService(session=FakeBusiness(failure=RuntimeError("x")).session),
+    )
+    response = await request(app, "GET", "/internal/v2/business/catalog")
+    assert_error_wire(response, LOOKUP_V2, "/internal/v2/business/catalog", "GET", 503,
+                      "UPSTREAM_UNAVAILABLE", retryable=True)

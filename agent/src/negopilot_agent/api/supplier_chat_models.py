@@ -70,6 +70,7 @@ class SupplierSummary(StrictModel):
     name: Text
     region: Text
     iatf16949: bool
+    iso14001: bool
     matched_capabilities: list[Capability] = Field(min_length=1)
     provenance: Provenance
 
@@ -79,6 +80,7 @@ class SupplierDetail(StrictModel):
     name: Text
     region: Text
     iatf16949: bool
+    iso14001: bool
     capabilities: list[Capability] = Field(min_length=1)
     quality: Quality
     financials: list[Financials]
@@ -117,6 +119,7 @@ class SupplierSearch(StrictModel):
     material: FilterText | None = None
     region: FilterText | None = None
     iatf_required: bool = False
+    iso14001_required: bool = False
     min_monthly_capacity: int | None = Field(default=None, ge=1, le=10_000_000)
     limit: int = Field(default=20, ge=1, le=100)
 
