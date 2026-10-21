@@ -51,6 +51,10 @@ def aggregate(rows: list[dict]) -> dict:
         values = [t.get(key, 0) for t in ok]
         if values:
             out[key] = {"mean": round(statistics.mean(values), 1), "max": max(values)}
+    costs = [t["cost_usd"] for t in ok if "cost_usd" in t]
+    if costs:
+        out["cost_usd"] = {"mean": round(statistics.mean(costs), 6), "max": round(max(costs), 6),
+                           "total": round(sum(costs), 6), "unknown_calls": sum(t.get("cost_unknown_calls", 0) for t in ok)}
     return out
 
 
@@ -112,6 +116,10 @@ async def main() -> None:
     for key in COUNTS:
         if v := summary.get(key):
             print(f"{key:<16} 평균 {v['mean']}  최대 {v['max']}")
+    if v := summary.get("cost_usd"):
+        unknown = f"  (단가 모르는 호출 {v['unknown_calls']}개 제외)" if v["unknown_calls"] else ""
+        print(f"{'cost_usd':<16} 질문당 평균 ${v['mean']:.5f}  최대 ${v['max']:.5f}  합계 ${v['total']:.4f}"
+              f"  (1,000개 질문이면 약 ${v['mean'] * 1000:.2f}){unknown}")
 
     out_dir = ROOT / "eval_results"
     out_dir.mkdir(exist_ok=True)
