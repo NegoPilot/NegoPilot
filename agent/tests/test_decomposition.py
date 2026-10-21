@@ -254,6 +254,21 @@ def test_openai_default_model():
     assert DEFAULT_MODELS["openai"] == GENERATION_DEFAULTS["openai"] == "gpt-4.1-mini"
 
 
+def test_default_backend_is_openai(monkeypatch):
+    """환경 변수가 없으면 분해·생성 모두 openai(gpt-4.1-mini)를 쓴다 (#51). anthropic은 설정으로 고른다."""
+    from negopilot_agent.generation.generator import GeneratorSettings
+    for name in ("NEGOPILOT_DECOMPOSER_BACKEND", "NEGOPILOT_DECOMPOSER_MODEL",
+                 "NEGOPILOT_GENERATOR_BACKEND", "NEGOPILOT_GENERATOR_MODEL"):
+        monkeypatch.delenv(name, raising=False)
+    for settings in (DecomposerSettings(), GeneratorSettings()):
+        assert (settings.backend, settings.model) == ("openai", "gpt-4.1-mini")
+
+    monkeypatch.setenv("NEGOPILOT_DECOMPOSER_BACKEND", "anthropic")
+    monkeypatch.setenv("NEGOPILOT_GENERATOR_BACKEND", "anthropic")
+    for settings in (DecomposerSettings(), GeneratorSettings()):
+        assert (settings.backend, settings.model) == ("anthropic", "claude-opus-5-5")
+
+
 async def test_generation_openai_backend_uses_draft_schema():
     from negopilot_agent.generation.backends import GenerationOpenAIBackend
     fake = FakeOpenAI('{"text": "x"}')

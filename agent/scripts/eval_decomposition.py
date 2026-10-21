@@ -5,9 +5,8 @@
 
 API를 실제로 호출하므로 비용이 든다. 실행 전에 질문 수(--limit)와 모델·effort를 확인한다.
 
-    uv run python scripts/eval_decomposition.py
-    uv run python scripts/eval_decomposition.py --limit 3 --effort medium
-    uv run python scripts/eval_decomposition.py --backend openai                        # gpt-4.1-mini (OPENAI_API_KEY)
+    uv run python scripts/eval_decomposition.py                                         # 기본: gpt-4.1-mini (OPENAI_API_KEY)
+    uv run python scripts/eval_decomposition.py --backend anthropic --limit 3 --effort medium   # Claude (ANTHROPIC_API_KEY)
     uv run python scripts/eval_decomposition.py --set validation --repeat 3             # 검증 세트 3회 평균
 
 결과는 eval_results/<시각>.json 에 저장한다. 프롬프트·모델·effort를 바꾸면 다시 돌려 전후를 비교한다.
