@@ -93,9 +93,10 @@ export interface SupplierSearchParams {
   material?: string
   region?: string
   iatf_required?: boolean
-  // 아래 두 조건은 계약 변경(#43, #53) 전까지 Spring이 400으로 거절한다
-  iso14001_required?: boolean
+  /** 1..10,000,000. 월 생산능력이 이 값 이상인 공정·소재만 matched_capabilities에 남는다 */
   min_monthly_capacity?: number
+  // 계약에 없어서 Spring이 400으로 거절한다 (#53)
+  iso14001_required?: boolean
   limit?: number
 }
 

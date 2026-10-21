@@ -2,8 +2,8 @@
 import { computed, reactive, watch } from 'vue'
 
 import type { Catalog } from '@/api/types'
-import { formatInteger, parsePositiveInteger } from '@/utils/format'
-import { type SearchFormValues, TEXT_MAX, emptySearchValues } from '@/utils/search'
+import { formatInteger } from '@/utils/format'
+import { CAPACITY_MAX, type SearchFormValues, TEXT_MAX, emptySearchValues, parseCapacity } from '@/utils/search'
 
 const props = defineProps<{
   catalog: Catalog | null
@@ -29,7 +29,7 @@ watch(
 )
 
 const capacityInvalid = computed(
-  () => form.minMonthlyCapacity.trim() !== '' && parsePositiveInteger(form.minMonthlyCapacity) === null,
+  () => form.minMonthlyCapacity.trim() !== '' && parseCapacity(form.minMonthlyCapacity) === null,
 )
 const canSubmit = computed(() => form.process.trim() !== '' && !capacityInvalid.value && !props.loading)
 
@@ -56,7 +56,7 @@ const appliedChips = computed(() => {
   if (a.region) chips.push({ label: a.region, primary: false })
   if (a.iatfRequired) chips.push({ label: 'IATF 16949', primary: false })
   if (a.iso14001Required) chips.push({ label: 'ISO 14001', primary: false })
-  const capacity = parsePositiveInteger(a.minMonthlyCapacity)
+  const capacity = parseCapacity(a.minMonthlyCapacity)
   if (capacity !== null) chips.push({ label: `월 ${formatInteger(capacity)}개 이상`, primary: false })
   if (props.rfq) chips.push({ label: props.rfq, primary: false })
   return chips
@@ -145,7 +145,7 @@ function onReset() {
         :aria-invalid="capacityInvalid"
         :aria-describedby="capacityInvalid ? 'f-capacity-error' : undefined"
       />
-      <span v-if="capacityInvalid" id="f-capacity-error" class="field-error">숫자만 입력해 주세요 (예: 10000)</span>
+      <span v-if="capacityInvalid" id="f-capacity-error" class="field-error">1~{{ formatInteger(CAPACITY_MAX) }} 사이 숫자만 입력해 주세요 (예: 10000)</span>
     </div>
 
     <button class="btn btn-primary submit" type="submit" :disabled="!canSubmit">

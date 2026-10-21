@@ -71,10 +71,7 @@ async function runSearch() {
   const id = ++latest
   loading.value = true
   error.value = null
-  sentUnsupported.value = [
-    params.iso14001_required ? 'ISO 14001' : '',
-    params.min_monthly_capacity !== undefined ? '최소 월 생산능력' : '',
-  ].filter(Boolean)
+  sentUnsupported.value = params.iso14001_required ? ['ISO 14001'] : []
   try {
     const data = await searchSuppliers(params)
     if (id !== latest) return
