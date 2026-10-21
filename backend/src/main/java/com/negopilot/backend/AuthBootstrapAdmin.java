@@ -14,15 +14,8 @@ import tools.jackson.databind.json.JsonMapper;
 public final class AuthBootstrapAdmin {
     private AuthBootstrapAdmin() { }
     public static void main(String[] args) {
-        Map<String, String> values = new HashMap<>();
-        Set<String> fields = Set.of("email", "name", "department", "job_title");
-        for (String arg : args) {
-            int split = arg.indexOf('=');
-            if (split < 3 || !arg.startsWith("--") || !fields.contains(arg.substring(2, split))
-                    || values.put(arg.substring(2, split), arg.substring(split + 1)) != null) {
-                throw new IllegalArgumentException("Use --email= --name= --department= and optional --job_title=. Password is read securely.");
-            }
-        }
+        Arguments arguments = parseArguments(args);
+        Map<String, String> values = new HashMap<>(arguments.values());
         char[] password = System.console() == null ? null : System.console().readPassword("Admin password: ");
         if (password == null) {
             String supplied = System.getenv("ADMIN_BOOTSTRAP_PASSWORD");
@@ -38,20 +31,59 @@ public final class AuthBootstrapAdmin {
                 .web(WebApplicationType.NONE).profiles("bootstrap-admin").run()) {
             var repository = context.getBean(MembershipRepository.class);
             var transactions = context.getBean(TransactionTemplate.class);
-            createInitialAdministrator(input, repository, context.getBean(PasswordEncoder.class), transactions);
-            System.out.println("Initial administrator created.");
+            BootstrapResult result = createInitialAdministrator(input, repository,
+                    context.getBean(PasswordEncoder.class), transactions, arguments.ifAbsent());
+            System.out.println(result == BootstrapResult.CREATED ? "Initial administrator created."
+                    : "An active administrator already exists. Bootstrap skipped; existing accounts and passwords were not changed.");
         }
+    }
+
+    record Arguments(Map<String, String> values, boolean ifAbsent) { }
+    enum BootstrapResult { CREATED, SKIPPED }
+
+    static Arguments parseArguments(String[] args) {
+        Map<String, String> values = new HashMap<>();
+        Set<String> fields = Set.of("email", "name", "department", "job_title");
+        boolean ifAbsent = false;
+        for (String arg : args) {
+            if ("--if-absent".equals(arg) && !ifAbsent) {
+                ifAbsent = true;
+                continue;
+            }
+            int split = arg.indexOf('=');
+            if (split < 3 || !arg.startsWith("--") || !fields.contains(arg.substring(2, split))
+                    || values.put(arg.substring(2, split), arg.substring(split + 1)) != null) {
+                throw new IllegalArgumentException("Use --email= --name= --department= and optional --job_title= or --if-absent. Password is read securely.");
+            }
+        }
+        return new Arguments(Map.copyOf(values), ifAbsent);
     }
 
     static void createInitialAdministrator(AuthRequestValidator.Signup input, MembershipRepository repository,
                                            PasswordEncoder passwords, TransactionTemplate transactions) {
+        createInitialAdministrator(input, repository, passwords, transactions, false);
+    }
+
+    static BootstrapResult createInitialAdministrator(AuthRequestValidator.Signup input, MembershipRepository repository,
+            PasswordEncoder passwords, TransactionTemplate transactions, boolean ifAbsent) {
         String hash = passwords.encode(input.password());
-        transactions.executeWithoutResult(tx -> {
+        return transactions.execute(tx -> {
             repository.serializeChanges();
-            if (repository.activeAdminCount() > 0) throw new IllegalStateException("An active administrator already exists.");
+            // Check a conflicting email before skipping for a different administrator.
+            // Local initialization must never silently promote or reactivate an existing member.
+            var existing = repository.byEmail(input.email());
+            if (ifAbsent && existing != null
+                    && !("ADMIN".equals(existing.role()) && "ACTIVE".equals(existing.status()))) {
+                throw new IllegalStateException("Bootstrap email is registered to an account that is not an active administrator. No account was changed.");
+            }
+            if (repository.activeAdminCount() > 0) {
+                if (ifAbsent) return BootstrapResult.SKIPPED;
+                throw new IllegalStateException("An active administrator already exists.");
+            }
             if (repository.byEmail(input.email()) != null) throw new IllegalStateException("This email is already registered.");
             var member = repository.insert(input, hash, "ADMIN", "ACTIVE");
             repository.audit(null, member.id(), "BOOTSTRAP", null, "ADMIN");
+            return BootstrapResult.CREATED;
         });
     }
 }

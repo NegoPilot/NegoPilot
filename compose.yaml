@@ -1,0 +1,156 @@
+# Local test stack. Only the web UI is published and only on the loopback interface.
+name: negopilot-local
+
+x-app-environment: &app-environment
+  APP_DATABASE_URL: jdbc:postgresql://postgres:5432/negopilot_app
+  APP_DATABASE_USER: negopilot_app
+  APP_DATABASE_PASSWORD: ${APP_DB_PASSWORD:-local-app-password}
+
+x-backend-build: &backend-build
+  context: .
+  dockerfile: deploy/local/backend.Dockerfile
+
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: deploy/local/postgres/Dockerfile
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-postgres-password}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-local-app-password}
+      BUSINESS_DB_PASSWORD: ${BUSINESS_DB_PASSWORD:-local-business-password}
+      BUSINESS_READER_PASSWORD: ${BUSINESS_READER_PASSWORD:-local-reader-password}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  admin-bootstrap:
+    build: *backend-build
+    image: ${COMPOSE_PROJECT_NAME:-negopilot-local}-backend:local
+    environment:
+      <<: *app-environment
+      ADMIN_BOOTSTRAP_PASSWORD: ${LOCAL_ADMIN_PASSWORD:-LocalAdmin2026!}
+    command:
+      - -Dloader.main=com.negopilot.backend.AuthBootstrapAdmin
+      - -cp
+      - /app/app.jar
+      - org.springframework.boot.loader.launch.PropertiesLauncher
+      - --if-absent
+      - --email=${LOCAL_ADMIN_EMAIL:-admin@negopilot.local}
+      - --name=로컬 관리자
+      - --department=개발팀
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  business-mcp:
+    build:
+      context: .
+      dockerfile: deploy/local/business.Dockerfile
+    environment:
+      PGPASSWORD: ${BUSINESS_READER_PASSWORD:-local-reader-password}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, "import socket; socket.create_connection(('127.0.0.1', 9102), 2).close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+    restart: unless-stopped
+
+  law-mcp:
+    build:
+      context: .
+      dockerfile: deploy/local/law.Dockerfile
+    environment:
+      LAW_ADMIN_API_KEY: ${LOCAL_LAW_ADMIN_API_KEY:-local-law-test-key}
+    volumes:
+      - law-data:/var/lib/negopilot-law
+    healthcheck:
+      test: [CMD, python, -c, "import socket; socket.create_connection(('127.0.0.1', 9103), 2).close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+    restart: unless-stopped
+
+  agent:
+    build:
+      context: .
+      dockerfile: deploy/local/agent.Dockerfile
+    environment:
+      AGENT_EXECUTION_MODE: stub
+      AGENT_INTERNAL_API_KEY: ${LOCAL_AGENT_API_KEY:-local-agent-test-key}
+      AGENT_REQUEST_TIMEOUT_SECONDS: "30"
+      BUSINESS_MCP_URL: http://business-mcp:9102/mcp
+      LAW_MCP_URL: http://law-mcp:9103/mcp
+      LAW_ADMIN_API_KEY: ${LOCAL_LAW_ADMIN_API_KEY:-local-law-test-key}
+    depends_on:
+      business-mcp:
+        condition: service_healthy
+      law-mcp:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9200/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+    restart: unless-stopped
+
+  backend:
+    build: *backend-build
+    image: ${COMPOSE_PROJECT_NAME:-negopilot-local}-backend:local
+    environment:
+      <<: *app-environment
+      SERVER_ADDRESS: 0.0.0.0
+      SERVER_PORT: "8080"
+      SESSION_COOKIE_SECURE: "false"
+      AGENT_BASE_URL: http://agent:9200
+      AGENT_INTERNAL_API_KEY: ${LOCAL_AGENT_API_KEY:-local-agent-test-key}
+      AGENT_EXECUTION_MODE: stub
+      AGENT_RESPONSE_TIMEOUT_SECONDS: "35"
+      BUSINESS_DATABASE_ENABLED: "true"
+      BUSINESS_DATABASE_URL: jdbc:postgresql://postgres:5432/negopilot_business
+      BUSINESS_DATABASE_USER: negopilot_business_owner
+      BUSINESS_DATABASE_PASSWORD: ${BUSINESS_DB_PASSWORD:-local-business-password}
+    command: [-jar, /app/app.jar]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      admin-bootstrap:
+        condition: service_completed_successfully
+      agent:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, curl, --fail, --silent, http://127.0.0.1:8080/health]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: deploy/local/frontend.Dockerfile
+    ports:
+      - "127.0.0.1:${LOCAL_WEB_PORT:-5173}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1/health]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  law-data:

@@ -16,6 +16,16 @@
 | Data | ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat-square&logo=postgresql&logoColor=white) ![OpenDART](https://img.shields.io/badge/OpenDART-0055A5?style=flat-square) ![legalize--kr](https://img.shields.io/badge/legalize--kr-181717?style=flat-square&logo=github&logoColor=white) |
 | Infra, 협업 | ![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white) ![GitHub](https://img.shields.io/badge/GitHub-181717?style=flat-square&logo=github&logoColor=white) ![CodeRabbit](https://img.shields.io/badge/CodeRabbit-FF570A?style=flat-square&logo=coderabbit&logoColor=white) |
 
+## 팀원 로컬 테스트
+
+Docker를 실행한 뒤 저장소 루트에서 다음 명령을 실행합니다. 로컬 DB와 테이블 및 테스트 관리자가 자동으로 준비됩니다. Java와 Python 및 Node.js를 따로 설치할 필요는 없습니다.
+
+```sh
+docker compose up --build -d
+```
+
+[http://localhost:5173](http://localhost:5173)에서 `admin@negopilot.local`과 `LocalAdmin2026!`로 로그인합니다. 기본 채팅은 모델 키가 필요 없는 테스트 응답입니다. 회원과 대화 기록은 실제 PostgreSQL에 저장하며 일반 종료 후에도 유지됩니다. 포트 변경과 데이터 보존 및 지원 질문은 [Docker 실행 안내](docs/LOCAL_DOCKER.md)를 참고합니다.
+
 ## 아키텍처
 
 ```mermaid
@@ -45,8 +55,8 @@ Agent는 이 내용을 보고 law-mcp에서 해당 조문을 찾아 근거로 �
 | `mcp-servers/mail-mcp` | 메일 발송과 협상 문서 템플릿 | 예정 |
 | [`agent`](agent) | 분해와 Routing 및 Generation을 실행하는 LangGraph Agent와 내부 HTTP API | 구현 |
 | [`shared`](shared) | 컴포넌트끼리 같이 쓰는 계약입니다. 분해 결과 스키마, intent 등록표, 예시 11개가 들어 있습니다 | 완료 |
-| [`backend`](backend) | Agent 공개 API와 응답 검증 및 메모리 대화 저장 | HTTP 연동 구현. 인증과 영구 저장은 예정 |
-| [`frontend`](frontend) | Vue 화면. 홈, 협력사 탐색·상세와 AI 도우미(v2 생성 답변·직접 질문), 근거 자료 상세(새 탭), 법규 검토, 로그인·회원가입·관리자 | 진행 중. RFQ 목록·법규 검토·로그인·관리자는 API 연결 전 |
+| [`backend`](backend) | 회원 승인과 관리자 API 및 Agent 연결과 개인 대화 저장 | Spring 인증과 PostgreSQL 영구 저장 구현 |
+| [`frontend`](frontend) | Vue 로그인과 회원가입 및 개인 채팅과 근거 상세 | 인증과 채팅 이력 연결. 관리자와 별도 협력사 검색 화면은 연결 준비 중 |
 
 ### MCP 서버
 
@@ -100,7 +110,7 @@ NegoPilot/
 
 Spring은 `POST /api/v2/agent/queries`를 Python의 `POST /internal/v2/query-executions`로 전달합니다. Python이 최신 그래프의 분해와 Routing 및 Generation을 실행하면 Spring이 답변과 인용 및 검증 정보를 확인해 반환합니다. 선택 기업과 대화 이력은 `/api/v2/conversations`에서 관리합니다. 기업 선택 없이 질문하면 필요한 기업 정보와 법령을 조회합니다. 대상이나 필수 조건을 정할 수 없을 때만 추가로 묻습니다. [직접 질문 계약](docs/contracts/direct-chat.md)에 예시와 후속 입력 규칙이 있습니다.
 
-기본 모드는 `live`입니다. Claude나 OpenAI 설정과 조회에 필요한 MCP 서버를 준비합니다. `stub`은 모델과 도구 입출력을 테스트용으로 바꾸면서 실제 그래프와 생성기의 근거 검사를 실행합니다. 기존 v1의 fixture 조회와 템플릿 대화는 호환성 확인용으로 유지합니다. 프런트엔드 화면 연결과 사용자 인증 및 영구 저장은 별도 작업입니다.
+개별 서버의 기본 모드는 `live`입니다. 모델과 조회에 필요한 MCP 서버를 준비합니다. 루트 Docker Compose는 모델 키 없이 실행하도록 `stub`을 지정합니다. `stub`은 채팅의 모델과 도구 입출력을 테스트용으로 바꾸면서 실제 그래프와 생성기의 근거 검사를 실행합니다. 협력사 v2 조회는 모드와 관계없이 business MCP와 DB를 읽습니다. 회원 인증과 개인 대화 기록은 PostgreSQL에 저장합니다.
 
 실행 방법은 [Backend README](backend/README.md)와 [Agent README](agent/README.md)에 있습니다. 요청 형식은 [Generation HTTP 계약](docs/contracts/agent-generation.md)과 [OpenAPI](docs/contracts/agent-generation.openapi.json)를 확인합니다. 검증 명령은 [통합 검사 가이드](scripts/integration/README.md)를 따릅니다.
 

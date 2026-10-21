@@ -1,0 +1,7 @@
+# Local Compose overrides may contain private credentials.
+/.env
+/.env.*
+!/.env.example
+**/__pycache__/
+**/*.pyc
+.DS_Store
