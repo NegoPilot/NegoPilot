@@ -1,0 +1,27 @@
+{
+  "note": "mail-mcp 전이라도 분해는 draft_email을 낸다",
+  "query": "SUP-0015에 RFQ-2026-006 견적 요청 메일 초안 만들어 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "SUP-0015에 RFQ-2026-006 견적 요청 메일 초안 만들어 줘",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "SUP-0015에 보낼 RFQ-2026-006 견적 요청 메일 초안",
+        "original_text": "SUP-0015에 RFQ-2026-006 견적 요청 메일 초안",
+        "intent": "draft_email",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "supplier": "SUP-0015",
+          "rfq_id": "RFQ-2026-006"
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

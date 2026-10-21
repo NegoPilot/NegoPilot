@@ -1,0 +1,26 @@
+{
+  "note": "숫자 없이 행위가 허용되는지 묻는 질문은 law_check",
+  "query": "2차 협력사한테 단가 인하를 서면 없이 구두로만 요구해도 돼?",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "2차 협력사한테 단가 인하를 서면 없이 구두로만 요구해도 돼?",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "원사업자가 수급사업자에게 서면 없이 구두로 하도급대금 감액을 요구하는 것이 허용되는지",
+        "original_text": "2차 협력사한테 단가 인하를 서면 없이 구두로만 요구해도 돼?",
+        "intent": "law_check",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "law": "subcontract_act"
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

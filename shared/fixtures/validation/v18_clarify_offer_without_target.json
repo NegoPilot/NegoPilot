@@ -1,0 +1,19 @@
+{
+  "note": "대상(협력사·RFQ)과 숫자가 모두 없어 해석마다 답이 달라진다",
+  "query": "단가 괜찮은지 봐 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "clarify",
+    "original_query": "단가 괜찮은지 봐 줘",
+    "sub_queries": [],
+    "clarification": {
+      "reason": "어느 협력사·RFQ의 어떤 단가인지, 법 위반 여부를 보는지 시장 대비 수준을 보는지 불분명",
+      "question": "어떤 협력사·RFQ의 단가를 확인할까요?",
+      "options": [
+        "특정 협력사에 제안할 단가의 하도급법 위반 여부 (협력사, RFQ, 단가 입력)",
+        "특정 RFQ의 협력사별 견적 단가 비교 (RFQ 번호 입력)"
+      ]
+    },
+    "assumptions": []
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "note": "월 생산능력 조건",
+  "query": "월 3만 개 이상 생산 가능한 단조 업체 있어?",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "월 3만 개 이상 생산 가능한 단조 업체 있어?",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "월 생산능력 30,000개 이상인 단조 공정 2차 협력사",
+        "original_text": "월 3만 개 이상 생산 가능한 단조 업체",
+        "intent": "supplier_search",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "process": "단조",
+          "min_monthly_capacity": 30000
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

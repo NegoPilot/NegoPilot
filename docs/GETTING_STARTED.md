@@ -75,7 +75,8 @@ NegoPilot 팀원이 자기 담당 부분을 개발하기 전에 무엇을 읽고
 | 볼 것 | [agent/README.md](../agent/README.md), [평가 보고서](../agent/eval_reports/) |
 | --- | --- |
 
-다음 할 일: 검증용 질문 20~30개 추가(fixtures와 별도), Claude 평가, 모델·effort 기본값 결정
+검증 세트(`shared/fixtures/validation/`, 24개)로 점수를 확인합니다: `uv run python scripts/eval_decomposition.py --set validation --repeat 3`
+다음 할 일: Claude 평가, 모델·effort 기본값 결정
 
 ## 4. 공용 스키마 연결하기
 

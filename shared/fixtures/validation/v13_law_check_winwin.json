@@ -1,0 +1,26 @@
+{
+  "note": "연동제 질문은 상생협력법",
+  "query": "납품대금 연동제 적용 안 받으려면 어떻게 해야 해?",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "납품대금 연동제 적용 안 받으려면 어떻게 해야 해?",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "납품대금 연동 약정의 적용 예외 요건",
+        "original_text": "납품대금 연동제 적용 안 받으려면 어떻게 해야 해?",
+        "intent": "law_check",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "law": "winwin_act"
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}
