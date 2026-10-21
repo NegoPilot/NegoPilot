@@ -1,10 +1,10 @@
 # 협력사 조회와 선택 기업 챗봇 API v0.2
 
-협력사 조회와 선택 기업 질문을 연결하는 stub 전용 HTTP 계약이다. 기준 main은 `8d48d7b2b200c88f0ccfe33c3177057811e38cae`다. 이 PR은 Spring backend와 HTTP 명세 및 fixture를 포함한다. Python HTTP 어댑터와 Vue 화면은 포함하지 않는다. 문서의 Python 내부 경로는 후속 어댑터가 구현할 인터페이스다. v0.2는 agent-http.md v0.1의 query-executions와 agent/queries 경로를 대체하지 않으며 별도 경로로 정의한다.
+협력사 조회와 선택 기업 질문을 연결하는 stub 전용 HTTP 계약이다. 기준 main은 `8d48d7b2b200c88f0ccfe33c3177057811e38cae`다. Spring backend와 Python HTTP 어댑터 및 fixture가 함께 구현돼 있다. Vue 화면은 별도 작업이다. 실제 Agent 생성 답변은 [Generation HTTP 계약 v0.3](agent-generation.md)의 v2 경로를 사용한다. v0.2는 agent-http.md v0.1의 query-executions와 agent/queries 경로를 대체하지 않으며 별도 경로로 정의한다.
 
 ## 범위와 책임
 
-후속 연결 흐름은 Vue → Spring → Python FastAPI 순서다. 아래 동작은 각 구현이 준수할 계약이다. 새 경로는 AGENT_EXECUTION_MODE=stub에서만 작동한다. live에서는 503 DEMO_MODE_REQUIRED와 retryable=false를 반환한다. 실제 모델과 MCP 및 DB를 호출하지 않는다. fixtures/supplier-chat.json이 가상 데이터의 단일 원본이다. 모든 성공 응답은 schema_version="0.2"와 mode="stub"을 포함한다. 후속 Python 어댑터는 조회와 정해진 질문의 템플릿 응답을 담당한다. Spring은 내부 HTTP 호출과 응답 검증 및 메모리 대화 저장을 담당한다. 후속 Vue 화면은 Spring 공개 API만 호출한다.
+연결 흐름은 Vue → Spring → Python FastAPI 순서다. 아래 동작은 각 구현이 준수할 계약이다. 새 경로는 AGENT_EXECUTION_MODE=stub에서만 작동한다. live에서는 503 DEMO_MODE_REQUIRED와 retryable=false를 반환한다. 실제 모델과 MCP 및 DB를 호출하지 않는다. fixtures/supplier-chat.json이 가상 데이터의 단일 원본이다. 모든 성공 응답은 schema_version="0.2"와 mode="stub"을 포함한다. Python 어댑터는 조회와 정해진 질문의 템플릿 응답을 담당한다. Spring은 내부 HTTP 호출과 응답 검증 및 메모리 대화 저장을 담당한다. 후속 Vue 화면은 Spring 공개 API만 호출한다.
 
 기준 main에는 Generation과 LangGraph 실행 코드가 이미 있다. 이 HTTP 계약은 fixture 조회와 템플릿 응답을 정의한다. `generation_status: NOT_IMPLEMENTED`는 이 HTTP 범위에서 코어 Generation을 호출하지 않는다는 뜻이며 코어의 구현 여부와 별개다. 기존 Routing과 Generation 계약 및 공용 스키마는 변경하지 않는다.
 
@@ -44,7 +44,7 @@ StoredMessage = {message_id:UUID,role:"user"|"assistant",content:string,response
 
 Spring은 요청마다 request_id를 생성한다. 저장된 메시지 중 최신 20개를 {role,content} history로 전달한다. 이번 query는 history에 중복 포함하지 않는다. 동일 대화의 요청은 직렬로 처리해 이력 순서와 문맥이 섞이지 않게 한다. 다른 대화의 요청은 독립적이다. HTTP 오류나 잘못된 upstream 응답이면 메시지와 문맥을 저장하지 않는다. 정상 COMPLETED와 NEEDS_INPUT 응답은 사용자와 assistant를 함께 저장한다. 이력은 대화별 최대 100개 메시지로 유지한다. 101개 이상이 되면 가장 오래된 user/assistant 쌍부터 제거한다.
 
-## 후속 Python 챗봇 경로
+## Python 챗봇 경로
 
 POST /internal/v1/chat/responses
 
@@ -103,4 +103,4 @@ Spring은 성공 응답의 필드와 자료형 및 schema_version과 mode를 검
 
 후속 Vue 개발 서버는 /api와 /health를 Spring으로 프록시해야 한다. 화면은 필터 선택 → 조회 → 기업 상세 → AI에게 이 회사 질문하기 → 대화 생성 → 지원 질문 전송 → 답변과 기업 카드 표시 흐름을 제공해야 한다. 모든 화면에서 테스트 데이터와 템플릿 응답임을 표시한다. 기업을 바꾸면 새 대화로 시작한다. 질문 처리 중 중복 전송을 막는다. 실패와 빈 결과 및 기업 미선택 상태를 표시한다. 숫자가 null이면 정보 없음으로 표시한다.
 
-실제 두 프로세스의 통합 검증은 후속 Python HTTP 어댑터를 준비한 뒤 수행한다. 위 흐름과 문맥 유지 및 다른 기업으로 새 대화 생성과 오류 응답을 확인한다. 기존 v0.1 검사도 유지한다. Spring 최종 JAR 빌드 완료 뒤에 실행하며 실행 중 JAR을 다시 빌드하지 않는다. 검증 결과에는 가짜 Python HTTP 응답을 사용한 backend 검사와 실제 두 프로세스 검사를 구분해 기록한다. 실제 모델이나 MCP와 DB를 호출하지 않았는지도 명시한다. 별도 로컬 데모의 완료 기록은 이 PR에 Python 어댑터가 포함됐거나 통합 검증이 완료됐다는 근거로 사용하지 않는다.
+실제 두 프로세스의 통합 검증은 [통합 검사 가이드](../../scripts/integration/README.md)를 따라 수행한다. 위 흐름과 문맥 유지 및 다른 기업으로 새 대화 생성과 오류 응답을 확인한다. 기존 v0.1 검사도 유지한다. Spring 최종 JAR 빌드 완료 뒤에 실행하며 실행 중 JAR을 다시 빌드하지 않는다. 검증 결과에는 가짜 Python HTTP 응답을 사용한 backend 검사와 실제 두 프로세스 검사를 구분해 기록한다. 실제 모델이나 MCP와 DB를 호출하지 않았는지도 명시한다. 검증 결과는 사용한 커밋과 실행 모드 및 실제 호출한 의존성을 함께 기록한다.

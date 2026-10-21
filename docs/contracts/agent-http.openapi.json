@@ -3,7 +3,7 @@
   "info": {
     "title": "NegoPilot Spring Python HTTP contract",
     "version": "0.1.0",
-    "description": "HTTP envelope contract based on main 8d48d7b2b200c88f0ccfe33c3177057811e38cae. This PR contains the Spring backend and contracts but no Python HTTP adapter. Core Generation and graph code already exist. NOT_IMPLEMENTED describes only this HTTP response scope. The current shared decomposition and Routing models remain authoritative. See agent-http.md for mapping and runtime invariants."
+    "description": "Compatibility HTTP envelope for decomposition and Routing based on main 8d48d7b2b200c88f0ccfe33c3177057811e38cae. Spring and Python adapters are implemented together. NOT_IMPLEMENTED applies only to this v0.1 response. Use the v2 endpoints in agent-generation.openapi.json for the complete graph and generated Answer. Shared models remain authoritative. See agent-http.md for mapping and runtime invariants."
   },
   "paths": {
     "/internal/v1/query-executions": {
@@ -14,7 +14,7 @@
       ],
       "post": {
         "operationId": "executeInternalQuery",
-        "summary": "Contract for synchronous decomposition and routing through a future Python HTTP adapter",
+        "summary": "Execute synchronous decomposition and routing through the Python HTTP adapter",
         "requestBody": {
           "required": true,
           "content": {
@@ -92,7 +92,7 @@
             "InternalApiKey": []
           }
         ],
-        "description": "The Python HTTP adapter for this endpoint is not included in this PR. Generation is outside this envelope."
+        "description": "Python executes decomposition and Routing for compatibility. Generation is outside this v0.1 envelope."
       }
     },
     "/api/v1/agent/queries": {
@@ -176,7 +176,7 @@
             }
           }
         },
-        "description": "Spring forwards requests to the internal HTTP adapter contract and validates the response. The Python HTTP adapter is a separate prerequisite. User authentication and persistence are outside this endpoint."
+        "description": "Spring forwards requests to the Python HTTP adapter and validates the response. User authentication and persistence are outside this endpoint."
       }
     },
     "/health": {
@@ -202,7 +202,7 @@
             }
           }
         },
-        "description": "Spring health is implemented by the backend. Python health is required of the future HTTP adapter."
+        "description": "Spring and Python process liveness. This does not check external dependency readiness."
       }
     }
   },

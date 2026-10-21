@@ -24,6 +24,7 @@ from negopilot_agent.routing import ToolCaller, make_route_node
 class AgentState(TypedDict):
     query: str                                   # 이번 사용자 질문
     history: NotRequired[list[dict]]             # [{"role": "user"|"assistant", "content": str}, ...]
+    context: NotRequired[dict[str, list[str]]]    # 화면에서 선택한 기업 ID. 질문과 이력은 그대로 둔다
     decomposition: NotRequired[DecompositionResult]
     routing: NotRequired[RouteResult]
     answer: NotRequired[Answer]

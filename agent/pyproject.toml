@@ -8,11 +8,13 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "anthropic>=1.15.0",
+    "fastapi>=0.115,<1",
     "fastmcp>=4.1.1",
     "httpx2>=2.15.1",
     "langgraph>=1.2.16",
     "negopilot-shared",
     "openai>=3.35.1",
+    "uvicorn>=0.30,<1",
 ]
 
 [build-system]
@@ -24,6 +26,7 @@ negopilot-shared = { path = "../shared", editable = true }
 
 [dependency-groups]
 dev = [
+    "jsonschema>=4.26.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
 ]

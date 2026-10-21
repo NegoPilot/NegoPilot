@@ -1,0 +1,1851 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "NegoPilot Agent Generation HTTP contract",
+    "version": "0.3.0",
+    "description": "Spring and Python execute the latest decomposition → Routing → Generation graph once. Live is the default. Stub substitutes model and tool I/O while keeping the real graph and AnswerGenerator. Existing v1 and fixture APIs retain their contracts. See agent-generation.md for runtime invariants."
+  },
+  "paths": {
+    "/api/v2/agent/queries": {
+      "post": {
+        "operationId": "generatePublicAnswer",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Successful response. Inspect execution_status for Agent execution results.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerationExecutionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Invalid upstream response or internal authentication failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Upstream unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Upstream timeout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicQueryRequest"
+              }
+            }
+          }
+        }
+      },
+      "servers": [
+        {
+          "url": "http://127.0.0.1:8080"
+        }
+      ]
+    },
+    "/internal/v2/query-executions": {
+      "post": {
+        "operationId": "generateInternalAnswer",
+        "security": [
+          {
+            "InternalApiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response. Inspect execution_status for Agent execution results.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerationExecutionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Internal authentication failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Upstream unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Upstream timeout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InternalQueryRequest"
+              }
+            }
+          }
+        }
+      },
+      "servers": [
+        {
+          "url": "http://127.0.0.1:9200"
+        }
+      ]
+    },
+    "/api/v2/conversations": {
+      "post": {
+        "operationId": "createGenerationConversation",
+        "security": [],
+        "responses": {
+          "201": {
+            "description": "Conversation created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationSnapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateConversationRequest"
+              }
+            }
+          }
+        }
+      },
+      "servers": [
+        {
+          "url": "http://127.0.0.1:8080"
+        }
+      ]
+    },
+    "/api/v2/conversations/{conversation_id}": {
+      "get": {
+        "operationId": "getGenerationConversation",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Successful response. Inspect execution_status for Agent execution results.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationSnapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Conversation not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "servers": [
+        {
+          "url": "http://127.0.0.1:8080"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "conversation_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ]
+    },
+    "/api/v2/conversations/{conversation_id}/messages": {
+      "post": {
+        "operationId": "generateConversationMessage",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Successful response. Inspect execution_status for Agent execution results.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerationMessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Conversation not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Invalid upstream response or internal authentication failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Upstream unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Upstream timeout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageRequest"
+              }
+            }
+          }
+        }
+      },
+      "servers": [
+        {
+          "url": "http://127.0.0.1:8080"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "conversation_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ]
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "InternalApiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Internal-Api-Key"
+      }
+    },
+    "schemas": {
+      "HistoryMessage": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant"
+            ]
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "additionalProperties": false
+      },
+      "Clarification": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 2,
+            "maxItems": 4
+          }
+        },
+        "required": [
+          "reason",
+          "question",
+          "options"
+        ],
+        "additionalProperties": false
+      },
+      "SubQuery": {
+        "type": "object",
+        "description": "Existing shared DecompositionResult sub-query. Its full field and intent constraints remain governed by shared/src/negopilot_shared/decomposition.py.",
+        "required": [
+          "id",
+          "question",
+          "original_text",
+          "intent",
+          "grounding",
+          "confidence",
+          "entities",
+          "inputs",
+          "depends_on"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "original_text": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string"
+          },
+          "grounding": {
+            "type": "string",
+            "enum": [
+              "required",
+              "none"
+            ]
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "entities": {
+            "type": "object"
+          },
+          "inputs": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "DecompositionResult": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "enum": [
+              "0.1"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "clarify",
+              "failed"
+            ]
+          },
+          "original_query": {
+            "type": "string"
+          },
+          "sub_queries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SubQuery"
+            },
+            "maxItems": 5
+          },
+          "clarification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Clarification"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "assumptions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "schema_version",
+          "status",
+          "original_query",
+          "sub_queries",
+          "clarification",
+          "assumptions"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "ok"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "sub_queries": {
+                  "minItems": 1
+                },
+                "clarification": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "clarify"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "sub_queries": {
+                  "maxItems": 0
+                },
+                "clarification": {
+                  "$ref": "#/components/schemas/Clarification"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "failed"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "sub_queries": {
+                  "maxItems": 0
+                },
+                "clarification": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ToolCall": {
+        "type": "object",
+        "properties": {
+          "server": {
+            "type": "string"
+          },
+          "tool": {
+            "type": "string"
+          },
+          "args": {
+            "type": "object"
+          },
+          "result": {},
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null or a safe fixed error message at the HTTP boundary. Both calls and referenced_articles are sanitized in the public response copy after upstream validation."
+          }
+        },
+        "required": [
+          "server",
+          "tool",
+          "args",
+          "result",
+          "error"
+        ],
+        "additionalProperties": false,
+        "description": "Serialized shared ToolCall. result retains the original tool payload. HTTP error text must be sanitized in both calls and referenced_articles."
+      },
+      "SubQueryOutcome": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "general_knowledge",
+              "out_of_scope",
+              "unsupported",
+              "missing_args",
+              "empty",
+              "skipped",
+              "error"
+            ]
+          },
+          "calls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolCall"
+            }
+          },
+          "referenced_articles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolCall"
+            },
+            "description": "Existing ToolCall records for prefetched law_refs. Empty when no references were queried. A lookup failure populates only its sanitized error and does not change the parent outcome status."
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null remains null. Every non-null diagnostic message is replaced with a safe fixed message in the public response copy."
+          }
+        },
+        "required": [
+          "id",
+          "intent",
+          "status",
+          "calls",
+          "referenced_articles",
+          "missing",
+          "message"
+        ],
+        "additionalProperties": false,
+        "description": "Serialized shared SubQueryOutcome. Every field is present on the wire. A referenced_articles error does not change an ok outcome to error. message is diagnostic metadata and must not be shown directly to end users.",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "enum": [
+                    "ok",
+                    "error"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "calls": {
+                  "minItems": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "missing_args"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "missing": {
+                  "minItems": 1
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "missing": {
+                  "maxItems": 0
+                }
+              }
+            }
+          }
+        ]
+      },
+      "RouteResult": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "0.1"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "routed",
+              "not_routed"
+            ]
+          },
+          "outcomes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SubQueryOutcome"
+            }
+          },
+          "halted": {
+            "type": "boolean"
+          },
+          "halt_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null remains null. A non-null diagnostic halt reason is replaced with a safe fixed message while halted and outcome statuses are preserved."
+          }
+        },
+        "required": [
+          "schema_version",
+          "status",
+          "outcomes",
+          "halted",
+          "halt_reason"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "not_routed"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "outcomes": {
+                  "maxItems": 0
+                },
+                "halted": {
+                  "const": false
+                },
+                "halt_reason": {
+                  "type": "null"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "outcomes": {
+                  "minItems": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "halted": {
+                  "const": true
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "halt_reason": {
+                  "type": "string"
+                },
+                "outcomes": {
+                  "contains": {
+                    "properties": {
+                      "status": {
+                        "const": "empty"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "halt_reason": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ],
+        "description": "Serialized shared RouteResult v0.1 including default-valued fields. Outcome IDs must be unique and match decomposition sub-query IDs and intents in order. These cross-object invariants require runtime validation. shared/src/negopilot_shared/routing.py is authoritative."
+      },
+      "Context": {
+        "type": "object",
+        "properties": {
+          "selected_supplier_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "pattern": "^[A-Za-z0-9_-]{1,100}$"
+            },
+            "maxItems": 1,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "selected_supplier_ids"
+        ],
+        "additionalProperties": false
+      },
+      "PublicQueryRequest": {
+        "type": "object",
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "pattern": "\\S"
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HistoryMessage"
+            },
+            "maxItems": 20,
+            "default": []
+          },
+          "context": {
+            "$ref": "#/components/schemas/Context",
+            "default": {
+              "selected_supplier_ids": []
+            }
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "InternalQueryRequest": {
+        "type": "object",
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "pattern": "\\S"
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HistoryMessage"
+            },
+            "maxItems": 20,
+            "default": []
+          },
+          "context": {
+            "$ref": "#/components/schemas/Context",
+            "default": {
+              "selected_supplier_ids": []
+            }
+          }
+        },
+        "required": [
+          "request_id",
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "Citation": {
+        "properties": {
+          "n": {
+            "title": "N",
+            "type": "integer"
+          },
+          "evidence_id": {
+            "title": "Evidence Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source Url"
+          }
+        },
+        "required": [
+          "n",
+          "evidence_id",
+          "label",
+          "source_url"
+        ],
+        "title": "Citation",
+        "type": "object",
+        "additionalProperties": false
+      },
+      "Evidence": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "sub_query": {
+            "title": "Sub Query",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "law",
+              "business"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "citable": {
+            "default": true,
+            "title": "Citable",
+            "type": "boolean"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source Url"
+          },
+          "meta": {
+            "additionalProperties": true,
+            "title": "Meta",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "sub_query",
+          "source",
+          "kind",
+          "label",
+          "text",
+          "citable",
+          "source_url",
+          "meta"
+        ],
+        "title": "Evidence",
+        "type": "object",
+        "additionalProperties": false
+      },
+      "VerificationReport": {
+        "description": "근거 검사 결과. 평가 스크립트가 그대로 읽는다.",
+        "properties": {
+          "attempts": {
+            "default": 1,
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "unknown_citations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unknown Citations",
+            "type": "array"
+          },
+          "ungrounded_numbers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ungrounded Numbers",
+            "type": "array"
+          },
+          "ungrounded_articles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ungrounded Articles",
+            "type": "array"
+          },
+          "masked": {
+            "default": false,
+            "title": "Masked",
+            "type": "boolean"
+          }
+        },
+        "title": "VerificationReport",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "attempts",
+          "unknown_citations",
+          "ungrounded_numbers",
+          "ungrounded_articles",
+          "masked"
+        ]
+      },
+      "Answer": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "answer",
+              "clarify",
+              "refusal",
+              "no_result",
+              "failed"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/Citation"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "grounded": {
+            "default": true,
+            "title": "Grounded",
+            "type": "boolean"
+          },
+          "notices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notices",
+            "type": "array"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "verification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VerificationReport"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "kind",
+          "text",
+          "citations",
+          "options",
+          "grounded",
+          "notices",
+          "evidence",
+          "verification"
+        ],
+        "title": "Answer",
+        "type": "object",
+        "additionalProperties": false
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          },
+          "retryable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "retryable"
+        ],
+        "additionalProperties": false
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "required": [
+          "request_id",
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "GenerationExecutionResponse": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": "0.3"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "mode": {
+            "enum": [
+              "live",
+              "stub"
+            ]
+          },
+          "execution_status": {
+            "enum": [
+              "COMPLETED",
+              "NEEDS_INPUT",
+              "FAILED"
+            ]
+          },
+          "generation_status": {
+            "enum": [
+              "COMPLETED",
+              "FAILED"
+            ]
+          },
+          "context": {
+            "$ref": "#/components/schemas/Context"
+          },
+          "decomposition": {
+            "$ref": "#/components/schemas/DecompositionResult"
+          },
+          "routing": {
+            "$ref": "#/components/schemas/RouteResult"
+          },
+          "answer": {
+            "$ref": "#/components/schemas/Answer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Error"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "schema_version",
+          "request_id",
+          "mode",
+          "execution_status",
+          "generation_status",
+          "context",
+          "decomposition",
+          "routing",
+          "answer",
+          "error"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "answer": {
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "answer",
+                        "refusal",
+                        "no_result"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                }
+              },
+              "required": [
+                "answer"
+              ]
+            },
+            "then": {
+              "properties": {
+                "execution_status": {
+                  "const": "COMPLETED"
+                },
+                "generation_status": {
+                  "const": "COMPLETED"
+                },
+                "error": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "answer": {
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "clarify"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                }
+              },
+              "required": [
+                "answer"
+              ]
+            },
+            "then": {
+              "properties": {
+                "execution_status": {
+                  "const": "NEEDS_INPUT"
+                },
+                "generation_status": {
+                  "const": "COMPLETED"
+                },
+                "error": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "answer": {
+                  "properties": {
+                    "kind": {
+                      "const": "failed"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                }
+              },
+              "required": [
+                "answer"
+              ]
+            },
+            "then": {
+              "properties": {
+                "execution_status": {
+                  "const": "FAILED"
+                },
+                "generation_status": {
+                  "const": "FAILED"
+                },
+                "error": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Error"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "DECOMPOSITION_FAILED",
+                            "GENERATION_FAILED"
+                          ]
+                        },
+                        "retryable": {
+                          "const": false
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "decomposition": {
+                        "properties": {
+                          "status": {
+                            "const": "failed"
+                          }
+                        },
+                        "required": [
+                          "status"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "decomposition"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "error": {
+                        "properties": {
+                          "code": {
+                            "const": "DECOMPOSITION_FAILED"
+                          },
+                          "message": {
+                            "const": "Query decomposition failed."
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "error": {
+                        "properties": {
+                          "code": {
+                            "const": "GENERATION_FAILED"
+                          },
+                          "message": {
+                            "const": "Answer generation failed."
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "description": "Final Answer determines status. Cross-object citation identities and decomposition/routing correspondence are checked at runtime. See agent-generation.md."
+      },
+      "GenerationMessageResponse": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": "0.3"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "mode": {
+            "enum": [
+              "live",
+              "stub"
+            ]
+          },
+          "execution_status": {
+            "enum": [
+              "COMPLETED",
+              "NEEDS_INPUT",
+              "FAILED"
+            ]
+          },
+          "generation_status": {
+            "enum": [
+              "COMPLETED",
+              "FAILED"
+            ]
+          },
+          "context": {
+            "$ref": "#/components/schemas/Context"
+          },
+          "decomposition": {
+            "$ref": "#/components/schemas/DecompositionResult"
+          },
+          "routing": {
+            "$ref": "#/components/schemas/RouteResult"
+          },
+          "answer": {
+            "$ref": "#/components/schemas/Answer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Error"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "conversation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "response_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "schema_version",
+          "request_id",
+          "mode",
+          "execution_status",
+          "generation_status",
+          "context",
+          "decomposition",
+          "routing",
+          "answer",
+          "error",
+          "conversation_id",
+          "response_id"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "answer": {
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "answer",
+                        "refusal",
+                        "no_result"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                }
+              },
+              "required": [
+                "answer"
+              ]
+            },
+            "then": {
+              "properties": {
+                "execution_status": {
+                  "const": "COMPLETED"
+                },
+                "generation_status": {
+                  "const": "COMPLETED"
+                },
+                "error": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "answer": {
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "clarify"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                }
+              },
+              "required": [
+                "answer"
+              ]
+            },
+            "then": {
+              "properties": {
+                "execution_status": {
+                  "const": "NEEDS_INPUT"
+                },
+                "generation_status": {
+                  "const": "COMPLETED"
+                },
+                "error": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "answer": {
+                  "properties": {
+                    "kind": {
+                      "const": "failed"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                }
+              },
+              "required": [
+                "answer"
+              ]
+            },
+            "then": {
+              "properties": {
+                "execution_status": {
+                  "const": "FAILED"
+                },
+                "generation_status": {
+                  "const": "FAILED"
+                },
+                "error": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Error"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "DECOMPOSITION_FAILED",
+                            "GENERATION_FAILED"
+                          ]
+                        },
+                        "retryable": {
+                          "const": false
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "decomposition": {
+                        "properties": {
+                          "status": {
+                            "const": "failed"
+                          }
+                        },
+                        "required": [
+                          "status"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "decomposition"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "error": {
+                        "properties": {
+                          "code": {
+                            "const": "DECOMPOSITION_FAILED"
+                          },
+                          "message": {
+                            "const": "Query decomposition failed."
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "error": {
+                        "properties": {
+                          "code": {
+                            "const": "GENERATION_FAILED"
+                          },
+                          "message": {
+                            "const": "Answer generation failed."
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "description": "Final Answer determines status. Cross-object citation identities and decomposition/routing correspondence are checked at runtime. See agent-generation.md."
+      },
+      "CreateConversationRequest": {
+        "type": "object",
+        "properties": {
+          "context": {
+            "$ref": "#/components/schemas/Context"
+          }
+        },
+        "required": [
+          "context"
+        ],
+        "additionalProperties": false
+      },
+      "MessageRequest": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "pattern": "\\S"
+          },
+          "context": {
+            "$ref": "#/components/schemas/Context"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "StoredMessage": {
+        "type": "object",
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ]
+          },
+          "content": {
+            "type": "string"
+          },
+          "response": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GenerationMessageResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "message_id",
+          "role",
+          "content",
+          "response"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "role": {
+                  "const": "user"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "response": {
+                  "type": "null"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "response": {
+                  "$ref": "#/components/schemas/GenerationMessageResponse"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ConversationSnapshot": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": "0.3"
+          },
+          "conversation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "context": {
+            "$ref": "#/components/schemas/Context"
+          },
+          "storage": {
+            "const": "memory"
+          },
+          "messages": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/StoredMessage"
+            }
+          }
+        },
+        "required": [
+          "schema_version",
+          "conversation_id",
+          "context",
+          "storage",
+          "messages"
+        ],
+        "additionalProperties": false
+      }
+    }
+  }
+}

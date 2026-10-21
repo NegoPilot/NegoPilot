@@ -76,9 +76,11 @@ class QueryDecomposer:
         self.backend = backend or make_backend(self.settings, client)
         self.system = build_system_prompt()
 
-    async def decompose(self, query: str, history: list[dict] | None = None) -> DecompositionResult:
+    async def decompose(self, query: str, history: list[dict] | None = None, *,
+                        context: dict[str, list[str]] | None = None) -> DecompositionResult:
         today = date.today()
-        user_message = build_user_message(query, history, today)
+        user_message = (build_user_message(query, history, today) if context is None
+                        else build_user_message(query, history, today, context=context))
         feedback = ""
         for attempt in range(1, self.settings.max_attempts + 1):
             text = await self.backend.generate(self.system, user_message + feedback)

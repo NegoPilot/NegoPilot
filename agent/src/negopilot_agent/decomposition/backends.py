@@ -80,10 +80,42 @@ def inline_refs(schema: dict) -> dict:
     return resolve(schema)
 
 
+_OLLAMA_DIGIT_PATTERNS = {
+    r"^q\d+$": r"^q[0-9]+$",
+    r"^RFQ-\d{4}-\d{3}$": r"^RFQ-[0-9]{4}-[0-9]{3}$",
+    r"^제\d+조(의\d+)?$": r"^제[0-9]+조(의[0-9]+)?$",
+    r"^\d{4}-\d{2}-\d{2}$": r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+}
+
+
+def prepare_ollama_schema(schema: dict) -> dict:
+    """Return an independent schema with the four known digit patterns in ASCII.
+
+    Ollama's grammar converter rejects these \\d escapes. Keep each pattern's
+    structure and restrict only its digits to [0-9]. Other patterns and the
+    source Pydantic schema remain unchanged.
+    """
+    prepared = inline_refs(schema)
+
+    def replace_patterns(node) -> None:
+        if isinstance(node, dict):
+            pattern = node.get("pattern")
+            if isinstance(pattern, str) and pattern in _OLLAMA_DIGIT_PATTERNS:
+                node["pattern"] = _OLLAMA_DIGIT_PATTERNS[pattern]
+            for value in node.values():
+                replace_patterns(value)
+        elif isinstance(node, list):
+            for value in node:
+                replace_patterns(value)
+
+    replace_patterns(prepared)
+    return prepared
+
+
 class OllamaBackend:
     """Ollama /api/chat. format 에 JSON 스키마를 넘겨 출력 형식을 강제한다."""
 
-    OUTPUT_SCHEMA = inline_refs(DecompositionResult.model_json_schema())
+    OUTPUT_SCHEMA = prepare_ollama_schema(DecompositionResult.model_json_schema())
 
     def __init__(self, model: str, base_url: str = "http://localhost:11434",
                  http_client: httpx2.AsyncClient | None = None, timeout: float = 300.0,
@@ -141,7 +173,7 @@ class OpenAIBackend:
         )
         choice = response.choices[0]
         if choice.message.refusal:
-            log.warning("분해 요청 거절: %s", choice.message.refusal)
+            log.warning("모델 요청 거절")
             return None
         if choice.finish_reason == "length":
             log.warning("분해 출력이 max_completion_tokens에서 잘림")

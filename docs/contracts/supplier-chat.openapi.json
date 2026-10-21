@@ -3,7 +3,7 @@
   "info": {
     "title": "NegoPilot Supplier Chat Stub API",
     "version": "0.2",
-    "description": "Stub-only HTTP contract for supplier lookup and selected-company chat against main 8d48d7b2b200c88f0ccfe33c3177057811e38cae. This PR includes the Spring backend plus HTTP specifications and fixtures. Python HTTP adapters and Vue screens are outside this PR. Internal paths specify the interface for a future Python adapter. Core Generation and LangGraph execution already exist on main. generation_status NOT_IMPLEMENTED applies only to this HTTP template-response scope. The v0.2 routes do not replace the v0.1 query execution routes. See supplier-chat.md for cross-field rules and ownership."
+    "description": "Stub-only HTTP contract for supplier lookup and selected-company template chat against main 8d48d7b2b200c88f0ccfe33c3177057811e38cae. Spring and Python HTTP adapters share the fixture. Vue screens are separate. NOT_IMPLEMENTED applies only to this template-response scope. Use agent-generation.openapi.json for real Generation. See supplier-chat.md for cross-field rules and ownership."
   },
   "paths": {
     "/api/v1/business/catalog": {
@@ -383,7 +383,7 @@
             "InternalApiKey": []
           }
         ],
-        "description": "Contract for a future stub-only Python HTTP adapter. The adapter implementation is outside this PR."
+        "description": "Stub-only Python HTTP adapter using the shared fixture. No live model or MCP calls in this compatibility endpoint."
       }
     },
     "/internal/v1/suppliers": {
@@ -519,7 +519,7 @@
             "InternalApiKey": []
           }
         ],
-        "description": "Contract for a future stub-only Python HTTP adapter. The adapter implementation is outside this PR."
+        "description": "Stub-only Python HTTP adapter using the shared fixture. No live model or MCP calls in this compatibility endpoint."
       }
     },
     "/internal/v1/suppliers/{supplier_id}": {
@@ -615,7 +615,7 @@
             "InternalApiKey": []
           }
         ],
-        "description": "Contract for a future stub-only Python HTTP adapter. The adapter implementation is outside this PR."
+        "description": "Stub-only Python HTTP adapter using the shared fixture. No live model or MCP calls in this compatibility endpoint."
       }
     },
     "/internal/v1/chat/responses": {
@@ -708,7 +708,7 @@
             "InternalApiKey": []
           }
         ],
-        "description": "Contract for a future stub-only Python HTTP adapter. The adapter implementation is outside this PR."
+        "description": "Stub-only Python HTTP adapter using the shared fixture. No live model or MCP calls in this compatibility endpoint."
       }
     },
     "/api/v1/conversations": {
