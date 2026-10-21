@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 
+import { safeRedirect, signIn } from '@/stores/session'
 import { isEmail } from '@/utils/validation'
 
+const route = useRoute()
 const router = useRouter()
 
 // '이메일 기억하기'는 이 브라우저에만 남긴다. 저장소를 못 쓰면 기억하지 않는다
@@ -42,7 +44,10 @@ function login(target: 'home' | 'admin') {
   notice.value = null
   if (emailError.value || passwordError.value) return
   writeRemembered(form.remember ? form.email.trim() : null)
-  router.push({ name: target })
+  signIn(form.email.trim(), target === 'admin' ? 'admin' : 'member')
+  // 로그인 전에 열려던 업무 화면이 있으면 그리로 돌아간다
+  const redirect = target === 'home' ? safeRedirect(route.query.redirect) : null
+  router.push(redirect ?? { name: target })
 }
 
 function forgotPassword() {

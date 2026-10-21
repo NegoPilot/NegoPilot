@@ -1,5 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
+import { session } from '@/stores/session'
+
 declare module 'vue-router' {
   interface RouteMeta {
     title?: string
@@ -44,7 +46,7 @@ export const router = createRouter({
       props: true,
       meta: { title: '근거 자료 상세', standalone: true },
     },
-    // ── 로그인 전 (Figma 07~09). 인증 API가 생기기 전이라 업무 화면을 막지는 않는다 ──
+    // ── 로그인 전 (Figma 07~09) ──
     {
       path: '/login',
       name: 'login',
@@ -93,9 +95,17 @@ export const router = createRouter({
       path: '/:pathMatch(.*)*',
       name: 'not-found',
       component: () => import('@/views/NotFoundView.vue'),
-      meta: { title: '페이지 없음' },
+      meta: { title: '페이지 없음', layout: 'public' },
     },
   ],
+})
+
+// 예시 로그인 상태로만 막는다. 인증 API가 생기면 서버 세션 확인으로 바꾼다
+router.beforeEach((to) => {
+  if (to.meta.layout === 'public') return true
+  if (!session.value) return { name: 'login', query: { redirect: to.fullPath } }
+  if (to.meta.layout === 'admin' && session.value.role !== 'admin') return { name: 'home' }
+  return true
 })
 
 router.afterEach((to) => {

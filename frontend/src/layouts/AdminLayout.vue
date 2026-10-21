@@ -1,11 +1,18 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { RouterLink, RouterView, useRoute } from 'vue-router'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 
 import { CURRENT_ADMIN, ORGANIZATION } from '@/data/accounts'
+import { signOut } from '@/stores/session'
 
 // 관리자 화면(10~11): 업무 화면과 다른 사이드바를 쓴다
 const route = useRoute()
+const router = useRouter()
+
+function logout() {
+  signOut()
+  router.push({ name: 'login' })
+}
 const title = computed(() => route.meta.title ?? '관리자')
 
 const NAV = [
@@ -28,7 +35,7 @@ const NAV = [
       </RouterLink>
       <div class="side-bottom">
         <RouterLink :to="{ name: 'home' }" class="btn side-btn">업무 화면으로 →</RouterLink>
-        <RouterLink :to="{ name: 'login' }" class="btn side-btn plain">로그아웃</RouterLink>
+        <button class="btn side-btn plain" type="button" @click="logout">로그아웃</button>
       </div>
     </nav>
 

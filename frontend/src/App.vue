@@ -1,11 +1,18 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { RouterLink, RouterView, useRoute } from 'vue-router'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 
 import AdminLayout from '@/layouts/AdminLayout.vue'
 import PublicLayout from '@/layouts/PublicLayout.vue'
+import { session, signOut } from '@/stores/session'
 
 const route = useRoute()
+const router = useRouter()
+
+function logout() {
+  signOut()
+  router.push({ name: 'login' })
+}
 // 근거 자료 상세는 새 탭에서 단독으로 열리는 화면이라 사이드바를 그리지 않는다
 const standalone = computed(() => route.meta.standalone === true)
 </script>
@@ -38,6 +45,11 @@ const standalone = computed(() => route.meta.standalone === true)
         </svg>
         법규 검토
       </RouterLink>
+      <div v-if="session" class="account">
+        <span class="account-email" :title="session.email">{{ session.email }}</span>
+        <RouterLink v-if="session.role === 'admin'" :to="{ name: 'admin' }" class="btn account-btn">관리자 화면 →</RouterLink>
+        <button class="btn account-btn" type="button" @click="logout">로그아웃</button>
+      </div>
     </nav>
     <div class="content">
       <RouterView />
@@ -96,6 +108,29 @@ const standalone = computed(() => route.meta.standalone === true)
   color: var(--primary);
   font-weight: 600;
 }
+.account {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 24px 0 0;
+}
+.account-email {
+  padding: 0 10px;
+  font-size: 11px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-btn {
+  width: 100%;
+  height: 34px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+  border-color: var(--border);
+}
 .content {
   flex: 999 1 640px;
   min-width: 0;
@@ -110,6 +145,15 @@ const standalone = computed(() => route.meta.standalone === true)
   }
   .brand {
     padding: 0 10px;
+  }
+  .account {
+    margin: 0 0 0 auto;
+    padding: 0;
+    flex-direction: row;
+    align-items: center;
+  }
+  .account-btn {
+    width: auto;
   }
 }
 </style>
