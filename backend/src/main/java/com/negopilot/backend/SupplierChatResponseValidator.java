@@ -15,15 +15,26 @@ import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.JsonNodeFactory;
 import tools.jackson.databind.node.ObjectNode;
 
-/** Checks the stub HTTP contract against its single checked-in fixture. */
+/**
+ * Checks the v0.2 HTTP contract. Stub lookups and chat must equal the checked-in fixture.
+ * Live lookups read business-mcp, so only their shape and filter consistency can be checked.
+ */
 public final class SupplierChatResponseValidator {
     private static final String OVERVIEW_ALIAS = "이 회사의 재무 상태와 납기 지표를 알려줘";
+    private static final Set<String> STUB_SOURCES = Set.of("STUB");
+    private static final Set<String> LIVE_SOURCES = Set.of("DART", "MOCK");
+    private final boolean live;
     private final Map<String, JsonNode> suppliers = new TreeMap<>();
     private final Set<String> supportedQueries;
     private final Map<String, Set<String>> catalogProcesses = new HashMap<>();
     private final Set<String> catalogRegions = new HashSet<>();
 
     public SupplierChatResponseValidator(JsonNode fixture) {
+        this(fixture, false);
+    }
+
+    public SupplierChatResponseValidator(JsonNode fixture, boolean live) {
+        this.live = live;
         object(fixture, "schema_version", "mode", "notice", "supported_queries", "suppliers");
         version(fixture);
         text(fixture.get("notice"), 4000);
@@ -31,7 +42,7 @@ public final class SupplierChatResponseValidator {
         require(supportedQueries.size() == 3);
         array(fixture.get("suppliers"));
         for (JsonNode supplier : fixture.get("suppliers")) {
-            supplierShape(supplier);
+            supplierShape(supplier, STUB_SOURCES);
             String id = supplier.get("supplier_id").stringValue();
             require(suppliers.put(id, supplier.deepCopy()) == null);
             catalogRegions.add(supplier.get("region").stringValue());
@@ -45,7 +56,7 @@ public final class SupplierChatResponseValidator {
     public void validateCatalog(JsonNode body) {
         JsonNode data = data(body);
         object(data, "processes", "regions");
-        require(strings(data.get("regions"), 100).equals(catalogRegions));
+        Set<String> regions = strings(data.get("regions"), 100);
         array(data.get("processes"));
         Map<String, Set<String>> processes = new HashMap<>();
         for (JsonNode entry : data.get("processes")) {
@@ -53,6 +64,8 @@ public final class SupplierChatResponseValidator {
             String process = text(entry.get("process"), 100);
             require(processes.put(process, strings(entry.get("materials"), 100)) == null);
         }
+        if (live) return;
+        require(regions.equals(catalogRegions));
         require(processes.equals(catalogProcesses));
     }
 
@@ -71,6 +84,11 @@ public final class SupplierChatResponseValidator {
             require(normalizedFilters.get("iatf_required").isBoolean());
             iatf = normalizedFilters.get("iatf_required").booleanValue();
         }
+        boolean iso = false;
+        if (normalizedFilters.has("iso14001_required")) {
+            require(normalizedFilters.get("iso14001_required").isBoolean());
+            iso = normalizedFilters.get("iso14001_required").booleanValue();
+        }
         int minCapacity = 0;
         if (normalizedFilters.has("min_monthly_capacity")) {
             integer(normalizedFilters.get("min_monthly_capacity"), 1, 10_000_000);
@@ -82,10 +100,16 @@ public final class SupplierChatResponseValidator {
             limit = normalizedFilters.get("limit").intValue();
         }
         require(data.get("limit").intValue() == limit);
+        if (live) {
+            liveSearch(data.get("items"), process, material, region, iatf, iso, minCapacity, limit);
+            require(data.get("returned_count").intValue() == data.get("items").size());
+            return;
+        }
         List<JsonNode> expected = new ArrayList<>();
         for (JsonNode supplier : suppliers.values()) {
             if ((region != null && !region.equals(supplier.get("region").stringValue()))
-                    || (iatf && !supplier.get("iatf16949").booleanValue())) continue;
+                    || (iatf && !supplier.get("iatf16949").booleanValue())
+                    || (iso && !supplier.get("iso14001").booleanValue())) continue;
             ArrayNode matched = JsonNodeFactory.instance.arrayNode();
             for (JsonNode capability : supplier.get("capabilities")) {
                 if (process.equals(capability.get("process").stringValue())
@@ -96,7 +120,7 @@ public final class SupplierChatResponseValidator {
             }
             if (!matched.isEmpty()) {
                 ObjectNode summary = JsonNodeFactory.instance.objectNode();
-                for (String field : List.of("supplier_id", "name", "region", "iatf16949", "provenance")) {
+                for (String field : List.of("supplier_id", "name", "region", "iatf16949", "iso14001", "provenance")) {
                     summary.set(field, supplier.get(field));
                 }
                 summary.set("matched_capabilities", matched);
@@ -108,14 +132,45 @@ public final class SupplierChatResponseValidator {
         require(items.size() == expected.size() && data.get("returned_count").intValue() == items.size());
         for (int index = 0; index < items.size(); index++) {
             JsonNode item = items.get(index);
-            object(item, "supplier_id", "name", "region", "iatf16949", "matched_capabilities", "provenance");
+            object(item, "supplier_id", "name", "region", "iatf16949", "iso14001", "matched_capabilities",
+                    "provenance");
             capabilities(item.get("matched_capabilities"));
             require(sameJson(item, expected.get(index)));
         }
     }
 
     public void validateDetail(JsonNode body, String supplierId) {
-        detail(data(body), supplierId);
+        JsonNode data = data(body);
+        if (live) {
+            supplierShape(data, LIVE_SOURCES);
+            literal(data.get("supplier_id"), supplierId);
+        } else {
+            detail(data, supplierId);
+        }
+    }
+
+    private static void liveSearch(JsonNode items, String process, String material, String region, boolean iatf,
+                                   boolean iso, int minCapacity, int limit) {
+        require(items.size() <= limit);
+        String previous = null;
+        for (JsonNode item : items) {
+            object(item, "supplier_id", "name", "region", "iatf16949", "iso14001", "matched_capabilities",
+                    "provenance");
+            String id = text(item.get("supplier_id"), 100);
+            require(previous == null || previous.compareTo(id) < 0);
+            previous = id;
+            text(item.get("name"), 100);
+            require(region == null || region.equals(text(item.get("region"), 100)));
+            require(item.get("iatf16949").isBoolean() && (!iatf || item.get("iatf16949").booleanValue()));
+            require(item.get("iso14001").isBoolean() && (!iso || item.get("iso14001").booleanValue()));
+            provenance(item.get("provenance"), LIVE_SOURCES);
+            capabilities(item.get("matched_capabilities"));
+            for (JsonNode capability : item.get("matched_capabilities")) {
+                require(process.equals(capability.get("process").stringValue())
+                        && (material == null || material.equals(capability.get("material").stringValue()))
+                        && capability.get("monthly_capacity").intValue() >= minCapacity);
+            }
+        }
     }
 
     public void validateChat(JsonNode body, UUID requestId, UUID conversationId, JsonNode context, String query) {
@@ -172,16 +227,16 @@ public final class SupplierChatResponseValidator {
     }
 
     private void detail(JsonNode actual, String supplierId) {
-        supplierShape(actual);
+        supplierShape(actual, STUB_SOURCES);
         JsonNode expected = suppliers.get(supplierId);
         require(expected != null && sameJson(actual, expected));
     }
 
-    private static void supplierShape(JsonNode supplier) {
-        object(supplier, "supplier_id", "name", "region", "iatf16949", "capabilities", "quality", "financials",
+    private static void supplierShape(JsonNode supplier, Set<String> sources) {
+        object(supplier, "supplier_id", "name", "region", "iatf16949", "iso14001", "capabilities", "quality", "financials",
                 "recent_quotes", "existing_contract", "provenance");
         for (String field : List.of("supplier_id", "name", "region")) text(supplier.get(field), 100);
-        require(supplier.get("iatf16949").isBoolean());
+        require(supplier.get("iatf16949").isBoolean() && supplier.get("iso14001").isBoolean());
         capabilities(supplier.get("capabilities"));
         JsonNode quality = supplier.get("quality");
         object(quality, "defect_ppm", "on_time_delivery_rate");
@@ -194,7 +249,7 @@ public final class SupplierChatResponseValidator {
             nullableNumber(financial.get("revenue_krw"));
             nullableNumber(financial.get("operating_profit_krw"));
             nullableNumber(financial.get("debt_ratio"));
-            literal(financial.get("source"), "STUB");
+            require(sources.contains(text(financial.get("source"), 100)));
         }
         array(supplier.get("recent_quotes"));
         for (JsonNode quote : supplier.get("recent_quotes")) {
@@ -212,9 +267,14 @@ public final class SupplierChatResponseValidator {
             integer(contract.get("payment_days"), 0, Integer.MAX_VALUE);
             require(contract.get("price_linkage").isBoolean());
         }
-        JsonNode provenance = supplier.get("provenance");
+        provenance(supplier.get("provenance"), sources);
+    }
+
+    private static void provenance(JsonNode provenance, Set<String> sources) {
         object(provenance, "profile", "financials", "operations");
-        for (String field : List.of("profile", "financials", "operations")) literal(provenance.get(field), "STUB");
+        for (String field : List.of("profile", "financials", "operations")) {
+            require(sources.contains(text(provenance.get(field), 100)));
+        }
     }
 
     private static void capabilities(JsonNode capabilities) {
@@ -235,15 +295,19 @@ public final class SupplierChatResponseValidator {
         return selected.isEmpty() ? null : selected.iterator().next();
     }
 
-    private static JsonNode data(JsonNode body) {
+    private JsonNode data(JsonNode body) {
         object(body, "schema_version", "mode", "data");
-        version(body);
+        version(body, live ? "live" : "stub");
         return body.get("data");
     }
 
     private static void version(JsonNode body) {
+        version(body, "stub");
+    }
+
+    private static void version(JsonNode body, String mode) {
         literal(body.get("schema_version"), "0.2");
-        literal(body.get("mode"), "stub");
+        literal(body.get("mode"), mode);
     }
 
     private static String uuid(JsonNode value) {

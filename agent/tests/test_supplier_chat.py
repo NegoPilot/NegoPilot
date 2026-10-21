@@ -165,6 +165,9 @@ async def test_catalog_is_derived_from_fixture_without_duplicates():
     ({"process": "프레스", "iatf_required": "false"}, ["SUP-0052"], 20),
     ({"process": "프레스", "iatf_required": "true"}, [], 20),
     ({"process": "다이캐스팅", "iatf_required": "true", "limit": "100"}, ["SUP-0034", "SUP-0041"], 100),
+    ({"process": "다이캐스팅", "iso14001_required": "true"}, ["SUP-0034"], 20),
+    ({"process": "다이캐스팅", "iso14001_required": "false"}, ["SUP-0034", "SUP-0041"], 20),
+    ({"process": "프레스", "iatf_required": "true", "iso14001_required": "true"}, [], 20),
     ({"process": "없는 공정"}, [], 20),
     ({"process": "다이캐스팅", "material": "없는 소재"}, [], 20),
     ({"process": "다이캐스팅", "region": "없는 지역"}, [], 20),
@@ -186,7 +189,7 @@ async def test_search_filters_groups_and_limits_suppliers(params, expected_ids, 
                         and ("material" not in params or cap["material"] == params["material"].strip())
                         and cap["monthly_capacity"] >= int(params.get("min_monthly_capacity", 0))]
         assert item == {key: supplier[key] for key in
-                        ("supplier_id", "name", "region", "iatf16949", "provenance")} | {
+                        ("supplier_id", "name", "region", "iatf16949", "iso14001", "provenance")} | {
             "matched_capabilities": capabilities}
 
 
@@ -203,6 +206,8 @@ async def test_search_filters_groups_and_limits_suppliers(params, expected_ids, 
     {"process": "프레스", "iatf_required": "1"},
     {"process": "프레스", "iatf_required": "True"},
     {"process": "프레스", "iatf_required": "yes"},
+    {"process": "프레스", "iso14001_required": "1"},
+    {"process": "프레스", "iso14001_required": "True"},
     {"process": "프레스", "limit": "0"},
     {"process": "프레스", "limit": "101"},
     {"process": "프레스", "limit": "1.5"},
@@ -284,9 +289,9 @@ async def test_detail_rejects_invalid_single_segment_supplier_id(supplier_id):
 @pytest.mark.parametrize(("mode", "headers", "status", "code"), [
     ("stub", HEADERS, 400, "VALIDATION_ERROR"),
     ("stub", {}, 401, "UNAUTHORIZED"),
-    ("live", HEADERS, 503, "DEMO_MODE_REQUIRED"),
+    ("live", HEADERS, 400, "VALIDATION_ERROR"),
 ])
-async def test_slash_supplier_path_preserves_authentication_and_demo_guards(suffix, mode, headers, status, code):
+async def test_slash_supplier_path_preserves_authentication_guard_in_both_modes(suffix, mode, headers, status, code):
     response = await request(app_for(mode=mode), "GET", SEARCH + "/" + suffix, headers=headers)
     assert_error(response, status, code)
 
@@ -428,8 +433,8 @@ async def test_all_new_routes_require_internal_key(method, path, headers):
     assert "private-wrong-key" not in response.text
 
 
-@pytest.mark.parametrize(("method", "path"), ROUTES)
-async def test_live_mode_rejects_demo_routes_without_external_calls(method, path):
+@pytest.mark.parametrize(("method", "path"), [("POST", CHAT)])
+async def test_live_mode_rejects_chat_without_external_calls(method, path):
     service = BlockingService(error=AssertionError("Live demo guard must run before the service"))
     app = create_app(settings=ApiSettings(mode="live", internal_api_key=API_KEY),
                      supplier_chat_service=service)

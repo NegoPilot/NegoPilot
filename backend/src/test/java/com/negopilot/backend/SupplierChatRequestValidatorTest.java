@@ -20,7 +20,7 @@ class SupplierChatRequestValidatorTest {
     @Test
     void searchTrimsFiltersAndAppliesTypedDefaults() {
         ObjectNode result = validator.search(Map.of("process", new String[]{" \t다이캐스팅\u00a0"}));
-        assertThat(result).isEqualTo(JSON.readTree("{\"process\":\"다이캐스팅\",\"iatf_required\":false,\"limit\":20}"));
+        assertThat(result).isEqualTo(JSON.readTree("{\"process\":\"다이캐스팅\",\"iatf_required\":false,\"iso14001_required\":false,\"limit\":20}"));
     }
 
     @Test
@@ -29,7 +29,7 @@ class SupplierChatRequestValidatorTest {
                 "material", new String[]{" ADC12 "}, "region", new String[]{"\u0085인천\u0085"},
                 "iatf_required", new String[]{"true"}, "limit", new String[]{"100"}));
         assertThat(result).isEqualTo(JSON.readTree("""
-                {"process":"다이캐스팅","material":"ADC12","region":"인천","iatf_required":true,"limit":100}
+                {"process":"다이캐스팅","material":"ADC12","region":"인천","iatf_required":true,"iso14001_required":false,"limit":100}
                 """));
     }
 
@@ -38,7 +38,7 @@ class SupplierChatRequestValidatorTest {
         ObjectNode result = validator.search(Map.of("process", new String[]{"다이캐스팅"},
                 "min_monthly_capacity", new String[]{"50000"}));
         assertThat(result).isEqualTo(JSON.readTree("""
-                {"process":"다이캐스팅","iatf_required":false,"min_monthly_capacity":50000,"limit":20}
+                {"process":"다이캐스팅","iatf_required":false,"iso14001_required":false,"min_monthly_capacity":50000,"limit":20}
                 """));
         assertThat(validator.search(Map.of("process", new String[]{"a"}, "min_monthly_capacity", new String[]{"1"}))
                 .path("min_monthly_capacity").intValue()).isEqualTo(1);
@@ -70,6 +70,8 @@ class SupplierChatRequestValidatorTest {
                 Map.of("process", new String[]{"a"}, "iatf_required", new String[]{"1"}),
                 Map.of("process", new String[]{"a"}, "iatf_required", new String[]{" true "}),
                 Map.of("process", new String[]{"a"}, "iatf_required", new String[]{"false", "false"}),
+                Map.of("process", new String[]{"a"}, "iso14001_required", new String[]{"True"}),
+                Map.of("process", new String[]{"a"}, "iso14001_required", new String[]{"1"}),
                 Map.of("process", new String[]{"a"}, "limit", new String[]{"0"}),
                 Map.of("process", new String[]{"a"}, "limit", new String[]{"101"}),
                 Map.of("process", new String[]{"a"}, "limit", new String[]{"-1"}),

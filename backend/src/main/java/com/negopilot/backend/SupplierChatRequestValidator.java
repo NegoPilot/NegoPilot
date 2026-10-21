@@ -10,7 +10,7 @@ import tools.jackson.databind.node.ObjectNode;
 @Component
 final class SupplierChatRequestValidator {
     private static final Set<String> SEARCH_FIELDS = Set.of(
-            "process", "material", "region", "iatf_required", "min_monthly_capacity", "limit");
+            "process", "material", "region", "iatf_required", "iso14001_required", "min_monthly_capacity", "limit");
 
     record MessageRequest(String query, ObjectNode context) {}
 
@@ -26,9 +26,11 @@ final class SupplierChatRequestValidator {
         for (String key : Set.of("process", "material", "region")) {
             if (parameters.containsKey(key)) result.put(key, normalizedText(parameters.get(key)[0], 100));
         }
-        String certification = parameters.containsKey("iatf_required") ? parameters.get("iatf_required")[0] : "false";
-        if (!(certification.equals("true") || certification.equals("false"))) throw invalid();
-        result.put("iatf_required", Boolean.parseBoolean(certification));
+        for (String key : new String[]{"iatf_required", "iso14001_required"}) {
+            String certification = parameters.containsKey(key) ? parameters.get(key)[0] : "false";
+            if (!(certification.equals("true") || certification.equals("false"))) throw invalid();
+            result.put(key, Boolean.parseBoolean(certification));
+        }
 
         if (parameters.containsKey("min_monthly_capacity")) {
             result.put("min_monthly_capacity", boundedInteger(parameters.get("min_monthly_capacity")[0], 1, 10_000_000));

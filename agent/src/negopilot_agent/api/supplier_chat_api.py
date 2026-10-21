@@ -1,4 +1,7 @@
-"""Stub-only v0.2 routes sharing the v0.1 authentication and error envelope."""
+"""v0.2 supplier routes sharing the v0.1 authentication and error envelope.
+
+Lookups read the fixture in stub mode and business-mcp in live mode. Chat is stub-only.
+"""
 
 import asyncio
 import re
@@ -10,6 +13,7 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from .models import ErrorResponse
+from .business_supplier_service import BusinessSupplierService, BusinessUnavailable
 from .settings import ApiSettings
 from .supplier_chat_models import (
     CatalogResponse, ChatRequest, ChatResponse, StrictModel, SupplierDetailResponse,
@@ -32,12 +36,14 @@ def parse_search(request: Request) -> SupplierSearch:
     values: dict[str, Any] = dict(pairs)
     if len(pairs) != len(values):
         raise ValueError("Duplicate query parameters")
-    if set(values) - {"process", "material", "region", "iatf_required", "min_monthly_capacity", "limit"}:
+    if set(values) - {"process", "material", "region", "iatf_required", "iso14001_required",
+                      "min_monthly_capacity", "limit"}:
         raise ValueError("Unknown query parameter")
-    if "iatf_required" in values:
-        if values["iatf_required"] not in {"true", "false"}:
-            raise ValueError("Boolean query parameter must be true or false")
-        values["iatf_required"] = values["iatf_required"] == "true"
+    for field in ("iatf_required", "iso14001_required"):
+        if field in values:
+            if values[field] not in {"true", "false"}:
+                raise ValueError("Boolean query parameter must be true or false")
+            values[field] = values[field] == "true"
     for field in ("min_monthly_capacity", "limit"):
         if field in values:
             if not re.fullmatch(r"[0-9]+", values[field]):
@@ -53,6 +59,7 @@ def add_supplier_chat_routes(
     error_response: Callable,
     extract_request_id: Callable,
     service: SupplierChatService | None = None,
+    lookup_service: BusinessSupplierService | None = None,
 ) -> None:
     async def require_demo() -> None:
         if settings.mode != "stub":
@@ -68,7 +75,7 @@ def add_supplier_chat_routes(
 
     router = APIRouter(
         prefix="/internal/v1",
-        dependencies=[Depends(authenticate), Depends(require_demo)],
+        dependencies=[Depends(authenticate)],
         responses={status: {"model": ErrorResponse} for status in (400, 401, 404, 500, 503, 504)},
     )
 
@@ -78,6 +85,14 @@ def add_supplier_chat_routes(
             service = SupplierChatService()
         return service
 
+    def get_lookup() -> SupplierChatService | BusinessSupplierService:
+        nonlocal lookup_service
+        if settings.mode == "stub":
+            return get_service()
+        if lookup_service is None:
+            lookup_service = BusinessSupplierService()
+        return lookup_service
+
     async def run(operation: Callable[[], Awaitable[StrictModel]], response_model: type[StrictModel],
                   request_id: str | None = None) -> JSONResponse:
         try:
@@ -86,6 +101,8 @@ def add_supplier_chat_routes(
                 return JSONResponse(content=result.model_dump(mode="json"))
         except SupplierNotFound:
             return error_response(404, request_id, "SUPPLIER_NOT_FOUND", "Supplier was not found.")
+        except BusinessUnavailable:
+            return error_response(503, request_id, "UPSTREAM_UNAVAILABLE", "Business data service is unavailable.", True)
         except TimeoutError:
             return error_response(504, request_id, "UPSTREAM_TIMEOUT", "Execution timed out.", True)
         except Exception:
@@ -97,7 +114,7 @@ def add_supplier_chat_routes(
             return error_response(400, None, "VALIDATION_ERROR", "Invalid request.")
 
         async def operation() -> CatalogResponse:
-            return CatalogResponse(schema_version="0.2", mode="stub", data=await get_service().catalog())
+            return CatalogResponse(schema_version="0.2", mode=settings.mode, data=await get_lookup().catalog())
 
         return await run(operation, CatalogResponse)
 
@@ -110,7 +127,7 @@ def add_supplier_chat_routes(
 
         async def operation() -> SupplierSearchResponse:
             result = SupplierSearchResponse(
-                schema_version="0.2", mode="stub", data=await get_service().search(filters)
+                schema_version="0.2", mode=settings.mode, data=await get_lookup().search(filters)
             )
             if result.data.limit != filters.limit:
                 raise ValueError("Response limit does not match request")
@@ -125,7 +142,7 @@ def add_supplier_chat_routes(
 
         async def operation() -> SupplierDetailResponse:
             result = SupplierDetailResponse(
-                schema_version="0.2", mode="stub", data=await get_service().detail(supplier_id)
+                schema_version="0.2", mode=settings.mode, data=await get_lookup().detail(supplier_id)
             )
             if result.data.supplier_id != supplier_id:
                 raise ValueError("Response supplier does not match request")
@@ -133,7 +150,7 @@ def add_supplier_chat_routes(
 
         return await run(operation, SupplierDetailResponse)
 
-    @router.post("/chat/responses", response_model=ChatResponse)
+    @router.post("/chat/responses", response_model=ChatResponse, dependencies=[Depends(require_demo)])
     async def respond(body: ChatRequest) -> JSONResponse:
         async def operation() -> ChatResponse:
             result = ChatResponse.model_validate(await get_service().respond(body))
