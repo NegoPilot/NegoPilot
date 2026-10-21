@@ -133,6 +133,17 @@ class SupplierChatHttpIntegrationTest {
     }
 
     @Test
+    void searchFiltersByMinimumMonthlyCapacity() throws Exception {
+        var response = get("/api/v1/suppliers?process=" + encode("다이캐스팅") + "&min_monthly_capacity=50000");
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        JsonNode items = body(response).path("data").path("items");
+        assertThat(items.size()).isEqualTo(1);
+        assertThat(items.get(0).path("supplier_id").stringValue()).isEqualTo("SUP-0034");
+        assertThat(items.get(0).path("matched_capabilities").size()).isEqualTo(1);
+        assertThat(REQUESTS.get(0).parameters().get("min_monthly_capacity")).isEqualTo("50000");
+    }
+
+    @Test
     void preservesLiteralSpecialCharactersInSearchParameter() throws Exception {
         String process = "A+B% &?";
         var response = get("/api/v1/suppliers?process=" + encode(process));
@@ -145,7 +156,8 @@ class SupplierChatHttpIntegrationTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"", "?process=", "?process=x&process=y", "?process=x&extra=1", "?process=x&limit=0",
-            "?process=x&limit=101", "?process=x&iatf_required=1", "?process=x&region="})
+            "?process=x&limit=101", "?process=x&iatf_required=1", "?process=x&region=",
+            "?process=x&min_monthly_capacity=0", "?process=x&min_monthly_capacity=abc"})
     void invalidSearchIsRejectedWithoutCallingPython(String query) throws Exception {
         assertError(get("/api/v1/suppliers" + query), 400, "VALIDATION_ERROR", false);
         assertThat(REQUESTS).isEmpty();
@@ -515,7 +527,8 @@ class SupplierChatHttpIntegrationTest {
                 ArrayNode capabilities = JSON.createArrayNode();
                 for (JsonNode capability : supplier.path("capabilities")) {
                     if (capability.path("process").stringValue().equals(filters.get("process"))
-                            && (!filters.containsKey("material") || capability.path("material").stringValue().equals(filters.get("material")))) {
+                            && (!filters.containsKey("material") || capability.path("material").stringValue().equals(filters.get("material")))
+                            && capability.path("monthly_capacity").intValue() >= Integer.parseInt(filters.getOrDefault("min_monthly_capacity", "0"))) {
                         capabilities.add(capability.deepCopy());
                     }
                 }

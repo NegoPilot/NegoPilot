@@ -168,6 +168,10 @@ async def test_catalog_is_derived_from_fixture_without_duplicates():
     ({"process": "없는 공정"}, [], 20),
     ({"process": "다이캐스팅", "material": "없는 소재"}, [], 20),
     ({"process": "다이캐스팅", "region": "없는 지역"}, [], 20),
+    ({"process": "다이캐스팅", "min_monthly_capacity": "30000"}, ["SUP-0034", "SUP-0041"], 20),
+    ({"process": "다이캐스팅", "min_monthly_capacity": "42000"}, ["SUP-0034", "SUP-0041"], 20),
+    ({"process": "다이캐스팅", "min_monthly_capacity": "50000"}, ["SUP-0034"], 20),
+    ({"process": "다이캐스팅", "min_monthly_capacity": "60001"}, [], 20),
 ])
 async def test_search_filters_groups_and_limits_suppliers(params, expected_ids, limit):
     data = lookup_data(await request(app_for(), "GET", SEARCH, params=params))
@@ -179,7 +183,8 @@ async def test_search_filters_groups_and_limits_suppliers(params, expected_ids, 
         supplier = SUPPLIERS[item["supplier_id"]]
         capabilities = [cap for cap in supplier["capabilities"]
                         if cap["process"] == params["process"].strip()
-                        and ("material" not in params or cap["material"] == params["material"].strip())]
+                        and ("material" not in params or cap["material"] == params["material"].strip())
+                        and cap["monthly_capacity"] >= int(params.get("min_monthly_capacity", 0))]
         assert item == {key: supplier[key] for key in
                         ("supplier_id", "name", "region", "iatf16949", "provenance")} | {
             "matched_capabilities": capabilities}
@@ -202,6 +207,12 @@ async def test_search_filters_groups_and_limits_suppliers(params, expected_ids, 
     {"process": "프레스", "limit": "101"},
     {"process": "프레스", "limit": "1.5"},
     {"process": "프레스", "limit": "true"},
+    {"process": "프레스", "min_monthly_capacity": "0"},
+    {"process": "프레스", "min_monthly_capacity": "10000001"},
+    {"process": "프레스", "min_monthly_capacity": "-1"},
+    {"process": "프레스", "min_monthly_capacity": "1.5"},
+    {"process": "프레스", "min_monthly_capacity": ""},
+    [("process", "프레스"), ("min_monthly_capacity", "1"), ("min_monthly_capacity", "2")],
     {"process": "프레스", "unknown": "private-query-value"},
     {"process": "프레스", "offset": "0"},
     [("process", "프레스"), ("process", "프레스")],

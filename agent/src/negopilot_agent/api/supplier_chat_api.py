@@ -32,16 +32,17 @@ def parse_search(request: Request) -> SupplierSearch:
     values: dict[str, Any] = dict(pairs)
     if len(pairs) != len(values):
         raise ValueError("Duplicate query parameters")
-    if set(values) - {"process", "material", "region", "iatf_required", "limit"}:
+    if set(values) - {"process", "material", "region", "iatf_required", "min_monthly_capacity", "limit"}:
         raise ValueError("Unknown query parameter")
     if "iatf_required" in values:
         if values["iatf_required"] not in {"true", "false"}:
             raise ValueError("Boolean query parameter must be true or false")
         values["iatf_required"] = values["iatf_required"] == "true"
-    if "limit" in values:
-        if not re.fullmatch(r"[0-9]+", values["limit"]):
-            raise ValueError("Limit must be an integer")
-        values["limit"] = int(values["limit"])
+    for field in ("min_monthly_capacity", "limit"):
+        if field in values:
+            if not re.fullmatch(r"[0-9]+", values[field]):
+                raise ValueError(f"{field} must be an integer")
+            values[field] = int(values[field])
     return SupplierSearch.model_validate(values)
 
 

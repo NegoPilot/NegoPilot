@@ -119,6 +119,8 @@ class SupplierChatService:
                 for capability in supplier.capabilities
                 if capability.process == filters.process
                 and (filters.material is None or capability.material == filters.material)
+                and (filters.min_monthly_capacity is None
+                     or capability.monthly_capacity >= filters.min_monthly_capacity)
             ]
             if not matched:
                 continue

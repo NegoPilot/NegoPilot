@@ -34,6 +34,19 @@ class SupplierChatRequestValidatorTest {
     }
 
     @Test
+    void searchAcceptsMinimumMonthlyCapacityRange() {
+        ObjectNode result = validator.search(Map.of("process", new String[]{"다이캐스팅"},
+                "min_monthly_capacity", new String[]{"50000"}));
+        assertThat(result).isEqualTo(JSON.readTree("""
+                {"process":"다이캐스팅","iatf_required":false,"min_monthly_capacity":50000,"limit":20}
+                """));
+        assertThat(validator.search(Map.of("process", new String[]{"a"}, "min_monthly_capacity", new String[]{"1"}))
+                .path("min_monthly_capacity").intValue()).isEqualTo(1);
+        assertThat(validator.search(Map.of("process", new String[]{"a"}, "min_monthly_capacity", new String[]{"10000000"}))
+                .path("min_monthly_capacity").intValue()).isEqualTo(10_000_000);
+    }
+
+    @Test
     void searchCountsUnicodeCodePointsAfterTrimming() {
         ObjectNode result = validator.search(Map.of("process", new String[]{" " + "😀".repeat(100) + " "}));
         assertThat(result.path("process").stringValue()).isEqualTo("😀".repeat(100));
@@ -64,6 +77,12 @@ class SupplierChatRequestValidatorTest {
                 Map.of("process", new String[]{"a"}, "limit", new String[]{"abc"}),
                 Map.of("process", new String[]{"a"}, "limit", new String[]{"99999999999999999"}),
                 Map.of("process", new String[]{"a"}, "limit", new String[]{"1", "2"}),
+                Map.of("process", new String[]{"a"}, "min_monthly_capacity", new String[]{"0"}),
+                Map.of("process", new String[]{"a"}, "min_monthly_capacity", new String[]{"10000001"}),
+                Map.of("process", new String[]{"a"}, "min_monthly_capacity", new String[]{"-1"}),
+                Map.of("process", new String[]{"a"}, "min_monthly_capacity", new String[]{"1.5"}),
+                Map.of("process", new String[]{"a"}, "min_monthly_capacity", new String[]{""}),
+                Map.of("process", new String[]{"a"}, "min_monthly_capacity", new String[]{"1", "2"}),
                 Map.of("process", new String[]{"a"}, "extra", new String[]{"x"})
         );
     }

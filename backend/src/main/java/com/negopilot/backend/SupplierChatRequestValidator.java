@@ -9,7 +9,8 @@ import tools.jackson.databind.node.ObjectNode;
 
 @Component
 final class SupplierChatRequestValidator {
-    private static final Set<String> SEARCH_FIELDS = Set.of("process", "material", "region", "iatf_required", "limit");
+    private static final Set<String> SEARCH_FIELDS = Set.of(
+            "process", "material", "region", "iatf_required", "min_monthly_capacity", "limit");
 
     record MessageRequest(String query, ObjectNode context) {}
 
@@ -29,16 +30,11 @@ final class SupplierChatRequestValidator {
         if (!(certification.equals("true") || certification.equals("false"))) throw invalid();
         result.put("iatf_required", Boolean.parseBoolean(certification));
 
-        String rawLimit = parameters.containsKey("limit") ? parameters.get("limit")[0] : "20";
-        if (!rawLimit.matches("[0-9]+")) throw invalid();
-        int limit;
-        try {
-            limit = Integer.parseInt(rawLimit);
-        } catch (NumberFormatException ignored) {
-            throw invalid();
+        if (parameters.containsKey("min_monthly_capacity")) {
+            result.put("min_monthly_capacity", boundedInteger(parameters.get("min_monthly_capacity")[0], 1, 10_000_000));
         }
-        if (limit < 1 || limit > 100) throw invalid();
-        return result.put("limit", limit);
+        String rawLimit = parameters.containsKey("limit") ? parameters.get("limit")[0] : "20";
+        return result.put("limit", boundedInteger(rawLimit, 1, 100));
     }
 
     ObjectNode create(JsonNode body) {
@@ -83,6 +79,18 @@ final class SupplierChatRequestValidator {
         String value = trimWhitespace(raw);
         int length = value.codePointCount(0, value.length());
         if (length < 1 || length > maxLength) throw invalid();
+        return value;
+    }
+
+    private static int boundedInteger(String raw, int min, int max) {
+        if (!raw.matches("[0-9]+")) throw invalid();
+        int value;
+        try {
+            value = Integer.parseInt(raw);
+        } catch (NumberFormatException ignored) {
+            throw invalid();
+        }
+        if (value < min || value > max) throw invalid();
         return value;
     }
 

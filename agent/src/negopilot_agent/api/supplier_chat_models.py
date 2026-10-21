@@ -117,6 +117,7 @@ class SupplierSearch(StrictModel):
     material: FilterText | None = None
     region: FilterText | None = None
     iatf_required: bool = False
+    min_monthly_capacity: int | None = Field(default=None, ge=1, le=10_000_000)
     limit: int = Field(default=20, ge=1, le=100)
 
 

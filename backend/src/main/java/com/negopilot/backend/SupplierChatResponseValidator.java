@@ -71,6 +71,11 @@ public final class SupplierChatResponseValidator {
             require(normalizedFilters.get("iatf_required").isBoolean());
             iatf = normalizedFilters.get("iatf_required").booleanValue();
         }
+        int minCapacity = 0;
+        if (normalizedFilters.has("min_monthly_capacity")) {
+            integer(normalizedFilters.get("min_monthly_capacity"), 1, 10_000_000);
+            minCapacity = normalizedFilters.get("min_monthly_capacity").intValue();
+        }
         int limit = 20;
         if (normalizedFilters.has("limit")) {
             integer(normalizedFilters.get("limit"), 1, 100);
@@ -84,7 +89,8 @@ public final class SupplierChatResponseValidator {
             ArrayNode matched = JsonNodeFactory.instance.arrayNode();
             for (JsonNode capability : supplier.get("capabilities")) {
                 if (process.equals(capability.get("process").stringValue())
-                        && (material == null || material.equals(capability.get("material").stringValue()))) {
+                        && (material == null || material.equals(capability.get("material").stringValue()))
+                        && capability.get("monthly_capacity").intValue() >= minCapacity) {
                     matched.add(capability);
                 }
             }

@@ -201,6 +201,15 @@
             }
           },
           {
+            "name": "min_monthly_capacity",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000000
+            }
+          },
+          {
             "name": "limit",
             "in": "query",
             "schema": {
@@ -501,6 +510,15 @@
             "schema": {
               "type": "boolean",
               "default": false
+            }
+          },
+          {
+            "name": "min_monthly_capacity",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000000
             }
           },
           {
