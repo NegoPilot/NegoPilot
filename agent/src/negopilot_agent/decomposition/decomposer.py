@@ -27,14 +27,14 @@ DEFAULT_MODELS = {"anthropic": "claude-opus-5-5", "openai": "gpt-4.1-mini"}
 
 
 def _env_backend() -> str:
-    return os.getenv("NEGOPILOT_DECOMPOSER_BACKEND", "anthropic")
+    return os.getenv("NEGOPILOT_DECOMPOSER_BACKEND", "openai")
 
 
 @dataclass(frozen=True)
 class DecomposerSettings:
     backend: str = field(default_factory=_env_backend)  # anthropic | openai
     model: str = field(default_factory=lambda: os.getenv(
-        "NEGOPILOT_DECOMPOSER_MODEL", DEFAULT_MODELS.get(_env_backend(), DEFAULT_MODELS["anthropic"])))
+        "NEGOPILOT_DECOMPOSER_MODEL", DEFAULT_MODELS.get(_env_backend(), DEFAULT_MODELS["openai"])))
     # 분류에 가까운 작업이라 low로 시작한다. 평가 결과를 보고 조정한다 (anthropic 전용)
     effort: str = field(default_factory=lambda: os.getenv("NEGOPILOT_DECOMPOSER_EFFORT", "low"))
     max_tokens: int = 16000

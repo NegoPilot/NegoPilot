@@ -4,11 +4,11 @@
     cd mcp-servers/business-mcp && uv run python server.py --http 9102
     cd mcp-servers/law-mcp      && uv run python server.py --http 9103
 
-    uv run python scripts/ask.py "RFQ-2026-001 협력사 추천해줘"
-    uv run python scripts/ask.py --backend openai "하도급법 제4조 보여줘"   # gpt-4.1-mini (OPENAI_API_KEY)
+    uv run python scripts/ask.py "RFQ-2026-001 협력사 추천해줘"                 # 기본: gpt-4.1-mini (OPENAI_API_KEY)
+    uv run python scripts/ask.py --backend anthropic "하도급법 제4조 보여줘"   # Claude (ANTHROPIC_API_KEY)
     uv run python scripts/ask.py --json "..."                               # 상태 전체를 JSON으로
 
-Claude 백엔드는 ANTHROPIC_API_KEY가 필요하고 비용이 든다. agent/.env가 있으면 읽는다.
+모델 호출에는 비용이 든다. agent/.env가 있으면 읽는다.
 """
 
 import argparse

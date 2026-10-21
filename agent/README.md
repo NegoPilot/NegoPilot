@@ -38,7 +38,7 @@ graph.add_node("decompose_query", make_decompose_node())   # 상태: query, hist
 
 | 동작 | 내용 |
 | --- | --- |
-| 백엔드 | `anthropic`(기본, Claude 구조화 출력) 또는 `openai`(Chat Completions, `response_format`에 strict JSON 스키마 전달). 스키마는 모두 `DecompositionResult`에서 만든다 ([`backends.py`](src/negopilot_agent/decomposition/backends.py)) |
+| 백엔드 | `openai`(기본, Chat Completions, `response_format`에 strict JSON 스키마 전달) 또는 `anthropic`(Claude 구조화 출력). 스키마는 모두 `DecompositionResult`에서 만든다 ([`backends.py`](src/negopilot_agent/decomposition/backends.py)) |
 | 프롬프트 | intent 등록표(`intents.yaml`)로 자동 생성. 용어 사전, 근거·되묻기 규칙, 예시 포함 ([`prompt.py`](src/negopilot_agent/decomposition/prompt.py)) |
 | 프롬프트 캐시 | 시스템 프롬프트는 요청마다 같게 두고 캐시한다. 오늘 날짜와 최근 대화는 사용자 메시지에 넣는다 |
 | 형식 오류 | 필드 사이 규칙 위반을 오류 내용과 함께 알려 주고 1회 재시도. 그래도 실패하면 `status: "failed"` |
@@ -51,13 +51,13 @@ graph.add_node("decompose_query", make_decompose_node())   # 상태: query, hist
 
 | 환경 변수 | 기본값 | 설명 |
 | --- | --- | --- |
-| `NEGOPILOT_DECOMPOSER_BACKEND` | `anthropic` | `anthropic` 또는 `openai` |
+| `NEGOPILOT_DECOMPOSER_BACKEND` | `openai` | `openai` 또는 `anthropic` |
 | `NEGOPILOT_DECOMPOSER_MODEL` | `claude-opus-5-5` / `gpt-4.1-mini` | 백엔드별 기본 모델 |
 | `NEGOPILOT_DECOMPOSER_EFFORT` | `low` | Claude 전용. 분류에 가까운 작업이라 low로 시작. 평가 결과를 보고 조정 |
 | `NEGOPILOT_DECOMPOSER_FALLBACKS` | `1` | Claude 전용. 거절 시 대체 모델 사용 |
 
+OpenAI(기본)는 `OPENAI_API_KEY`가 필요합니다. 셸에 같은 이름의 변수가 있으면 `.env`보다 먼저 쓰입니다.
 Claude는 `ANTHROPIC_API_KEY`(또는 `ant auth login` 프로필)가 필요합니다. 평가 스크립트는 `agent/.env`가 있으면 읽습니다 (git에 올라가지 않음).
-OpenAI는 `OPENAI_API_KEY`가 필요합니다. 셸에 같은 이름의 변수가 있으면 `.env`보다 먼저 쓰입니다.
 
 ## Routing (`negopilot_agent.routing`)
 
@@ -150,7 +150,7 @@ graph.add_node("generate", make_generate_node())   # 상태: decomposition, rout
 
 | 환경 변수 | 기본값 |
 | --- | --- |
-| `NEGOPILOT_GENERATOR_BACKEND` | `anthropic`. `openai`도 선택 가능 |
+| `NEGOPILOT_GENERATOR_BACKEND` | `openai`. `anthropic`도 선택 가능 |
 | `NEGOPILOT_GENERATOR_MODEL` | anthropic은 `claude-opus-5-5`. openai는 `gpt-4.1-mini` |
 | `NEGOPILOT_GENERATOR_EFFORT` | `medium` |
 | `NEGOPILOT_GENERATOR_FALLBACKS` | `1` |
@@ -162,12 +162,12 @@ OpenAI를 선택한 Generation도 `OPENAI_API_KEY`를 사용합니다. 분해와
 ```bash
 uv sync
 uv run python -m pytest -q                       # 단위 테스트 (가짜 HTTP 전송·가짜 MCP, 비용 없음)
-uv run python scripts/ask.py "RFQ-2026-001 협력사 추천해줘"            # 전체 그래프 (서버 2개를 먼저 띄움, Claude 비용 발생)
+uv run python scripts/ask.py "RFQ-2026-001 협력사 추천해줘"            # 전체 그래프 (서버 2개를 먼저 띄움, OpenAI 비용 발생)
 uv run python scripts/ask.py --backend openai "하도급법 제4조 보여줘"   # 분해·생성 모두 gpt-4.1-mini
 uv run python scripts/route_fixtures.py          # fixtures를 실제 MCP 서버로 Routing (서버 2개를 먼저 띄움)
 uv run python scripts/route_fixtures.py --save   # 그 결과를 shared/fixtures/routing/에 저장 (계약을 바꿨을 때)
 uv run python scripts/eval_decomposition.py --backend openai   # gpt-4.1-mini 평가 (비용 있음)
-uv run python scripts/eval_decomposition.py --limit 3          # Claude 평가 (비용 발생)
+uv run python scripts/eval_decomposition.py --backend anthropic --limit 3   # Claude 평가 (ANTHROPIC_API_KEY, 비용 발생)
 uv run python scripts/eval_decomposition.py --backend openai --set validation --repeat 3   # 검증 세트 3회 평균
 ```
 
@@ -369,13 +369,13 @@ curl --fail-with-body http://127.0.0.1:9200/internal/v2/query-executions \
 
 ### v2 live 모델 선택과 비용 없는 검사
 
-분해와 Generation의 백엔드는 독립적으로 설정합니다. 각 단계에서 `anthropic` 또는 `openai`를 선택할 수 있습니다. 백엔드를 지정하지 않으면 기존 기본값인 `anthropic`을 사용합니다.
+분해와 Generation의 백엔드는 독립적으로 설정합니다. 각 단계에서 `anthropic` 또는 `openai`를 선택할 수 있습니다. 백엔드를 지정하지 않으면 기본값인 `openai`를 사용합니다.
 
 | 환경 변수 | 기본값 |
 | --- | --- |
-| `NEGOPILOT_DECOMPOSER_BACKEND` | `anthropic` |
+| `NEGOPILOT_DECOMPOSER_BACKEND` | `openai` |
 | `NEGOPILOT_DECOMPOSER_MODEL` | anthropic은 `claude-opus-5-5`. openai는 `gpt-4.1-mini` |
-| `NEGOPILOT_GENERATOR_BACKEND` | `anthropic` |
+| `NEGOPILOT_GENERATOR_BACKEND` | `openai` |
 | `NEGOPILOT_GENERATOR_MODEL` | anthropic은 `claude-opus-5-5`. openai는 `gpt-4.1-mini` |
 | `NEGOPILOT_DECOMPOSER_EFFORT` | `low` |
 | `NEGOPILOT_GENERATOR_EFFORT` | `medium` |
@@ -388,7 +388,7 @@ curl --fail-with-body http://127.0.0.1:9200/internal/v2/query-executions \
 unset NEGOPILOT_DECOMPOSER_MODEL NEGOPILOT_GENERATOR_MODEL
 ```
 
-두 단계 모두 OpenAI 기본 모델을 선택하려면 Python 서버를 시작할 셸에서 아래 값을 설정합니다. `OPENAI_API_KEY`에는 유효한 키를 지정해야 합니다. 위의 서버 시작 예시에서 실행 모드를 `live`로 바꾸고 서버를 시작합니다.
+두 단계 모두 기본값인 OpenAI(gpt-4.1-mini)를 쓰려면 Python 서버를 시작할 셸에서 아래 값을 설정합니다. BACKEND 변수는 생략해도 openai이며, 다른 값이 남아 있을 수 있어 예시에서는 명시합니다. `OPENAI_API_KEY`에는 유효한 키를 지정해야 합니다. 위의 서버 시작 예시에서 실행 모드를 `live`로 바꾸고 서버를 시작합니다.
 
 ```bash
 export AGENT_EXECUTION_MODE=live
@@ -398,7 +398,7 @@ export NEGOPILOT_GENERATOR_BACKEND=openai
 unset NEGOPILOT_DECOMPOSER_MODEL NEGOPILOT_GENERATOR_MODEL
 ```
 
-한 단계만 OpenAI로 바꾸려면 해당 BACKEND 변수만 `openai`로 지정하고 해당 MODEL 변수만 제거합니다. 다른 단계의 설정은 그대로 사용합니다. 예를 들어 분해는 OpenAI를 쓰고 Generation은 Claude를 쓸 수 있습니다. 실제 유료 모델 호출은 이 문서 갱신 과정에서 검사하지 않았습니다.
+한 단계만 Claude로 바꾸려면 해당 BACKEND 변수만 `anthropic`으로 지정하고 해당 MODEL 변수만 제거합니다. 다른 단계의 설정은 그대로 사용합니다. 예를 들어 분해는 OpenAI를 쓰고 Generation은 Claude를 쓸 수 있습니다. 실제 유료 모델 호출은 이 문서 갱신 과정에서 검사하지 않았습니다.
 
 모델 실행 시간이 기본 제한보다 길면 `AGENT_REQUEST_TIMEOUT_SECONDS`로 Python 제한을 조정합니다. 같은 연결을 쓰는 Spring은 `AGENT_EXECUTION_MODE=live`와 같은 내부 키를 설정하고 `AGENT_RESPONSE_TIMEOUT_SECONDS=310`처럼 Python보다 긴 제한을 사용합니다. MCP 주소는 실제 실행 중인 서버 주소로 지정합니다. business-mcp에는 PostgreSQL 연결이 필요하고 law-mcp에는 저장된 법령 인덱스가 필요합니다.
 
