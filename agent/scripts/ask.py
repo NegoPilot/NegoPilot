@@ -18,12 +18,15 @@ import os
 from pathlib import Path
 
 
-def load_env() -> None:
+MODEL_KEYS = ("NEGOPILOT_DECOMPOSER_MODEL", "NEGOPILOT_GENERATOR_MODEL")
+
+
+def load_env(skip: tuple[str, ...] = ()) -> None:
     env = Path(__file__).resolve().parents[1] / ".env"
     if env.exists():
         for line in env.read_text(encoding="utf-8").splitlines():
             key, sep, value = line.partition("=")
-            if sep and not line.lstrip().startswith("#") and value.strip():
+            if sep and not line.lstrip().startswith("#") and value.strip() and key.strip() not in skip:
                 os.environ.setdefault(key.strip(), value.strip().strip("\"").strip("'"))
 
 
@@ -60,7 +63,8 @@ if __name__ == "__main__":
     parser.add_argument("--backend", choices=["anthropic", "ollama"], help="분해·생성 백엔드를 한 번에 지정")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
-    load_env()
+    # --backend를 주면 .env의 모델명은 다른 백엔드용일 수 있어 읽지 않는다. 셸에서 지정한 모델은 그대로 쓴다
+    load_env(skip=MODEL_KEYS if args.backend else ())
     if args.backend:
         os.environ["NEGOPILOT_DECOMPOSER_BACKEND"] = os.environ["NEGOPILOT_GENERATOR_BACKEND"] = args.backend
     asyncio.run(main(args.query, args.json))
