@@ -38,6 +38,10 @@ async def evaluate_case(graph, item, input_dir, judge_client=None, judge_model="
                        decomposition=state["decomposition"].model_dump(mode="json", by_alias=True),
                        routing=routing.model_dump(mode="json"))
             row.update(offline_metrics(item, state["decomposition"], routing))
+            row["tool_errors"] = sum(
+                call.error is not None
+                for outcome in routing.outcomes
+                for call in [*outcome.calls, *outcome.referenced_articles])
             verification = answer.verification
             row.update(retried=bool(verification and verification.attempts > 1),
                        masked=bool(verification and verification.masked))
@@ -73,6 +77,7 @@ def summarize(rows):
     return {
         "cases": len(rows),
         "execution_errors": sum("error" in row for row in rows),
+        "tool_errors": sum(row.get("tool_errors", 0) for row in rows),
         "kind_accuracy": sum(row["kind_ok"] for row in rows) / len(rows) if rows else None,
         "retried": sum(row.get("retried", False) for row in rows),
         "masked": sum(row.get("masked", False) for row in rows),
@@ -117,7 +122,9 @@ async def main():
     out_dir.mkdir(exist_ok=True)
     out = out_dir / f"pipeline-{datetime.now():%Y%m%d-%H%M%S-%f}.json"
     revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
-    metadata = {"revision": revision, "set": args.set, "repeat": args.repeat,
+    dirty = bool(subprocess.run(["git", "status", "--porcelain"], cwd=ROOT,
+                                capture_output=True, text=True).stdout.strip())
+    metadata = {"revision": revision, "dirty": dirty, "set": args.set, "repeat": args.repeat,
                 "decomposer": {"backend": d.backend, "model": d.model},
                 "generator": {"backend": g.backend, "model": g.model},
                 "judge_model": None if args.no_judge else args.judge_model}

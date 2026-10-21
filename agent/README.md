@@ -509,3 +509,11 @@ uv run python scripts/eval_pipeline.py --set dev --limit 3 --no-judge
 
 현재 평가는 단일 질문 기준입니다. 대화 이력과 동시 사용자 부하는 포함하지 않습니다.
 기업 데이터가 바뀌면 기업별 정답과 저장된 기준 데이터도 별도로 검토해야 합니다.
+
+실행 전 business DB의 관리 스키마도 준비해야 합니다. 기존 DB에서 `status` 또는
+`certification_source` 열이 없다는 오류가 나면 평가를 멈추고 DB를 백업한 뒤
+[`migrate_management.py`](../mcp-servers/business-mcp/scripts/migrate_management.py)를
+스키마 변경 계정의 명시적인 `DATABASE_URL`로 실행합니다. 기존 DB에서는 seed를 다시
+실행하지 않습니다. 자세한 절차는 [business-mcp SETUP](../mcp-servers/business-mcp/SETUP.md)을
+따릅니다. 적용 후 MCP의 `get_supplier`, `rank_suppliers`가 성공하는지 확인하고 평가합니다.
+`summary.tool_errors`는 그래프가 오류를 처리해 응답을 돌려준 경우에도 도구 오류를 셉니다.
