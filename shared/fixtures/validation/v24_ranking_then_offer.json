@@ -1,0 +1,49 @@
+{
+  "note": "1등 업체를 앞 결과에서 받아 구체적 협상안을 검사한다",
+  "query": "RFQ-2026-002 1등 업체한테 단가 9,000원, 결제 60일로 제안해도 돼?",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "RFQ-2026-002 1등 업체한테 단가 9,000원, 결제 60일로 제안해도 돼?",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "RFQ-2026-002에 맞는 2차 협력사 순위",
+        "original_text": "RFQ-2026-002 1등 업체",
+        "intent": "supplier_ranking",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "rfq_id": "RFQ-2026-002"
+        },
+        "inputs": [],
+        "depends_on": []
+      },
+      {
+        "id": "q2",
+        "question": "순위 1위 협력사에 RFQ-2026-002 단가 9,000원, 지급 60일 협상안의 하도급법 위반 여부",
+        "original_text": "단가 9,000원, 결제 60일로 제안해도 돼?",
+        "intent": "offer_check",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "rfq_id": "RFQ-2026-002",
+          "unit_price": 9000,
+          "payment_days": 60
+        },
+        "inputs": [
+          {
+            "slot": "supplier",
+            "from": "q1",
+            "select": "top1"
+          }
+        ],
+        "depends_on": [
+          "q1"
+        ]
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

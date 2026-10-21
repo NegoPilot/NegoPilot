@@ -1,0 +1,26 @@
+{
+  "note": "회사명으로 협력사 상세. 관점(재무)은 question에만 적는다",
+  "query": "새길다이캐스팅 재무 상태 어때?",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "새길다이캐스팅 재무 상태 어때?",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "새길다이캐스팅의 재무 상태",
+        "original_text": "새길다이캐스팅 재무 상태",
+        "intent": "supplier_detail",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "supplier": "새길다이캐스팅"
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

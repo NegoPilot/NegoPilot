@@ -1,0 +1,27 @@
+{
+  "note": "숫자 하나(지급 일수)만 있어도 구체적 협상안이면 offer_check",
+  "query": "SUP-0007에 결제 90일로 해 달라고 해도 돼?",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "SUP-0007에 결제 90일로 해 달라고 해도 돼?",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "SUP-0007에 하도급대금 지급 기한 90일 협상안의 하도급법 위반 여부",
+        "original_text": "SUP-0007에 결제 90일로 해 달라고 해도 돼?",
+        "intent": "offer_check",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "supplier": "SUP-0007",
+          "payment_days": 90
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

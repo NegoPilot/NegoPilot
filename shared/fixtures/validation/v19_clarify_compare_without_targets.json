@@ -1,0 +1,19 @@
+{
+  "note": "비교 대상이 없으면 되묻는다",
+  "query": "협력사 비교해 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "clarify",
+    "original_query": "협력사 비교해 줘",
+    "sub_queries": [],
+    "clarification": {
+      "reason": "비교할 협력사가 정해지지 않았다",
+      "question": "어떤 협력사들을 비교할까요?",
+      "options": [
+        "협력사 이름이나 ID를 2곳 이상 입력",
+        "특정 RFQ의 후보 협력사 순위로 비교 (RFQ 번호 입력)"
+      ]
+    },
+    "assumptions": []
+  }
+}

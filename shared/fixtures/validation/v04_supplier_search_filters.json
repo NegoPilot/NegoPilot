@@ -1,0 +1,29 @@
+{
+  "note": "조건 여러 개와 개수가 있는 협력사 검색",
+  "query": "경북에 있는 사출 업체 중 IATF 인증 있는 곳 5개만 찾아 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "경북에 있는 사출 업체 중 IATF 인증 있는 곳 5개만 찾아 줘",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "경북 지역 사출 공정 IATF 16949 인증 2차 협력사 5곳",
+        "original_text": "경북에 있는 사출 업체 중 IATF 인증 있는 곳 5개",
+        "intent": "supplier_search",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "process": "사출",
+          "region": "경북",
+          "iatf_required": true,
+          "top_n": 5
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

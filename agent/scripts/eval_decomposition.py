@@ -1,4 +1,7 @@
-"""실제 모델로 쿼리 분해를 평가한다. shared/fixtures/decomposition 의 질문을 넣고 기대 결과와 비교한다.
+"""실제 모델로 쿼리 분해를 평가한다. fixture의 질문을 넣고 기대 결과와 비교한다.
+
+- dev (기본): shared/fixtures/decomposition. 프롬프트를 고칠 때 보는 개발용
+- validation: shared/fixtures/validation. 점수만 확인하는 검증용. 오답을 보고 프롬프트를 고치지 않는다
 
 API를 실제로 호출하므로 비용이 든다. 실행 전에 질문 수(--limit)와 모델·effort를 확인한다.
 
@@ -6,6 +9,7 @@ API를 실제로 호출하므로 비용이 든다. 실행 전에 질문 수(--li
     uv run python scripts/eval_decomposition.py --limit 3 --effort medium
     uv run python scripts/eval_decomposition.py --backend ollama --model llama3.1:8b   # 로컬, 비용 없음
     uv run python scripts/eval_decomposition.py --backend openai                        # gpt-4.1-mini (OPENAI_API_KEY)
+    uv run python scripts/eval_decomposition.py --set validation --repeat 3             # 검증 세트 3회 평균
 
 결과는 eval_results/<시각>.json 에 저장한다. 프롬프트·모델·effort를 바꾸면 다시 돌려 전후를 비교한다.
 """
@@ -28,7 +32,12 @@ from negopilot_shared import DecompositionResult  # noqa: E402
 
 from negopilot_agent.decomposition import DecomposerSettings, QueryDecomposer  # noqa: E402
 
-FIXTURES = sorted((ROOT.parent / "shared" / "fixtures" / "decomposition").glob("*.json"))
+SETS = {"dev": "decomposition", "validation": "validation"}
+KEYS = ["status", "count", "intents", "entities", "dependencies", "exact"]
+
+
+def fixtures(name: str) -> list[Path]:
+    return sorted((ROOT.parent / "shared" / "fixtures" / SETS[name]).glob("*.json"))
 
 
 def load_dotenv(path: Path, skip: tuple[str, ...] = ()) -> None:
@@ -71,6 +80,8 @@ async def main() -> None:
     parser.add_argument("--effort", help="low / medium / high ... (기본: 설정값, anthropic 전용)")
     parser.add_argument("--backend", choices=["anthropic", "ollama", "openai"], help="기본: 설정값")
     parser.add_argument("--model", help="기본: 백엔드별 기본 모델")
+    parser.add_argument("--set", dest="fixture_set", choices=list(SETS), default="dev", help="기본: dev")
+    parser.add_argument("--repeat", type=int, default=1, help="같은 질문을 N회 돌려 평균 (결과가 흔들리는 모델용)")
     args = parser.parse_args()
 
     # --backend를 주면 .env의 모델명은 다른 백엔드용일 수 있어 읽지 않는다 (--model이나 셸 값은 그대로 쓴다)
@@ -83,10 +94,37 @@ async def main() -> None:
     if args.effort:
         settings = replace(settings, effort=args.effort)
     decomposer = QueryDecomposer(settings=settings)
-    cases = FIXTURES[: args.limit] if args.limit else FIXTURES
+    cases = fixtures(args.fixture_set)
+    cases = cases[: args.limit] if args.limit else cases
     effort = f" · effort {settings.effort}" if settings.backend == "anthropic" else ""
-    print(f"백엔드 {settings.backend} · 모델 {settings.model}{effort} · 질문 {len(cases)}개")
+    print(f"백엔드 {settings.backend} · 모델 {settings.model}{effort} · {args.fixture_set} 질문 {len(cases)}개"
+          f" × {args.repeat}회")
 
+    runs = []
+    for run in range(1, args.repeat + 1):
+        if args.repeat > 1:
+            print(f"\n[{run}/{args.repeat}회]")
+        rows = await evaluate(decomposer, cases)
+        summary = {k: round(sum(r[k] for r in rows) / len(rows), 3) for k in KEYS}
+        print("정확도  " + "  ".join(f"{k} {v:.0%}" for k, v in summary.items()))
+        runs.append({"run": run, "summary": summary, "rows": rows})
+
+    mean = {k: round(sum(r["summary"][k] for r in runs) / len(runs), 3) for k in KEYS}
+    if args.repeat > 1:
+        exact = [r["summary"]["exact"] for r in runs]
+        print(f"\n평균 ({args.repeat}회)  " + "  ".join(f"{k} {v:.0%}" for k, v in mean.items())
+              + f"  (exact 최저 {min(exact):.0%}, 최고 {max(exact):.0%})")
+
+    out_dir = ROOT / "eval_results"
+    out_dir.mkdir(exist_ok=True)
+    out = out_dir / f"{datetime.now():%Y%m%d-%H%M%S}.json"
+    out.write_text(json.dumps({"backend": settings.backend, "model": settings.model, "effort": settings.effort,
+                               "set": args.fixture_set, "repeat": args.repeat, "summary": mean, "runs": runs},
+                              ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"저장: {out.relative_to(ROOT)}")
+
+
+async def evaluate(decomposer: QueryDecomposer, cases: list[Path]) -> list[dict]:
     rows = []
     for path in cases:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -97,7 +135,7 @@ async def main() -> None:
         except Exception as err:  # 한 질문의 오류(시간 초과 등)로 평가 전체가 멈추지 않게 오답으로 기록한다
             elapsed = time.perf_counter() - started
             rows.append({"case": path.stem, "query": data["query"], "seconds": round(elapsed, 2),
-                         **{k: 0 for k in ("status", "count", "intents", "entities", "dependencies", "exact")},
+                         **{k: 0 for k in KEYS},
                          "error": f"{type(err).__name__}: {err}"[:300], "actual": None})
             print(f"! {path.stem:<38} {elapsed:5.1f}s  오류 {type(err).__name__}", flush=True)
             continue
@@ -108,17 +146,7 @@ async def main() -> None:
         mark = "✓" if s["exact"] else "✗"
         print(f"{mark} {path.stem:<38} {elapsed:5.1f}s  " + " ".join(f"{k}={v}" for k, v in s.items() if k != "exact"),
               flush=True)
-
-    keys = ["status", "count", "intents", "entities", "dependencies", "exact"]
-    summary = {k: round(sum(r[k] for r in rows) / len(rows), 3) for k in keys}
-    print("\n정확도  " + "  ".join(f"{k} {v:.0%}" for k, v in summary.items()))
-
-    out_dir = ROOT / "eval_results"
-    out_dir.mkdir(exist_ok=True)
-    out = out_dir / f"{datetime.now():%Y%m%d-%H%M%S}.json"
-    out.write_text(json.dumps({"backend": settings.backend, "model": settings.model, "effort": settings.effort, "summary": summary,
-                               "rows": rows}, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"저장: {out.relative_to(ROOT)}")
+    return rows
 
 
 if __name__ == "__main__":

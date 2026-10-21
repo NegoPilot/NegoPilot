@@ -174,16 +174,22 @@ uv run python scripts/route_fixtures.py --save   # 그 결과를 shared/fixtures
 uv run python scripts/eval_decomposition.py --backend ollama   # 로컬 모델 평가 (비용 없음)
 uv run python scripts/eval_decomposition.py --backend openai   # gpt-4.1-mini 평가 (비용 있음)
 uv run python scripts/eval_decomposition.py --limit 3          # Claude 평가 (비용 발생)
+uv run python scripts/eval_decomposition.py --backend openai --set validation --repeat 3   # 검증 세트 3회 평균
 ```
 
-평가는 `shared/fixtures/decomposition`의 질문을 넣고 상태, 하위 질문 개수, intent, 엔티티, 의존 관계를 기대 결과와 비교합니다.
+평가는 fixture의 질문을 넣고 상태, 하위 질문 개수, intent, 엔티티, 의존 관계를 기대 결과와 비교합니다.
+`--set dev`(기본, `shared/fixtures/decomposition` 11개)는 프롬프트를 고칠 때 보는 개발용이고, `--set validation`(`shared/fixtures/validation` 24개)은 점수만 확인하는 검증용입니다. 검증 세트의 오답을 보고 프롬프트를 고치지 않습니다.
+temperature 0이어도 결과가 흔들리므로 변경 전후를 비교할 때는 `--repeat 3` 이상을 씁니다.
 원본 결과는 `eval_results/`(git 제외)에 저장되고, 공유할 결과는 [`eval_reports/`](eval_reports/)에 정리합니다.
 프롬프트·모델·effort를 바꾸면 다시 돌려 전후를 비교하세요.
 
 | 날짜 | 모델 | 완전 일치 | 보고서 |
 | --- | --- | --- | --- |
-| 2026-10-20 | llama3.1:8b (로컬) | 64% (7/11) | [2026-10-20_llama3.1-8b.md](eval_reports/2026-10-20_llama3.1-8b.md) |
-프롬프트 예시는 평가용 fixtures와 겹치지 않게 따로 두었습니다 (테스트로 확인).
+| 2026-10-20 | llama3.1:8b (로컬) | 개발용 64% (7/11) | [2026-10-20_llama3.1-8b.md](eval_reports/2026-10-20_llama3.1-8b.md) |
+| 2026-10-21 | gpt-4.1-mini | 개발용 55% (1회, #40 반영 전) | [2026-10-21_gpt-4.1-mini.md](eval_reports/2026-10-21_gpt-4.1-mini.md) |
+| 2026-10-21 | gpt-4.1-mini / llama3.1:8b | **검증용 88% / 33%** (3회 평균) | [2026-10-21_validation-set.md](eval_reports/2026-10-21_validation-set.md) |
+
+프롬프트 예시는 개발용·검증용 fixture와 겹치지 않게 따로 두었습니다 (테스트로 확인).
 
 ## Python 내부 HTTP API (`negopilot_agent.api`)
 

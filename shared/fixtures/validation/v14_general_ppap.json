@@ -1,0 +1,24 @@
+{
+  "note": "조문·숫자·회사 정보가 필요 없는 개념 설명",
+  "query": "PPAP가 뭐야?",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "PPAP가 뭐야?",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "PPAP(양산 부품 승인 절차)의 의미",
+        "original_text": "PPAP가 뭐야?",
+        "intent": "general_knowledge",
+        "grounding": "none",
+        "confidence": 0.9,
+        "entities": {},
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "note": "단일 조문 조회. 상생협력법 약칭과 '의M' 조문 번호",
+  "query": "상생협력법 제22조의2 원문 보여 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "상생협력법 제22조의2 원문 보여 줘",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "대ㆍ중소기업 상생협력 촉진에 관한 법률 제22조의2 조회",
+        "original_text": "상생협력법 제22조의2 원문",
+        "intent": "law_article",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "law": "winwin_act",
+          "article_no": "제22조의2"
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

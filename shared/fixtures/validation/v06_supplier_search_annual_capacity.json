@@ -1,0 +1,27 @@
+{
+  "note": "연간 물량은 12로 나눠 월 생산능력으로 넣는다 (엔티티 사전 비고)",
+  "query": "연간 24만 개 소화할 수 있는 프레스 업체 찾아 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "연간 24만 개 소화할 수 있는 프레스 업체 찾아 줘",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "월 생산능력 20,000개 이상인 프레스 공정 2차 협력사",
+        "original_text": "연간 24만 개 소화할 수 있는 프레스 업체",
+        "intent": "supplier_search",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "process": "프레스",
+          "min_monthly_capacity": 20000
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

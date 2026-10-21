@@ -1,6 +1,6 @@
 """쿼리 분해 계약 테스트.
 
-- fixtures/decomposition/*.json 의 expected가 모두 스키마를 통과해야 한다
+- fixtures/decomposition/*.json(개발용)과 fixtures/validation/*.json(검증용)의 expected가 모두 스키마를 통과해야 한다
 - 계약에서 금지한 형태는 스키마가 막아야 한다
 
     uv run python -m pytest -q
@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from negopilot_shared import DecompositionResult, load_intents
 
 FIXTURES = sorted((Path(__file__).resolve().parent.parent / "fixtures" / "decomposition").glob("*.json"))
+VALIDATION = sorted((Path(__file__).resolve().parent.parent / "fixtures" / "validation").glob("*.json"))
 
 
 def load(name: str) -> dict:
@@ -23,7 +24,7 @@ def load(name: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))["expected"]
 
 
-@pytest.mark.parametrize("path", FIXTURES, ids=lambda p: p.stem)
+@pytest.mark.parametrize("path", FIXTURES + VALIDATION, ids=lambda p: p.stem)
 def test_fixture_matches_contract(path):
     data = json.loads(path.read_text(encoding="utf-8"))
     assert {"note", "query", "expected"} <= data.keys()
@@ -78,3 +79,12 @@ def test_contract_rejects(data, message):
 def test_planned_intent_is_still_valid_output():
     """mail-mcp 전이라도 분해는 draft_email을 낼 수 있다. 미지원 처리는 Routing이 한다."""
     assert load_intents()["draft_email"].status == "planned"
+
+
+def test_validation_set_is_separate_from_dev_fixtures():
+    """검증 세트는 개발용 fixture·등록표 예시와 질문이 겹치면 안 된다 (겹치면 채점이 의미 없다)."""
+    def queries(paths):
+        return {json.loads(p.read_text(encoding="utf-8"))["query"] for p in paths}
+    registry_examples = {q for spec in load_intents().values() for q in spec.examples}
+    assert len(VALIDATION) >= 20
+    assert not queries(VALIDATION) & (queries(FIXTURES) | registry_examples)

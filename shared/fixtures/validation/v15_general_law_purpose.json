@@ -1,0 +1,24 @@
+{
+  "note": "법의 취지 설명은 조문 번호·숫자가 필요 없어 general_knowledge",
+  "query": "하도급법은 왜 만들어진 거야?",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "하도급법은 왜 만들어진 거야?",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "하도급거래 공정화에 관한 법률의 제정 취지",
+        "original_text": "하도급법은 왜 만들어진 거야?",
+        "intent": "general_knowledge",
+        "grounding": "none",
+        "confidence": 0.9,
+        "entities": {},
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

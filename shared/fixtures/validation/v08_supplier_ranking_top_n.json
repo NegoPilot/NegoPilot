@@ -1,0 +1,27 @@
+{
+  "note": "질문에 숫자가 있을 때만 top_n",
+  "query": "RFQ-2026-004 후보 상위 3곳만",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "RFQ-2026-004 후보 상위 3곳만",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "RFQ-2026-004에 맞는 2차 협력사 상위 3곳",
+        "original_text": "RFQ-2026-004 후보 상위 3곳",
+        "intent": "supplier_ranking",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "rfq_id": "RFQ-2026-004",
+          "top_n": 3
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}
