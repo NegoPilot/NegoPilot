@@ -1,0 +1,27 @@
+{
+  "note": "개수를 말했으니 top_n",
+  "query": "RFQ-2026-005 추천 업체 5곳 알려 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "RFQ-2026-005 추천 업체 5곳 알려 줘",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "RFQ-2026-005에 맞는 2차 협력사 상위 5곳",
+        "original_text": "RFQ-2026-005 추천 업체 5곳",
+        "intent": "supplier_ranking",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "rfq_id": "RFQ-2026-005",
+          "top_n": 5
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

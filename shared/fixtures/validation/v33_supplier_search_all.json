@@ -1,0 +1,24 @@
+{
+  "note": "조건 없는 목록 요청도 supplier_search",
+  "query": "등록된 협력사 전부 보여 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "등록된 협력사 전부 보여 줘",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "등록된 2차 협력사 목록",
+        "original_text": "등록된 협력사 전부 보여 줘",
+        "intent": "supplier_search",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {},
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

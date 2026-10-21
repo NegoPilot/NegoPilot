@@ -1,0 +1,26 @@
+{
+  "note": "법령 이름을 말했으니 law",
+  "query": "상생협력법에서 연동 약정을 안 해도 되는 경우가 있어?",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "상생협력법에서 연동 약정을 안 해도 되는 경우가 있어?",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "납품대금 연동 약정 체결 의무의 예외 사유",
+        "original_text": "상생협력법에서 연동 약정을 안 해도 되는 경우가 있어?",
+        "intent": "law_check",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "law": "winwin_act"
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

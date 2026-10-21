@@ -1,0 +1,26 @@
+{
+  "note": "ID로 상세 조회",
+  "query": "SUP-0045 생산능력 얼마나 돼?",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "SUP-0045 생산능력 얼마나 돼?",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "SUP-0045의 생산능력",
+        "original_text": "SUP-0045 생산능력",
+        "intent": "supplier_detail",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "supplier": "SUP-0045"
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

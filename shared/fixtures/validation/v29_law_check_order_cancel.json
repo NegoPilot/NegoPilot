@@ -1,0 +1,24 @@
+{
+  "note": "법령 이름이 없는 행위 허용 여부 질문",
+  "query": "발주를 취소하면 협력사에 보상해야 해?",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "발주를 취소하면 협력사에 보상해야 해?",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "원사업자가 위탁을 취소하는 경우의 법적 제한과 보상 의무",
+        "original_text": "발주를 취소하면 협력사에 보상해야 해?",
+        "intent": "law_check",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {},
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "note": "RFQ를 앞 결과에서 받는다",
+  "query": "가장 최근에 들어온 RFQ의 후보 업체 순위 알려 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "가장 최근에 들어온 RFQ의 후보 업체 순위 알려 줘",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "견적 요청(RFQ) 목록",
+        "original_text": "가장 최근에 들어온 RFQ",
+        "intent": "rfq_lookup",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {},
+        "inputs": [],
+        "depends_on": []
+      },
+      {
+        "id": "q2",
+        "question": "선택된 RFQ에 맞는 2차 협력사 순위",
+        "original_text": "후보 업체 순위 알려 줘",
+        "intent": "supplier_ranking",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {},
+        "inputs": [
+          {
+            "slot": "rfq_id",
+            "from": "q1",
+            "select": "top1"
+          }
+        ],
+        "depends_on": [
+          "q1"
+        ]
+      }
+    ],
+    "clarification": null,
+    "assumptions": [
+      "RFQ 목록의 첫 번째 RFQ 기준"
+    ]
+  }
+}

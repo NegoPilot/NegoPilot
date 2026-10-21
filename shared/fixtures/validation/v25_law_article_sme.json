@@ -1,0 +1,27 @@
+{
+  "note": "중소기업기본법 조문 조회",
+  "query": "중소기업기본법 제2조 보여 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "중소기업기본법 제2조 보여 줘",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "중소기업기본법 제2조 조회",
+        "original_text": "중소기업기본법 제2조",
+        "intent": "law_article",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "law": "sme_act",
+          "article_no": "제2조"
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

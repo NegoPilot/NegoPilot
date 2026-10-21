@@ -1,0 +1,24 @@
+{
+  "note": "회사 업무처럼 보여도 협상과 무관하면 out_of_scope",
+  "query": "출장비 정산 방법 알려 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "출장비 정산 방법 알려 줘",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "출장비 정산 방법",
+        "original_text": "출장비 정산 방법 알려 줘",
+        "intent": "out_of_scope",
+        "grounding": "none",
+        "confidence": 0.9,
+        "entities": {},
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "note": "mail-mcp 전이라도 draft_email",
+  "query": "SUP-0027에 단가 인하 요청 메일 써 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "SUP-0027에 단가 인하 요청 메일 써 줘",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "SUP-0027에 보낼 단가 인하 요청 메일 초안",
+        "original_text": "SUP-0027에 단가 인하 요청 메일",
+        "intent": "draft_email",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "supplier": "SUP-0027"
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}
