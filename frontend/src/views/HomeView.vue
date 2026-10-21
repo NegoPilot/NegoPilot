@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { ref } from 'vue'
 import { RouterLink } from 'vue-router'
 
 import { LAW_COUNT, SEED_RFQS, SEED_SUPPLIER_COUNT } from '@/data/rfqs'
@@ -7,7 +6,6 @@ import { openAssistant as openAssistantPanel } from '@/stores/assistant'
 import { formatInteger, formatKrw } from '@/utils/format'
 
 const today = new Intl.DateTimeFormat('sv-SE').format(new Date())
-const question = ref('')
 
 const QUICK_QUESTIONS = [
   '이 RFQ에 적합한 협력사 3곳 추천해줘.',
@@ -30,14 +28,6 @@ function openAssistant(text: string) {
   </header>
 
   <main class="page-body">
-    <form class="ask" @submit.prevent="openAssistant(question)">
-      <label for="home-ask" class="ask-label">AI 도우미에게 묻기</label>
-      <div class="ask-row">
-        <input id="home-ask" v-model="question" type="text" placeholder="예: RFQ-2026-001의 후보 협력사를 추천해줘." />
-        <button class="btn btn-primary" type="submit">질문하기</button>
-      </div>
-    </form>
-
     <section class="panel panel-pad" aria-labelledby="rfq-h">
       <div class="panel-title">
         <div>
@@ -119,25 +109,6 @@ function openAssistant(text: string) {
 </template>
 
 <style scoped>
-.ask {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.ask-label {
-  font-size: 13px;
-  font-weight: 600;
-}
-.ask-row {
-  display: flex;
-  gap: 10px;
-}
-.ask-row input {
-  flex: 1;
-}
-.ask-row .btn {
-  min-width: 104px;
-}
 .rfq-id {
   font-weight: 600;
 }
