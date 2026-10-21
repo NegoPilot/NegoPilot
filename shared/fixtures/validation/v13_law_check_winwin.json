@@ -1,5 +1,5 @@
 {
-  "note": "연동제 질문은 상생협력법",
+  "note": "연동제 질문은 상생협력법 (#62: 법령 이름을 말하지 않았으면 law를 넣지 않는다)",
   "query": "납품대금 연동제 적용 안 받으려면 어떻게 해야 해?",
   "expected": {
     "schema_version": "0.1",
@@ -13,9 +13,7 @@
         "intent": "law_check",
         "grounding": "required",
         "confidence": 0.9,
-        "entities": {
-          "law": "winwin_act"
-        },
+        "entities": {},
         "inputs": [],
         "depends_on": []
       }

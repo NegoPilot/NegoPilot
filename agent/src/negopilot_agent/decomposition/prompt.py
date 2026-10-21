@@ -200,7 +200,7 @@ EXAMPLES = [
                  "question": "공급원가(원재료 가격) 변동을 이유로 수급사업자가 하도급대금 조정을 신청할 때 원사업자의 협의 의무",
                  "original_text": "원자재 값이 올랐다고 2차 업체가 단가 올려 달래. 들어줘야 해?",
                  "intent": "law_check", "grounding": "required", "confidence": 0.9,
-                 "entities": {"law": "subcontract_act"}, "inputs": [], "depends_on": []},
+                 "entities": {}, "inputs": [], "depends_on": []},
             ],
             "clarification": None, "assumptions": [],
         },
@@ -257,7 +257,9 @@ def build_system_prompt() -> str:
    선택어는 top1, top(n), all, by_name("이름") 중 하나만 쓴다. 도구 응답 구조는 몰라도 된다.
 5. 엔티티 한 칸에는 값 하나만 넣는다. 대상이 여러 개면(협력사 2곳, RFQ 2건) **대상마다 하위 질문을 따로** 만들고 서로 의존하지 않게 둔다.
    품질·재무 같은 관점으로 나누지 말고 대상으로 나눈다. 관점은 question에 적는다.
-6. entities에는 해당 intent가 허용한 엔티티 이름만 쓴다. price_change_pct(인하는 음수)는 모든 intent에 쓸 수 있다.
+6. entities에는 해당 intent가 허용한 엔티티 이름만 쓴다.
+   law는 사용자가 법령 이름(하도급법, 상생협력법 같은 약칭 포함)을 말했을 때만 넣는다. 말하지 않았으면 비워서 모든 법령을 검색하게 한다.
+   price_change_pct는 넣지 않는다. 증감률(5% 인하, 3% 인상)은 question에 남긴다.
    rfq_id는 RFQ-YYYY-NNN, article_no는 "제N조" 또는 "제N조의M", 날짜는 YYYY-MM-DD, 금액은 원 단위 정수다.
    현재 질문과 해당 작업의 대화 이력에 없는 값을 지어내서 채우지 않는다. 특히 top_n 같은 숫자는 사용자가 제시했을 때만 넣는다. 예시의 값을 따라 하지 않는다.
 7. grounding은 intent 목록에 적힌 값을 그대로 쓴다.

@@ -109,7 +109,8 @@ for group in result.parallel_groups():              # [["q1", "q2"], ["q3"]] →
 | `general_knowledge` | – | – | – |
 | `out_of_scope` | – | – | – |
 
-- `price_change_pct`는 도구 인자가 아니라 판단 근거라 모든 intent에 허용한다.
+- `price_change_pct`는 스키마상 모든 intent에 허용하지만, 지금은 Routing·Generation 어디서도 쓰지 않아 **분해가 뽑지 않는다**. 증감률은 `question`에 남긴다 (#62).
+- `law`는 사용자가 법령 이름(약칭 포함)을 말했을 때만 넣는다. 비우면 law-mcp가 모든 법령에서 검색한다 (#62).
 - `draft_email`은 `status: planned`. 분해 결과에 나올 수 있고, mail-mcp가 생기기 전까지는 Routing이 "아직 지원하지 않는 기능"으로 처리한다.
 - **`offer_check`와 `law_check` 구분:** 특정 거래의 협상안 전체에 대한 규칙 검사는 `offer_check`다. 일반적인 행위나 조건의 법적 허용 여부는 숫자가 있어도 `law_check`로 조회한다. 숫자가 있다는 이유로 기업과 RFQ 및 단가를 요구하지 않는다.
 - `supplier_search`는 공정이 없어도 주어진 조건으로 검색한다. 기업 선택은 필수가 아니다.
@@ -135,10 +136,10 @@ for group in result.parallel_groups():              # [["q1", "q2"], ["q3"]] →
 | `contract_days` | int > 0 | `365` | |
 | `linkage_waived_by_agreement` | bool | `false` | |
 | `buyer_is_small_business` | bool | `false` | |
-| `law` | law_key | `subcontract_act` | law-mcp의 `list_laws` 참고 |
+| `law` | law_key | `subcontract_act` | law-mcp의 `list_laws` 참고. 사용자가 법령 이름을 말했을 때만 |
 | `article_no` | `제N조` 또는 `제N조의M` | `제16조의2` | |
 | `as_of` | `YYYY-MM-DD` | `2026-10-20` | 생략하면 오늘 |
-| `price_change_pct` | number | `-5` | 인하는 음수 |
+| `price_change_pct` | number | `-5` | 인하는 음수. 현재 분해가 뽑지 않음 |
 
 ## 5. 근거와 되묻기 규칙
 
