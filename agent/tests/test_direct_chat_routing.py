@@ -79,6 +79,14 @@ async def run_answer(d, caller):
     return routing, answer, backend
 
 
+async def test_admin_created_five_digit_id_is_resolved_before_detail_lookup():
+    caller = Caller(find_suppliers={"matches": [{"supplier_id": "SUP-10000", "name": "수동기업"}],
+                                   "total": 1, "match_type": "exact"})
+    routing = await Router(caller).route(decomposition("supplier_detail", {"supplier": "수동기업"}))
+    assert routing.outcome("q1").status == "ok"
+    assert caller.calls[-1] == ("business-mcp", "get_supplier", {"supplier": "SUP-10000"})
+
+
 @pytest.mark.parametrize("entities", [{}, {"region": "경남"}, {"material": "알루미늄"},
                                       {"iatf_required": True}, {"top_n": 3}])
 async def test_supplier_search_does_not_require_process(entities):

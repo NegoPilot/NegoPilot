@@ -2,7 +2,7 @@
 
 기준 main은 `4cad84287086f83f5a858ee9084f005557b81bff`이다. Spring과 Python 사이에서 최신 `build_graph`의 분해와 Routing 및 Generation을 한 번 실행한다. 기존 v0.1 질의 실행과 v0.2 fixture 대화 경로는 호환성 검사용으로 유지한다. 생성 답변을 사용할 클라이언트는 아래 v2 공개 경로를 호출한다. 기본 실행 모드는 live이며 실패할 때 stub으로 전환하지 않는다.
 
-정적 스키마는 [OpenAPI v0.3](agent-generation.openapi.json)에 있다.
+Agent 요청과 실행 응답의 정적 스키마는 [OpenAPI v0.3](agent-generation.openapi.json)에 있다. 해당 파일의 메모리 대화 스냅샷은 `legacy-test` 호환 계약이다. 기본 실행의 로그인과 CSRF는 [회원 계약](membership.md)을 따른다. 영속 대화의 v0.4 스냅샷과 추가 경로는 [개인 이력 계약](history.md)을 따른다.
 
 기업 선택 없이 채팅에서 질문하는 흐름과 필요한 정보만 추가로 묻는 기준은 [직접 질문 계약](direct-chat.md)에 있다. 기존 schema 0.3의 요청과 응답을 그대로 사용한다.
 
@@ -12,7 +12,7 @@
 | --- | --- |
 | POST /api/v2/agent/queries | Spring의 상태 없는 생성 답변 API |
 | POST /internal/v2/query-executions | Python의 전체 Agent 실행 |
-| POST /api/v2/conversations | Spring 메모리 대화 생성 |
+| POST /api/v2/conversations | 기본 실행은 PostgreSQL 대화 생성. 상세는 이력 v0.4 계약 |
 | GET /api/v2/conversations/{conversation_id} | 대화 문맥과 저장 메시지 조회 |
 | POST /api/v2/conversations/{conversation_id}/messages | 저장 문맥과 이력으로 생성 답변 요청 |
 
@@ -57,7 +57,9 @@ Answer는 kind와 text 및 citations와 options 및 grounded와 notices 및 evid
 
 Routing 진단 필드는 v0.1의 고정 문구로 정제한 사본을 Generator에 전달한다. HTTP 응답의 Routing도 같은 규칙을 적용한다. 도구 result와 업무 데이터 및 인용은 보존한다. 모델 출력 문자열을 정해진 테스트 문장으로 교체하지 않는다.
 
-## 대화 저장
+## 기존 메모리 대화 저장 계약
+
+이 절은 `legacy-test` 프로필에만 적용한다. 기본 실행에서는 [이력 v0.4](history.md)에 따라 모든 메시지를 PostgreSQL에 보존한다.
 
 대화 생성 요청은 `{context:Context}`다. 기업 정보는 fixture와 비교하지 않는다. snapshot은 schema_version="0.3"과 conversation_id 및 context와 storage="memory" 및 messages를 갖는다. 대화 ID는 기존 API와 같은 표준 UUID 형식이며 대소문자를 구분한다.
 

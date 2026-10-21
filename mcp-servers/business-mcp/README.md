@@ -15,7 +15,8 @@
 | 생산능력, 품질·납기, 기존 계약, 견적 이력, 인증, RFQ | 가상 데이터 (공시에 없는 기업 내부·거래 데이터) |
 | 공시 대상이 아닌 소규모 비상장 협력사 | 가상 데이터 (공시와 같은 형식) |
 
-- `suppliers.source`와 `financials.source`가 `DART`인지 `MOCK`인지로 구분합니다.
+- `suppliers.source`는 `DART`와 `MOCK` 및 `MANUAL`을 구분합니다. MANUAL은 관리자가 등록하거나 수정한 기본 정보입니다. `financials.source`는 각 연도 재무의 DART 또는 MOCK 출처를 유지합니다. 기본 정보 출처로 재무 출처를 추정하지 않습니다.
+- 인증과 생산능력 및 품질은 각각 `certification_source`와 `capability_source` 및 `quality_source`로 구분합니다. 기존 가상 자료는 MOCK입니다. 관리자가 수정한 영역은 MANUAL입니다. DART 기업의 인증도 공시 자료를 뜻하지 않습니다.
 - DART 회사의 공정은 공시에 없어서 업종 코드(KSIC 303xx)로 추정합니다.
 - 팀원 모두 같은 seed 데이터로 작업하도록 DART 수집 결과(`data/dart_companies.csv`, `data/dart_financials.csv`, 자동차 부품 상장사 30곳)를 레포에 포함합니다. 공시된 공공데이터라 팀에서 포함하기로 정했습니다. `seed.py`가 이 CSV를 읽으므로 인증키 없이 모두 같은 DB가 만들어집니다.
 - 회사를 더 넣거나 최신 공시로 바꾸는 절차는 [SETUP.md의 데이터 추가·갱신 방법](SETUP.md#데이터-추가갱신-방법)을 보세요.
@@ -93,13 +94,14 @@
 docker compose up -d                       # PostgreSQL (이미 설치된 PostgreSQL을 써도 됨, SETUP.md 참고)
 uv sync
 uv run python scripts/seed.py              # 테이블을 만들고 데이터를 넣음 (다시 실행하면 처음부터 새로 만듦)
+uv run python scripts/migrate_management.py # DATABASE_URL을 명시한 뒤 비파괴 관리 스키마 적용
 uv run python server.py                    # stdio
 uv run python server.py --http 9102        # Streamable HTTP: http://localhost:9102/mcp
 uv run python -m pytest -q                 # MCP Client로 도구 호출 테스트
 ```
 
 - 접속 정보는 `DATABASE_URL` 환경변수로 바꿉니다. 기본값은 `postgresql://agent:agent@localhost:5432/supplier_db`입니다.
-- 테스트는 같은 DB 안에 임시 스키마(`pytest_business`)를 만들어 seed한 뒤 지우므로, 작업 중인 데이터는 건드리지 않습니다. DB에 연결할 수 없으면 테스트를 건너뜁니다.
+- 테스트는 같은 DB 안에 고유한 `pytest_business_` 접두사의 임시 스키마를 만들어 seed와 관리 migration을 적용한 뒤 지웁니다. 공개 스키마와 저장소 CSV는 변경하지 않습니다. DB에 연결할 수 없으면 테스트를 건너뜁니다.
 
 DB 없이 검색 규칙과 SQL 인자 및 상세 조회 호환성만 확인하려면 아래 명령을 사용합니다. `query`를 대역으로 바꾸고 DB 연결을 차단합니다. 기존 `tests/conftest.py`의 자동 seed를 실행하지 않습니다.
 
@@ -153,3 +155,32 @@ docs/ERD.png                ERD
 docker-compose.yml          PostgreSQL 16 컨테이너
 SETUP.md                    단계별 실행 가이드, 데이터 추가·갱신 방법, 자주 나는 오류
 ```
+
+
+## 관리자 변경과 읽기 전용 MCP 계정
+
+[관리자 협력사 계약](../../docs/contracts/admin-suppliers.md)은 Spring의 등록과 수정 및 비활성화를 정의합니다. 재무와 계약 및 견적은 조회만 제공합니다. 모든 수정은 version을 확인하고 수정자 UUID와 변경 전후 자료를 기록합니다. DART 기본 정보는 수정하지 않습니다. MOCK 기본 정보를 수정하면 MANUAL로 표시하며 최초 원본은 보존합니다.
+
+새 MCP는 관리 스키마의 status를 사용합니다. 기존 데이터가 있는 DB에서는 seed를 다시 실행하지 않습니다. 스키마 변경 권한을 가진 접속 정보를 DATABASE_URL 환경 변수로 명시한 뒤 다음 명령만 실행합니다.
+
+```bash
+uv run python scripts/migrate_management.py
+```
+
+이 명령은 저장소의 `backend/src/main/resources/db/business/V1__supplier_management.sql`을 적용합니다. 기존 8개 테이블이 없으면 중단하며 자동으로 만들거나 seed하지 않습니다. 빈 실습 DB는 먼저 기존 seed를 명시적으로 실행해야 합니다. 같은 migration을 반복하거나 이후 Spring Flyway를 실행해도 원본과 수정 버전 및 감사 이력이 유지됩니다. 적용을 마친 다음 MCP를 재시작합니다.
+
+비활성 기업은 검색과 이름 조회 및 상세와 추천 및 협상안 검사에서 제외됩니다. 카탈로그와 시장 견적 중앙값에서도 제외됩니다. 과거 채팅에 이미 저장한 근거는 변경하지 않습니다. 품질이나 견적이 없는 활성 기업은 상세 조회가 가능하지만 추천 점수 계산에서 빠지고 자료 미등록 사유를 반환합니다.
+
+MCP 실행 계정에는 기존 데이터 조회 권한만 부여합니다. 마이그레이션 계정과 Spring 관리 계정 및 회원 DB 계정을 재사용하지 않습니다. 아래는 DBA가 적용할 권한 예시입니다. DB 이름과 schema는 실제 환경에 맞춥니다. 비밀번호는 psql의 대화형 명령으로 지정합니다.
+
+```sql
+CREATE ROLE negopilot_business_reader LOGIN;
+\password negopilot_business_reader
+GRANT CONNECT ON DATABASE supplier_db TO negopilot_business_reader;
+GRANT USAGE ON SCHEMA public TO negopilot_business_reader;
+GRANT SELECT ON public.suppliers, public.capabilities, public.quality,
+    public.contracts, public.quotes, public.financials, public.oems,
+    public.rfqs, public.supplier_overview TO negopilot_business_reader;
+```
+
+이 계정은 테이블 소유자나 superuser가 아니어야 합니다. 추가 그룹 권한도 확인합니다. supplier_change_events와 회원 DB에는 권한을 주지 않습니다. MCP 프로세스의 DATABASE_URL만 이 읽기 계정으로 설정합니다. 관리자 변경은 인증된 Spring 관리 API에서 실행하며 MCP에는 쓰기 도구를 추가하지 않습니다.

@@ -10,9 +10,9 @@ import openai
 
 from negopilot_shared import DecompositionResult, RouteResult
 from negopilot_agent.decomposition import DecomposerSettings, QueryDecomposer
-from negopilot_agent.decomposition.backends import AnthropicBackend, Backend, OpenAIBackend
+from negopilot_agent.decomposition.backends import AnthropicBackend, Backend, OpenAIBackend, OllamaBackend
 from negopilot_agent.generation import Answer, AnswerGenerator, GeneratorSettings
-from negopilot_agent.generation.backends import GenerationAnthropicBackend, GenerationOpenAIBackend
+from negopilot_agent.generation.backends import GenerationAnthropicBackend, GenerationOpenAIBackend, GenerationOllamaBackend
 from negopilot_agent.graph import build_graph
 from negopilot_agent.routing import McpToolCaller, ToolCaller
 
@@ -42,6 +42,11 @@ class LazyModelBackend:
         try:
             if not settings.model.strip():
                 raise ValueError("Model name must not be blank")
+            if settings.backend == "ollama":
+                backend_type = GenerationOllamaBackend if generation else OllamaBackend
+                backend = backend_type.from_env(settings.model, settings.max_tokens)
+                self._close = backend.http.aclose
+                return backend
             if settings.backend == "anthropic":
                 client = anthropic.AsyncAnthropic(max_retries=0)
                 self._close = client.close

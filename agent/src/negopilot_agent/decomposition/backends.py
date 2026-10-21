@@ -1,7 +1,8 @@
 """분해에 쓰는 모델 백엔드. 모두 같은 일을 한다: 시스템 프롬프트와 질문을 받아 분해 결과 JSON 문자열을 돌려준다.
 
-- anthropic: Claude 구조화 출력 (기본)
-- openai: OpenAI Chat Completions (gpt-4.1-mini 등)
+- anthropic: Claude 구조화 출력
+- openai: OpenAI Chat Completions (기본)
+- ollama: 로컬 Ollama native /api/chat 구조화 출력
 
 거절이나 출력 잘림이면 None을 돌려준다. 네트워크·서버 오류는 예외로 올린다.
 """
@@ -15,6 +16,7 @@ from openai.lib._pydantic import to_strict_json_schema
 from pydantic import BaseModel
 
 from negopilot_shared import DecompositionResult
+from negopilot_agent.ollama import OllamaBackend  # re-export alongside the other providers
 
 log = logging.getLogger(__name__)
 

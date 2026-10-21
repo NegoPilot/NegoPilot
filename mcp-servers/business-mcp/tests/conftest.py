@@ -6,13 +6,14 @@ DATABASE_URL(기본 supplier_db) 안에 임시 스키마 pytest_business를 만�
 
 import importlib.util
 import os
+import uuid
 from pathlib import Path
 
 import psycopg
 import pytest
 
 BASE_URL = os.getenv("DATABASE_URL", "postgresql://agent:agent@localhost:5432/supplier_db")
-SCHEMA = "pytest_business"
+SCHEMA = "pytest_business_" + uuid.uuid4().hex
 # server.py와 seed.py가 import 될 때 이 값을 읽으므로, 테스트 모듈보다 먼저 바꿔 둔다
 os.environ["DATABASE_URL"] = f"{BASE_URL}{'&' if '?' in BASE_URL else '?'}options=-csearch_path%3D{SCHEMA}"
 
@@ -22,13 +23,20 @@ def seeded_schema():
     try:
         with psycopg.connect(BASE_URL, autocommit=True) as conn:
             conn.execute(f"CREATE SCHEMA IF NOT EXISTS {SCHEMA}")
-    except psycopg.OperationalError as exc:
-        pytest.skip(f"PostgreSQL에 연결할 수 없어 테스트를 건너뜀 (SETUP.md 3단계 참고): {exc}")
+    except psycopg.OperationalError:
+        pytest.skip("PostgreSQL에 연결할 수 없어 테스트를 건너뜀 (SETUP.md 3단계 참고)")
 
     spec = importlib.util.spec_from_file_location("seed", Path(__file__).resolve().parent.parent / "scripts" / "seed.py")
     seed = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(seed)
-    seed.main()
-    yield
-    with psycopg.connect(BASE_URL, autocommit=True) as conn:
-        conn.execute(f"DROP SCHEMA {SCHEMA} CASCADE")
+    # A database test must not overwrite the repository's CSV snapshots.
+    seed.dump_csv = lambda *args, **kwargs: None
+    try:
+        seed.main()
+        migration = Path(__file__).resolve().parents[3] / "backend/src/main/resources/db/business/V1__supplier_management.sql"
+        with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+            conn.execute(migration.read_text(encoding="utf-8"))
+        yield
+    finally:
+        with psycopg.connect(BASE_URL, autocommit=True) as conn:
+            conn.execute(f"DROP SCHEMA {SCHEMA} CASCADE")

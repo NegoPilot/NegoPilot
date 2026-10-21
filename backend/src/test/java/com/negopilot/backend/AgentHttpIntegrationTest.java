@@ -37,6 +37,7 @@ import tools.jackson.databind.node.ObjectNode;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@org.springframework.test.context.ActiveProfiles("legacy-test")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class AgentHttpIntegrationTest {
     private static final JsonMapper JSON = JsonMapper.builder().build();

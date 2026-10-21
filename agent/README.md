@@ -38,7 +38,7 @@ graph.add_node("decompose_query", make_decompose_node())   # 상태: query, hist
 
 | 동작 | 내용 |
 | --- | --- |
-| 백엔드 | `openai`(기본, Chat Completions, `response_format`에 strict JSON 스키마 전달) 또는 `anthropic`(Claude 구조화 출력). 스키마는 모두 `DecompositionResult`에서 만든다 ([`backends.py`](src/negopilot_agent/decomposition/backends.py)) |
+| 백엔드 | `openai`(기본, Chat Completions, `response_format`에 strict JSON 스키마 전달) 또는 `anthropic`(Claude 구조화 출력) 또는 `ollama`(native `/api/chat`). 스키마는 모두 `DecompositionResult`에서 만든다 ([`backends.py`](src/negopilot_agent/decomposition/backends.py)) |
 | 프롬프트 | intent 등록표(`intents.yaml`)로 자동 생성. 용어 사전, 근거·되묻기 규칙, 예시 포함 ([`prompt.py`](src/negopilot_agent/decomposition/prompt.py)) |
 | 프롬프트 캐시 | 시스템 프롬프트는 요청마다 같게 두고 캐시한다. 오늘 날짜와 최근 대화는 사용자 메시지에 넣는다 |
 | 형식 오류 | 필드 사이 규칙 위반을 오류 내용과 함께 알려 주고 1회 재시도. 그래도 실패하면 `status: "failed"` |
@@ -51,8 +51,8 @@ graph.add_node("decompose_query", make_decompose_node())   # 상태: query, hist
 
 | 환경 변수 | 기본값 | 설명 |
 | --- | --- | --- |
-| `NEGOPILOT_DECOMPOSER_BACKEND` | `openai` | `openai` 또는 `anthropic` |
-| `NEGOPILOT_DECOMPOSER_MODEL` | `claude-opus-5-5` / `gpt-4.1-mini` | 백엔드별 기본 모델 |
+| `NEGOPILOT_DECOMPOSER_BACKEND` | `openai` | `openai` 또는 `anthropic` 또는 `ollama` |
+| `NEGOPILOT_DECOMPOSER_MODEL` | `claude-opus-5-5` / `gpt-4.1-mini` / `qwen3:8b` | 백엔드별 기본 모델 |
 | `NEGOPILOT_DECOMPOSER_EFFORT` | `low` | Claude 전용. 분류에 가까운 작업이라 low로 시작. 평가 결과를 보고 조정 |
 | `NEGOPILOT_DECOMPOSER_FALLBACKS` | `1` | Claude 전용. 거절 시 대체 모델 사용 |
 
@@ -152,8 +152,8 @@ graph.add_node("generate", make_generate_node())   # 상태: decomposition, rout
 
 | 환경 변수 | 기본값 |
 | --- | --- |
-| `NEGOPILOT_GENERATOR_BACKEND` | `openai`. `anthropic`도 선택 가능 |
-| `NEGOPILOT_GENERATOR_MODEL` | anthropic은 `claude-opus-5-5`. openai는 `gpt-4.1-mini` |
+| `NEGOPILOT_GENERATOR_BACKEND` | `openai`. `anthropic`과 `ollama`도 선택 가능 |
+| `NEGOPILOT_GENERATOR_MODEL` | anthropic은 `claude-opus-5-5`. openai는 `gpt-4.1-mini`. ollama는 `qwen3:8b` |
 | `NEGOPILOT_GENERATOR_EFFORT` | `medium` |
 | `NEGOPILOT_GENERATOR_FALLBACKS` | `1` |
 
@@ -376,14 +376,14 @@ curl --fail-with-body http://127.0.0.1:9200/internal/v2/query-executions \
 
 ### v2 live 모델 선택과 비용 없는 검사
 
-분해와 Generation의 백엔드는 독립적으로 설정합니다. 각 단계에서 `anthropic` 또는 `openai`를 선택할 수 있습니다. 백엔드를 지정하지 않으면 기본값인 `openai`를 사용합니다.
+분해와 Generation의 백엔드는 독립적으로 설정합니다. 각 단계에서 `anthropic` 또는 `openai` 또는 `ollama`를 선택할 수 있습니다. 백엔드를 지정하지 않으면 기본값인 `openai`를 사용합니다.
 
 | 환경 변수 | 기본값 |
 | --- | --- |
 | `NEGOPILOT_DECOMPOSER_BACKEND` | `openai` |
-| `NEGOPILOT_DECOMPOSER_MODEL` | anthropic은 `claude-opus-5-5`. openai는 `gpt-4.1-mini` |
+| `NEGOPILOT_DECOMPOSER_MODEL` | anthropic은 `claude-opus-5-5`. openai는 `gpt-4.1-mini`. ollama는 `qwen3:8b` |
 | `NEGOPILOT_GENERATOR_BACKEND` | `openai` |
-| `NEGOPILOT_GENERATOR_MODEL` | anthropic은 `claude-opus-5-5`. openai는 `gpt-4.1-mini` |
+| `NEGOPILOT_GENERATOR_MODEL` | anthropic은 `claude-opus-5-5`. openai는 `gpt-4.1-mini`. ollama는 `qwen3:8b` |
 | `NEGOPILOT_DECOMPOSER_EFFORT` | `low` |
 | `NEGOPILOT_GENERATOR_EFFORT` | `medium` |
 | `NEGOPILOT_DECOMPOSER_FALLBACKS` | `1` |
@@ -424,3 +424,51 @@ uv run --locked python -m pytest -q
 기업을 미리 선택하지 않아도 v2 대화 API로 질문할 수 있습니다. 지역만으로 기업을 검색하거나 이름으로 기업을 찾고 관련 법령을 조회합니다. 기업 후보가 여러 곳이거나 필수 거래 조건이 없을 때만 추가로 묻습니다. 조회 0건과 연결 실패는 추가 입력 부족과 구분합니다.
 
 [직접 질문 계약](../docs/contracts/direct-chat.md)에 질문별 처리 기준과 stub 예시 및 추가 질문 이후의 대화 규칙을 정리했습니다. 기업명 조회에는 최신 business-mcp의 `find_suppliers`가 필요합니다. Agent와 business-mcp를 함께 갱신해 실행하세요.
+
+
+## 회원 및 데이터 관리 연결
+
+회원 인증과 승인 및 세션과 개인 채팅 이력 저장은 Spring이 담당한다. Python의 Generation 요청과 응답은 v0.3을 유지한다. [회원 계약](../docs/contracts/membership.md)과 [이력 계약](../docs/contracts/history.md)을 참고한다.
+
+`/internal/v1/admin/laws` 아래의 버전 조회와 최신화 API는 `AGENT_INTERNAL_API_KEY`로 인증한다. 조회는 law-mcp의 읽기 도구를 사용한다. 최신화는 별도의 HTTP 제어 경로를 사용하며 Agent 도구로 노출하지 않는다. stub 모드에서도 관리자 법령 조회와 최신화는 실제 law-mcp에 연결한다.
+
+- `LAW_MCP_URL`은 법령 서버의 `/mcp` 주소다. 기본값은 `http://localhost:9103/mcp`다.
+- `LAW_ADMIN_API_KEY`는 Python과 법령 서버 사이의 별도 관리 키다. 프런트로 전달하지 않는다.
+- law-mcp는 `LAW_RUNTIME_DIR`에 검증된 데이터와 작업 상태를 저장한다. 단일 서버 프로세스로 실행한다.
+- 법령 최신화의 실제 수집은 law-mcp에서 수행한다. GitHub API 제한 회피가 필요하면 법령 서버에 `GITHUB_TOKEN`을 설정한다.
+
+수동 법령 등록과 편집 API는 제공하지 않는다. 경로와 오류 및 응답 형식은 [법령 관리 계약](../docs/contracts/admin-laws.md)에 있다.
+
+
+### Ollama native 공급자
+
+`ollama`는 기존 분해와 Routing 및 Generation 그래프를 그대로 실행하는 live 공급자입니다. [Ollama 공식 `/api/chat`](https://docs.ollama.com/api/chat)에 `stream=false`와 `think=false`를 보내고 `temperature=0`을 사용합니다. [구조화 출력 문서](https://docs.ollama.com/capabilities/structured-outputs)에 따라 `format`에는 분해의 `DecompositionResult` 또는 생성의 `GenerationDraft` Pydantic JSON Schema를 전달합니다. 출력 JSON의 계약 검사와 근거 검증은 기존 코어가 수행합니다.
+
+현재 Ollama 문법 변환기의 [숫자 정규식 shorthand 문제](https://github.com/ggml-org/llama.cpp/issues/27580)에 맞춰 전송할 스키마 사본의 `pattern`에서 `\d`만 `[0-9]`로 확장합니다. 원본 Pydantic 모델과 후검증은 변경하지 않습니다. `anyOf`와 참조 및 열거값과 숫자 범위 제약도 그대로 전달합니다.
+
+로컬 Ollama에 모델을 준비한 후 Python 서버를 실행하는 셸에서 설정합니다. 모델 다운로드와 서버 시작은 Agent가 자동으로 수행하지 않습니다.
+
+```bash
+export AGENT_EXECUTION_MODE=live
+export NEGOPILOT_DECOMPOSER_BACKEND=ollama
+export NEGOPILOT_GENERATOR_BACKEND=ollama
+export OLLAMA_BASE_URL=http://127.0.0.1:11434
+unset NEGOPILOT_DECOMPOSER_MODEL NEGOPILOT_GENERATOR_MODEL
+```
+
+| 환경 변수 | 기본값 | 설명 |
+| --- | --- | --- |
+| `NEGOPILOT_DECOMPOSER_MODEL` | `qwen3:8b` | 분해 공급자가 ollama일 때의 모델 이름 |
+| `NEGOPILOT_GENERATOR_MODEL` | `qwen3:8b` | 생성 공급자가 ollama일 때의 모델 이름 |
+| `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | HTTP 또는 HTTPS origin. 인증정보와 경로 및 쿼리와 fragment는 허용하지 않음 |
+| `OLLAMA_TIMEOUT_SECONDS` | `300` | 각 모델 HTTP 호출의 제한 시간. 0 초과 3600 이하. 연결은 최대 5초 |
+| `OLLAMA_NUM_CTX` | `32768` | 입력과 출력이 공유하는 문맥 크기. 1024부터 131072까지. 설치 모델이 지원하는 범위 안에서 설정 |
+| `OLLAMA_NUM_PREDICT` | `4096` | 모델 출력 토큰 상한. 양수이며 NUM_CTX보다 작아야 함. 코어 max_tokens가 더 작으면 그 값을 사용 |
+
+Ollama 호출에는 OpenAI 또는 Anthropic 키를 전달하지 않습니다. 환경변수의 HTTP 프록시와 리다이렉트도 사용하지 않습니다. 공급자를 선택하지 않으면 기존 기본값 `openai`가 유지됩니다. 두 단계의 공급자는 각각 선택할 수 있습니다.
+
+연결 오류와 HTTP 오류 및 잘못된 Ollama 응답 envelope는 HTTP 경로에서 `503 UPSTREAM_UNAVAILABLE`로 처리합니다. 시간초과는 `504 UPSTREAM_TIMEOUT`입니다. 전송 오류를 자동 재시도하거나 stub으로 전환하지 않습니다. `done_reason=length`는 기존 코어의 실패 결과로 처리합니다. JSON 계약 위반은 기존 코어의 최대 두 번 시도 규칙을 유지합니다. 각 HTTP 요청에서 처음 사용한 모델 클라이언트를 만들고 요청 종료 시 닫습니다.
+
+`OLLAMA_TIMEOUT_SECONDS`는 전체 Agent 실행 제한을 늘리지 않습니다. 로컬 모델의 속도에 맞춰 `AGENT_REQUEST_TIMEOUT_SECONDS`와 Spring 및 프런트의 제한 시간을 별도로 정렬해야 합니다. 이 설정은 프롬프트나 모델 가중치를 바꾸지 않으며 답변 품질을 보장하지 않습니다.
+
+`tests/test_ollama_backend.py`는 실제 모델 호출 없이 native 요청 스키마와 옵션 및 v1/v2 선택과 클라이언트 종료 및 503/504 처리와 자동 재시도 부재를 검사합니다.

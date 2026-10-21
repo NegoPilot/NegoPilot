@@ -17,6 +17,8 @@ from negopilot_agent.decomposition.backends import Backend
 
 from .execution import Decomposer, ModelUnavailable, QueryExecutor
 from .generation_api import add_generation_routes
+from .admin_law_api import add_admin_law_routes
+from .admin_law_refresh import add_refresh_routes
 from .generation_execution import ContextDecomposer
 from .models import ErrorDetail, ErrorResponse, QueryExecutionRequest, QueryExecutionResponse
 from .settings import ApiSettings
@@ -52,7 +54,9 @@ def create_app(settings: ApiSettings | None = None, decomposer: Decomposer | Non
                supplier_chat_service: SupplierChatService | None = None,
                generation_decomposer: ContextDecomposer | None = None,
                generation_caller: ToolCaller | None = None,
-               generation_backend: Backend | None = None) -> FastAPI:
+               generation_backend: Backend | None = None,
+               admin_law_caller: ToolCaller | None = None,
+               law_refresh_control=None) -> FastAPI:
     settings = settings or ApiSettings.from_env()
     executor = QueryExecutor(settings, decomposer=decomposer, caller=caller)
     application = FastAPI(title="NegoPilot internal execution API", version="0.1")
@@ -122,6 +126,8 @@ def create_app(settings: ApiSettings | None = None, decomposer: Decomposer | Non
     add_generation_routes(application, settings, authenticate, error_response,
                           decomposer=generation_decomposer, caller=generation_caller,
                           backend=generation_backend)
+    add_refresh_routes(application, settings, authenticate, error_response, law_refresh_control)
+    add_admin_law_routes(application, settings, authenticate, error_response, admin_law_caller)
     return application
 
 

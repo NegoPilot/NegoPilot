@@ -66,6 +66,13 @@ async def test_ambiguous_company_uses_structured_options_without_model():
     assert "INTERNAL_LOOKUP_MARKER" not in answer.model_dump_json()
 
 
+async def test_admin_created_five_digit_company_ids_remain_selectable():
+    rows = [candidate(10000, "수동기업"), candidate(10001, "수동부품")]
+    answer = await generate([ambiguous_outcome(calls=[lookup_call(rows)])])
+    assert answer.kind == "clarify"
+    assert answer.options == ["수동기업 (SUP-10000)", "수동부품 (SUP-10001)"]
+
+
 async def test_company_options_are_unique_and_bounded():
     rows = [candidate(1), candidate(1), *[candidate(i) for i in range(2, 14)]]
     answer = await generate([ambiguous_outcome(calls=[lookup_call(rows)])])

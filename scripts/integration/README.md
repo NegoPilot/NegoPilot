@@ -1,6 +1,10 @@
 # Spring과 Python HTTP 통합 검증
 
-최신 Generation 경로는 `generation_smoke.py`로 검사합니다. [Generation HTTP 계약](../../docs/contracts/agent-generation.md)의 공개 v2 경로와 내부 v2 경로를 연결합니다. 실제 `build_graph`와 `QueryDecomposer` 및 `AnswerGenerator`를 실행하며 모델 backend와 도구 입출력에 fake를 주입합니다.
+이 디렉터리의 네 smoke 실행기는 개발용 fixture 계약 회귀 검사입니다. 공통 Spring 실행기는 `SPRING_PROFILES_ACTIVE=legacy-test`를 고정합니다. 이 프로필은 회원 인증과 CSRF 및 application DB를 사용하지 않고 기존 메모리 대화 계약을 검사합니다. 셸의 운영 프로필과 DB 설정을 상속하지 않습니다. 사용자용 서버를 실행하는 용도로 사용하지 않습니다.
+
+실제 가입과 승인 및 JDBC 세션과 개인 대화 저장은 기본 Spring 실행 프로필의 기능입니다. 해당 실행 순서는 [개발 시작 가이드](../../docs/GETTING_STARTED.md#5-로컬에서-돌려-보기)를 따릅니다. 이 smoke의 성공을 회원 인증이나 PostgreSQL 저장 및 재시작 복구의 검증으로 해석하지 않습니다.
+
+Generation 경로의 계약 회귀는 `generation_smoke.py`로 검사합니다. [Generation HTTP 계약](../../docs/contracts/agent-generation.md)의 공개 v2 경로와 내부 v2 경로를 연결합니다. 실제 `build_graph`와 `QueryDecomposer` 및 `AnswerGenerator`를 실행하며 모델 backend와 도구 입출력에 fake를 주입합니다.
 
 `direct_chat_smoke.py`는 같은 v2 경로에서 기업을 미리 선택하지 않은 직접 질문과 추가 답변을 검사합니다. 문서화된 질문을 내장 stub에 보내 검색과 이름 조회 및 법령 조회와 원래 질문의 재개를 확인합니다. HTTP 스키마는 0.3을 유지합니다.
 
@@ -71,7 +75,7 @@ Generation 검사는 실제 FastAPI 서버와 Spring 서버를 임시 포트에�
 
 검사 중 주입한 응답 손상과 HTTP 오류는 저장 경계 검사용입니다. 이 결과를 실제 모델 실패나 실제 도구 응답으로 표시하지 않습니다. 임시 내부 키는 출력하지 않습니다. 결과 본문과 로그를 저장할 때는 `/tmp` 경로를 사용합니다.
 
-실제 모델 검증은 위 fake 검사와 별도로 수행합니다. OpenAI 모델을 사용할 때는 분해와 생성의 backend를 모두 `openai`로 지정하고 Python 서버 환경에 `OPENAI_API_KEY`를 설정합니다. 모델을 지정하지 않으면 `gpt-4.1-mini`를 씁니다. `NEGOPILOT_DECOMPOSER_BACKEND`와 `NEGOPILOT_GENERATOR_BACKEND`도 모두 설정합니다. Python의 `AGENT_REQUEST_TIMEOUT_SECONDS`는 180초 등 모델 지연을 수용할 값으로 두고 Spring의 `AGENT_RESPONSE_TIMEOUT_SECONDS`는 Python 응답 정리 시간을 포함하도록 설정합니다.
+실제 모델 검증은 위 fake 검사와 별도로 수행합니다. 일반 서비스 실행에서는 `legacy-test`를 지정하지 않으며 회원 DB와 승인된 계정 및 세션과 CSRF를 준비합니다. OpenAI 모델을 사용할 때는 분해와 생성의 backend를 모두 `openai`로 지정하고 Python 서버 환경에 `OPENAI_API_KEY`를 설정합니다. 모델을 지정하지 않으면 `gpt-4.1-mini`를 씁니다. `NEGOPILOT_DECOMPOSER_BACKEND`와 `NEGOPILOT_GENERATOR_BACKEND`도 모두 설정합니다. Python의 `AGENT_REQUEST_TIMEOUT_SECONDS`는 180초 등 모델 지연을 수용할 값으로 두고 Spring의 `AGENT_RESPONSE_TIMEOUT_SECONDS`는 Python 응답 정리 시간을 포함하도록 설정합니다. Ollama 설정은 [Agent 안내](../../agent/README.md#ollama-native-공급자)를 참고합니다.
 
 실제 모델 확인은 일반 지식 질문 한 건부터 순차 실행합니다. HTTP 성공 여부와 실제 분해 모델 호출 및 생성 모델 호출을 각각 기록합니다. 답변 대신 추가 입력이나 실패가 나오면 실제 생성 성공으로 세지 않습니다. MCP가 준비되지 않은 환경의 일반 지식 검증은 실제 기업 정보나 법령 근거 조회의 성공을 의미하지 않습니다.
 
@@ -117,7 +121,7 @@ Spring과 Python 사이의 로컬 HTTP 프록시는 정상 요청을 전달하�
 
 ## 결과 해석의 한계
 
-공급사 v0.2 데이터의 단일 원본은 `docs/contracts/fixtures/supplier-chat.json`입니다. v0.2는 이 가상 데이터와 고정 템플릿으로 답합니다. 실제 기업 정보나 MCP 실행 결과가 아닙니다. 대화는 Spring 메모리에만 저장되며 서버 종료와 함께 사라집니다.
+공급사 v0.2 데이터의 단일 원본은 `docs/contracts/fixtures/supplier-chat.json`입니다. v0.2는 이 가상 데이터와 고정 템플릿으로 답합니다. 실제 기업 정보나 MCP 실행 결과가 아닙니다. 이 실행기의 `legacy-test` 대화는 Spring 메모리에만 저장되며 서버 종료와 함께 사라집니다. 기본 프로필의 개인 대화는 [이력 v0.4 계약](../../docs/contracts/history.md)에 따라 PostgreSQL에 저장됩니다.
 
 v0.1의 세 고정 질문은 분해 fixture와 가짜 ToolCaller를 실제 Router에 연결합니다. 응답의 `routing.schema_version`과 각 outcome의 `referenced_articles`도 검사합니다. `spring.synthetic_boundary`로 표시한 네 검사는 프록시에서 일반 지식 상태와 범위 밖 상태 및 참조 조회 오류와 진단 문구를 주입해 Spring 응답을 확인합니다. 이 네 결과는 Python Router의 실제 실행 결과를 뜻하지 않습니다.
 
