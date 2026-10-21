@@ -9,7 +9,6 @@ import EmptyState from '@/components/EmptyState.vue'
 import ErrorNotice from '@/components/ErrorNotice.vue'
 import SupplierDetailSection from '@/components/SupplierDetailSection.vue'
 import SupplierSearchPanel from '@/components/SupplierSearchPanel.vue'
-import { isApiError } from '@/utils/errors'
 import { NO_DATA, formatInteger, formatPpm } from '@/utils/format'
 import { provenanceLabel } from '@/utils/provenance'
 import {
@@ -38,24 +37,16 @@ const searchKey = computed(() => JSON.stringify(searchValuesToQuery(applied.valu
 const result = ref<SupplierList | null>(null)
 const loading = ref(false)
 const error = ref<unknown>(null)
-// 아직 계약에 없는 조건을 보냈는지. 400이면 이 조건 때문이라고 안내한다
-const sentUnsupported = ref<string[]>([])
 // 결과 표의 불량률은 상세 조회로 채운다 (검색 결과 요약에는 품질 정보가 없다)
 const details = ref<Record<string, SupplierDetail | 'error'>>({})
 let latest = 0
 
-const errorMessage = computed(() =>
-  sentUnsupported.value.length && isApiError(error.value, 'VALIDATION_ERROR')
-    ? `${sentUnsupported.value.join('·')} 조건은 아직 서버에서 지원하지 않습니다. 이 조건을 빼고 다시 검색해 주세요.`
-    : isApiError(error.value, 'DEMO_MODE_REQUIRED')
-      ? '협력사 조회 API는 아직 테스트 모드(stub)에서만 동작합니다.'
-      : null,
-)
-
 async function loadDetail(id: string) {
   if (details.value[id] && details.value[id] !== 'error') return
   try {
-    details.value = { ...details.value, [id]: await getSupplier(id) }
+    // 펼치기 전에 기다려야 동시에 끝난 다른 상세 결과를 덮어쓰지 않는다
+    const detail = await getSupplier(id)
+    details.value = { ...details.value, [id]: detail }
   } catch {
     details.value = { ...details.value, [id]: 'error' }
   }
@@ -71,7 +62,6 @@ async function runSearch() {
   const id = ++latest
   loading.value = true
   error.value = null
-  sentUnsupported.value = params.iso14001_required ? ['ISO 14001'] : []
   try {
     const data = await searchSuppliers(params)
     if (id !== latest) return
@@ -191,7 +181,7 @@ const headerContext = computed(() => {
           </div>
 
           <p v-if="loading" aria-live="polite">검색 중…</p>
-          <ErrorNotice v-else-if="error" :error="error" :message="errorMessage" :retry="runSearch" />
+          <ErrorNotice v-else-if="error" :error="error" :retry="runSearch" />
           <EmptyState v-else-if="!result" title="공정을 입력하고 검색하세요">홈의 RFQ 목록에서 '상세'를 누르면 조건이 채워집니다.</EmptyState>
           <EmptyState v-else-if="!result.items.length" title="조건에 맞는 협력사가 없습니다">조건을 줄이거나 다른 공정으로 검색해 보세요.</EmptyState>
           <template v-else>

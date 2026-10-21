@@ -1,10 +1,10 @@
 // Spring 공개 API의 응답 형식. 계약이 바뀌면 이 파일을 같은 PR에서 고친다.
-// - 협력사 조회: docs/contracts/supplier-chat.md (v0.2, /api/v1)
+// - 협력사 조회: docs/contracts/supplier-lookup.md (v0.3, /api/v2 live)
 // - 생성 답변 대화: docs/contracts/agent-generation.md (v0.3, /api/v2)
 
 export interface Envelope<T> {
-  schema_version: '0.2'
-  mode: 'stub'
+  schema_version: '0.3'
+  mode: 'live'
   data: T
 }
 
@@ -35,6 +35,7 @@ export interface SupplierSummary {
   name: string
   region: string
   iatf16949: boolean
+  iso14001: boolean
   matched_capabilities: Capability[]
   provenance: Provenance
 }
@@ -77,8 +78,7 @@ export interface SupplierDetail {
   name: string
   region: string
   iatf16949: boolean
-  // 계약(v0.2)에는 아직 없다. live get_supplier 근거(DB supplier_overview)에는 들어 있다
-  iso14001?: boolean
+  iso14001: boolean
   capabilities: Capability[]
   quality: Quality
   financials: Financial[]
@@ -95,7 +95,6 @@ export interface SupplierSearchParams {
   iatf_required?: boolean
   /** 1..10,000,000. 월 생산능력이 이 값 이상인 공정·소재만 matched_capabilities에 남는다 */
   min_monthly_capacity?: number
-  // 계약에 없어서 Spring이 400으로 거절한다 (#53)
   iso14001_required?: boolean
   limit?: number
 }
