@@ -1,0 +1,1073 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "NegoPilot Spring Python HTTP contract",
+    "version": "0.1.0",
+    "description": "HTTP envelope contract based on main 8d48d7b2b200c88f0ccfe33c3177057811e38cae. This PR contains the Spring backend and contracts but no Python HTTP adapter. Core Generation and graph code already exist. NOT_IMPLEMENTED describes only this HTTP response scope. The current shared decomposition and Routing models remain authoritative. See agent-http.md for mapping and runtime invariants."
+  },
+  "paths": {
+    "/internal/v1/query-executions": {
+      "servers": [
+        {
+          "url": "http://127.0.0.1:9200"
+        }
+      ],
+      "post": {
+        "operationId": "executeInternalQuery",
+        "summary": "Contract for synchronous decomposition and routing through a future Python HTTP adapter",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InternalQueryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Decomposition and routing execution result. No generated answer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Internal authentication failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Upstream unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Upstream timeout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "InternalApiKey": []
+          }
+        ],
+        "description": "The Python HTTP adapter for this endpoint is not included in this PR. Generation is outside this envelope."
+      }
+    },
+    "/api/v1/agent/queries": {
+      "servers": [
+        {
+          "url": "http://127.0.0.1:8080"
+        }
+      ],
+      "post": {
+        "operationId": "executePublicQuery",
+        "summary": "Run existing decomposition and routing synchronously",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicQueryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Decomposition and routing execution result. No generated answer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Upstream unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Upstream timeout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Invalid upstream response or internal authentication failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Spring forwards requests to the internal HTTP adapter contract and validates the response. The Python HTTP adapter is a separate prerequisite. User authentication and persistence are outside this endpoint."
+      }
+    },
+    "/health": {
+      "servers": [
+        {
+          "url": "http://127.0.0.1:9200"
+        },
+        {
+          "url": "http://127.0.0.1:8080"
+        }
+      ],
+      "get": {
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "Process is accepting HTTP requests. Not dependency readiness.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        },
+        "description": "Spring health is implemented by the backend. Python health is required of the future HTTP adapter."
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "InternalApiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Internal-Api-Key"
+      }
+    },
+    "schemas": {
+      "HistoryMessage": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant"
+            ]
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "additionalProperties": false
+      },
+      "InternalQueryRequest": {
+        "type": "object",
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "pattern": "\\S"
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HistoryMessage"
+            },
+            "maxItems": 20,
+            "default": []
+          }
+        },
+        "required": [
+          "request_id",
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "PublicQueryRequest": {
+        "type": "object",
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "pattern": "\\S"
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HistoryMessage"
+            },
+            "maxItems": 20,
+            "default": []
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "retryable"
+        ],
+        "additionalProperties": false
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "required": [
+          "request_id",
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "Clarification": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 2,
+            "maxItems": 4
+          }
+        },
+        "required": [
+          "reason",
+          "question",
+          "options"
+        ],
+        "additionalProperties": false
+      },
+      "SubQuery": {
+        "type": "object",
+        "description": "Existing shared DecompositionResult sub-query. Its full field and intent constraints remain governed by shared/src/negopilot_shared/decomposition.py.",
+        "required": [
+          "id",
+          "question",
+          "original_text",
+          "intent",
+          "grounding",
+          "confidence",
+          "entities",
+          "inputs",
+          "depends_on"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "original_text": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string"
+          },
+          "grounding": {
+            "type": "string",
+            "enum": [
+              "required",
+              "none"
+            ]
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "entities": {
+            "type": "object"
+          },
+          "inputs": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "DecompositionResult": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "enum": [
+              "0.1"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "clarify",
+              "failed"
+            ]
+          },
+          "original_query": {
+            "type": "string"
+          },
+          "sub_queries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SubQuery"
+            },
+            "maxItems": 5
+          },
+          "clarification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Clarification"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "assumptions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "schema_version",
+          "status",
+          "original_query",
+          "sub_queries",
+          "clarification",
+          "assumptions"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "ok"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "sub_queries": {
+                  "minItems": 1
+                },
+                "clarification": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "clarify"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "sub_queries": {
+                  "maxItems": 0
+                },
+                "clarification": {
+                  "$ref": "#/components/schemas/Clarification"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "failed"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "sub_queries": {
+                  "maxItems": 0
+                },
+                "clarification": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ToolCall": {
+        "type": "object",
+        "properties": {
+          "server": {
+            "type": "string"
+          },
+          "tool": {
+            "type": "string"
+          },
+          "args": {
+            "type": "object"
+          },
+          "result": {},
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null or a safe fixed error message at the HTTP boundary. Both calls and referenced_articles are sanitized in the public response copy after upstream validation."
+          }
+        },
+        "required": [
+          "server",
+          "tool",
+          "args",
+          "result",
+          "error"
+        ],
+        "additionalProperties": false,
+        "description": "Serialized shared ToolCall. result retains the original tool payload. HTTP error text must be sanitized in both calls and referenced_articles."
+      },
+      "SubQueryOutcome": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "general_knowledge",
+              "out_of_scope",
+              "unsupported",
+              "missing_args",
+              "empty",
+              "skipped",
+              "error"
+            ]
+          },
+          "calls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolCall"
+            }
+          },
+          "referenced_articles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolCall"
+            },
+            "description": "Existing ToolCall records for prefetched law_refs. Empty when no references were queried. A lookup failure populates only its sanitized error and does not change the parent outcome status."
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null remains null. Every non-null diagnostic message is replaced with a safe fixed message in the public response copy."
+          }
+        },
+        "required": [
+          "id",
+          "intent",
+          "status",
+          "calls",
+          "referenced_articles",
+          "missing",
+          "message"
+        ],
+        "additionalProperties": false,
+        "description": "Serialized shared SubQueryOutcome. Every field is present on the wire. A referenced_articles error does not change an ok outcome to error. message is diagnostic metadata and must not be shown directly to end users.",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "enum": [
+                    "ok",
+                    "error"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "calls": {
+                  "minItems": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "missing_args"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "missing": {
+                  "minItems": 1
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "missing": {
+                  "maxItems": 0
+                }
+              }
+            }
+          }
+        ]
+      },
+      "RouteResult": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "0.1"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "routed",
+              "not_routed"
+            ]
+          },
+          "outcomes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SubQueryOutcome"
+            }
+          },
+          "halted": {
+            "type": "boolean"
+          },
+          "halt_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null remains null. A non-null diagnostic halt reason is replaced with a safe fixed message while halted and outcome statuses are preserved."
+          }
+        },
+        "required": [
+          "schema_version",
+          "status",
+          "outcomes",
+          "halted",
+          "halt_reason"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "not_routed"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "outcomes": {
+                  "maxItems": 0
+                },
+                "halted": {
+                  "const": false
+                },
+                "halt_reason": {
+                  "type": "null"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "outcomes": {
+                  "minItems": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "halted": {
+                  "const": true
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "halt_reason": {
+                  "type": "string"
+                },
+                "outcomes": {
+                  "contains": {
+                    "properties": {
+                      "status": {
+                        "const": "empty"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "halt_reason": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ],
+        "description": "Serialized shared RouteResult v0.1 including default-valued fields. Outcome IDs must be unique and match decomposition sub-query IDs and intents in order. These cross-object invariants require runtime validation. shared/src/negopilot_shared/routing.py is authoritative."
+      },
+      "ExecutionResponse": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "enum": [
+              "0.1"
+            ]
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "execution_status": {
+            "type": "string",
+            "enum": [
+              "COMPLETED",
+              "NEEDS_INPUT",
+              "FAILED"
+            ]
+          },
+          "generation_status": {
+            "type": "string",
+            "enum": [
+              "NOT_IMPLEMENTED"
+            ],
+            "description": "This HTTP contract does not return a generated answer. NOT_IMPLEMENTED is not the implementation status of core Generation."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "live",
+              "stub"
+            ]
+          },
+          "decomposition": {
+            "$ref": "#/components/schemas/DecompositionResult"
+          },
+          "routing": {
+            "$ref": "#/components/schemas/RouteResult",
+            "description": "The current shared RouteResult serialized with schema_version and all referenced_articles arrays."
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Error"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null or an error with a validated code and retryable value. The public response copy replaces message with a safe fixed message for that code."
+          }
+        },
+        "required": [
+          "schema_version",
+          "request_id",
+          "execution_status",
+          "generation_status",
+          "mode",
+          "decomposition",
+          "routing",
+          "error"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "execution_status": {
+                  "const": "FAILED"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "error": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "error": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "decomposition": {
+                  "properties": {
+                    "status": {
+                      "const": "failed"
+                    }
+                  }
+                }
+              }
+            },
+            "then": {
+              "allOf": [
+                {
+                  "properties": {
+                    "execution_status": {
+                      "const": "FAILED"
+                    },
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "const": "DECOMPOSITION_FAILED"
+                        },
+                        "retryable": {
+                          "const": false
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "properties": {
+                    "routing": {
+                      "properties": {
+                        "status": {
+                          "const": "not_routed"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "decomposition": {
+                  "properties": {
+                    "status": {
+                      "const": "clarify"
+                    }
+                  }
+                }
+              }
+            },
+            "then": {
+              "allOf": [
+                {
+                  "properties": {
+                    "execution_status": {
+                      "const": "NEEDS_INPUT"
+                    }
+                  }
+                },
+                {
+                  "properties": {
+                    "routing": {
+                      "properties": {
+                        "status": {
+                          "const": "not_routed"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "decomposition": {
+                  "properties": {
+                    "status": {
+                      "const": "ok"
+                    }
+                  }
+                }
+              }
+            },
+            "then": {
+              "allOf": [
+                {
+                  "properties": {
+                    "routing": {
+                      "properties": {
+                        "status": {
+                          "const": "routed"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "routing": {
+                        "properties": {
+                          "outcomes": {
+                            "contains": {
+                              "properties": {
+                                "status": {
+                                  "const": "error"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "execution_status": {
+                        "const": "FAILED"
+                      },
+                      "error": {
+                        "properties": {
+                          "code": {
+                            "const": "ROUTING_FAILED"
+                          },
+                          "retryable": {
+                            "const": false
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "else": {
+                    "if": {
+                      "properties": {
+                        "routing": {
+                          "properties": {
+                            "outcomes": {
+                              "contains": {
+                                "properties": {
+                                  "status": {
+                                    "const": "missing_args"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "execution_status": {
+                          "const": "NEEDS_INPUT"
+                        }
+                      }
+                    },
+                    "else": {
+                      "properties": {
+                        "execution_status": {
+                          "const": "COMPLETED"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "description": "HTTP envelope for decomposition and Routing only. Core Generation already exists but is not exposed here. Execution mapping examines outcome status and does not treat referenced_articles errors as routing failures."
+      },
+      "Health": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    }
+  }
+}
