@@ -38,12 +38,12 @@ graph.add_node("decompose_query", make_decompose_node())   # 상태: query, hist
 
 | 동작 | 내용 |
 | --- | --- |
-| 백엔드 | `anthropic`(기본, Claude 구조화 출력) 또는 `ollama`(로컬 모델, 비용 없음. `format`에 JSON 스키마 전달). 스키마는 둘 다 `DecompositionResult`에서 만든다 ([`backends.py`](src/negopilot_agent/decomposition/backends.py)) |
+| 백엔드 | `anthropic`(기본, Claude 구조화 출력), `ollama`(로컬 모델, 비용 없음. `format`에 JSON 스키마 전달), `openai`(Chat Completions, `response_format`에 strict JSON 스키마 전달). 스키마는 모두 `DecompositionResult`에서 만든다 ([`backends.py`](src/negopilot_agent/decomposition/backends.py)) |
 | 프롬프트 | intent 등록표(`intents.yaml`)로 자동 생성. 용어 사전, 근거·되묻기 규칙, 예시 포함 ([`prompt.py`](src/negopilot_agent/decomposition/prompt.py)) |
 | 프롬프트 캐시 | 시스템 프롬프트는 요청마다 같게 두고 캐시한다. 오늘 날짜와 최근 대화는 사용자 메시지에 넣는다 |
 | 형식 오류 | 필드 사이 규칙 위반을 오류 내용과 함께 알려 주고 1회 재시도. 그래도 실패하면 `status: "failed"` |
 | 의존 관계 정리 | `inputs`로 값을 받지 않는 `depends_on`은 코드로 지운다 (병렬로 돌 질문이 순서대로 묶이지 않게) |
-| 거절·잘림 | Claude는 `stop_reason`이 `refusal`·`max_tokens`, Ollama는 `done_reason`이 `length`(출력 상한 2,048토큰)면 `failed` |
+| 거절·잘림 | Claude는 `stop_reason`이 `refusal`·`max_tokens`, Ollama는 `done_reason`이 `length`(출력 상한 2,048토큰), OpenAI는 `refusal`이 있거나 `finish_reason`이 `length`면 `failed` |
 | 안전 분류기 거절 | 서버 측 대체 모델(`fallbacks: "default"`)로 다시 실행. `NEGOPILOT_DECOMPOSER_FALLBACKS=0`으로 끈다 |
 | API 장애 | SDK 재시도 후에도 실패하면 예외를 그대로 올린다 (Harness의 Recovery가 처리) |
 
@@ -51,14 +51,15 @@ graph.add_node("decompose_query", make_decompose_node())   # 상태: query, hist
 
 | 환경 변수 | 기본값 | 설명 |
 | --- | --- | --- |
-| `NEGOPILOT_DECOMPOSER_BACKEND` | `anthropic` | `anthropic` 또는 `ollama` |
-| `NEGOPILOT_DECOMPOSER_MODEL` | `claude-opus-5-5` / `llama3.1:8b` | 백엔드별 기본 모델 |
+| `NEGOPILOT_DECOMPOSER_BACKEND` | `anthropic` | `anthropic`, `ollama`, `openai` |
+| `NEGOPILOT_DECOMPOSER_MODEL` | `claude-opus-5-5` / `llama3.1:8b` / `gpt-4.1-mini` | 백엔드별 기본 모델 |
 | `NEGOPILOT_DECOMPOSER_EFFORT` | `low` | Claude 전용. 분류에 가까운 작업이라 low로 시작. 평가 결과를 보고 조정 |
 | `NEGOPILOT_DECOMPOSER_FALLBACKS` | `1` | Claude 전용. 거절 시 대체 모델 사용 |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama 주소 |
 
 Claude는 `ANTHROPIC_API_KEY`(또는 `ant auth login` 프로필)가 필요합니다. 평가 스크립트는 `agent/.env`가 있으면 읽습니다 (git에 올라가지 않음).
 Ollama는 `ollama pull llama3.1:8b`로 모델을 받아 두면 키 없이 씁니다.
+OpenAI는 `OPENAI_API_KEY`가 필요합니다. 셸에 같은 이름의 변수가 있으면 `.env`보다 먼저 쓰입니다.
 
 ## Routing (`negopilot_agent.routing`)
 
@@ -151,8 +152,8 @@ graph.add_node("generate", make_generate_node())   # 상태: decomposition, rout
 
 | 환경 변수 | 기본값 |
 | --- | --- |
-| `NEGOPILOT_GENERATOR_BACKEND` | `anthropic` (또는 `ollama`) |
-| `NEGOPILOT_GENERATOR_MODEL` | anthropic `claude-opus-5-5`, ollama `llama3.1:8b` |
+| `NEGOPILOT_GENERATOR_BACKEND` | `anthropic` (또는 `ollama`, `openai`) |
+| `NEGOPILOT_GENERATOR_MODEL` | anthropic `claude-opus-5-5`, ollama `llama3.1:8b`, openai `gpt-4.1-mini` |
 | `NEGOPILOT_GENERATOR_EFFORT` | `medium` |
 | `NEGOPILOT_GENERATOR_FALLBACKS` | `1` |
 
@@ -163,9 +164,11 @@ uv sync
 uv run python -m pytest -q                       # 단위 테스트 (가짜 HTTP 전송·가짜 MCP, 비용 없음)
 uv run python scripts/ask.py "RFQ-2026-001 협력사 추천해줘"            # 전체 그래프 (서버 2개를 먼저 띄움, Claude 비용 발생)
 uv run python scripts/ask.py --backend ollama "하도급법 제4조 보여줘"   # 분해·생성 모두 로컬 모델 (비용 없음)
+uv run python scripts/ask.py --backend openai "하도급법 제4조 보여줘"   # 분해·생성 모두 gpt-4.1-mini
 uv run python scripts/route_fixtures.py          # fixtures를 실제 MCP 서버로 Routing (서버 2개를 먼저 띄움)
 uv run python scripts/route_fixtures.py --save   # 그 결과를 shared/fixtures/routing/에 저장 (계약을 바꿨을 때)
 uv run python scripts/eval_decomposition.py --backend ollama   # 로컬 모델 평가 (비용 없음)
+uv run python scripts/eval_decomposition.py --backend openai   # gpt-4.1-mini 평가 (비용 있음)
 uv run python scripts/eval_decomposition.py --limit 3          # Claude 평가 (비용 발생)
 ```
 
