@@ -247,7 +247,7 @@ class AnswerGenerator:
 
         if p.missing:
             p.notices.append(clarification_text(p))
-        evidence = build_evidence(routing)
+        evidence = build_evidence(routing, {sq.id: sq.question for sq in decomposition.sub_queries})
         return await self._write(decomposition, evidence, p)
 
     async def _write(self, decomposition: DecompositionResult, evidence: list[Evidence], p: Plan) -> Answer:

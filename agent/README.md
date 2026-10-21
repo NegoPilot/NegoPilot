@@ -137,6 +137,8 @@ graph.add_node("generate", make_generate_node())   # 상태: decomposition, rout
    | `law_check`의 `get_article` 조문 전문 | 전체 조문의 `citation` | 출처 URL과 인용문 및 본문이 확인되면 O. 출처가 불완전하면 X |
    | `law_article`의 `get_article` | `citation` | O |
    | `referenced_articles` (flags·`check_offer`의 `law_refs`) | `citation` | O. 조회 실패한 조문은 검사 항목의 "관련 조문"에 번호만 남음 |
+
+   조문 전문이 3,000자(`law_article`은 6,000자)를 넘으면 앞에서 자르지 않고 **관련 있는 항을 골라** 넣습니다 (`select_paragraphs`). 하위 질문, 같은 조문의 검색 결과, 그 조문을 건 검사 항목 문구와 겹치는 글자 쌍이 많은 항부터 넣고, 생략한 항 번호를 본문 끝에 적습니다. 예: `check_offer`가 건 제2조(4,162자)에서 "주요 원재료" 정의(16번째 항)가 빠지지 않습니다.
 2. **초안**: 모델이 근거 id를 붙여 씁니다 (`{"answer", "used_evidence"}` 구조화 출력). 따로 실행된 하위 질문 결과(예: 1위 업체 + 5% 인하 법 검토)는 한 흐름으로 잇습니다
 3. **근거 검사** ([`verify.py`](src/negopilot_agent/generation/verify.py)): 없거나 인용할 수 없는 근거 id, 근거·질문에 없는 숫자(단위가 붙은 것), 근거에 없는 조문 번호를 찾습니다. 있으면 오류를 알려 주고 1회 다시 쓰게 합니다
 4. 그래도 남으면 그 값을 `[확인 필요]`로 가립니다 (`verification.masked`)
@@ -169,7 +171,12 @@ uv run python scripts/route_fixtures.py --save   # 그 결과를 shared/fixtures
 uv run python scripts/eval_decomposition.py --backend openai   # gpt-4.1-mini 평가 (비용 있음)
 uv run python scripts/eval_decomposition.py --backend anthropic --limit 3   # Claude 평가 (ANTHROPIC_API_KEY, 비용 발생)
 uv run python scripts/eval_decomposition.py --backend openai --set validation --repeat 3   # 검증 세트 3회 평균
+uv run python scripts/eval_generation.py --offline                  # Generation 근거 지표만 (모델 호출 없음)
+uv run python scripts/eval_generation.py --backend openai --repeat 3   # Generation 생성 + 채점 (비용 있음)
 ```
+
+Generation 평가는 `shared/fixtures/routing` 11개를 입력으로 쓰고, 정답은 [`eval_data/generation_gold.json`](eval_data/generation_gold.json)에 있습니다 (기대 답변 종류, 근거에 꼭 있어야 할 문구, 답변에 담길 정답 포인트).
+`--offline`은 모델 없이 근거 포함률과 프롬프트 크기만 재고, 기본 모드는 답변 종류, 첫 시도 근거 검사 통과율, 재생성·가림 비율, 정답 포인트 커버율과 근거 없는 주장 수(gpt-4.1-mini 채점), 생성 시간을 잽니다.
 
 평가는 fixture의 질문을 넣고 상태, 하위 질문 개수, intent, 엔티티, 의존 관계를 기대 결과와 비교합니다.
 `--set dev`(기본, `shared/fixtures/decomposition` 11개)는 프롬프트를 고칠 때 보는 개발용이고, `--set validation`(`shared/fixtures/validation` 24개)은 점수만 확인하는 검증용입니다. 검증 세트의 오답을 보고 프롬프트를 고치지 않습니다.
