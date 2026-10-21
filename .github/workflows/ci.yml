@@ -82,9 +82,24 @@ jobs:
   backend:
     name: Backend (Spring)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: agent
+          POSTGRES_PASSWORD: agent
+          POSTGRES_DB: business_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U agent -d business_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     defaults:
       run:
         working-directory: backend
+    env:
+      TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/business_test
+      TEST_DATABASE_USER: agent
+      TEST_DATABASE_PASSWORD: agent
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -92,7 +107,39 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
-      - run: mvn -B -q test
+      # 테스트가 Flyway와 격리된 스키마로 DB를 초기화한다. 외부 서비스나 모델 API는 필요 없다.
+      - run: mvn -B -ntp test
+      - name: Verify PostgreSQL tests ran without skips
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          reports = list(Path("target/surefire-reports").glob("TEST-*.xml"))
+          if not reports:
+              raise SystemExit("No Surefire test reports were produced")
+          suites = [ET.parse(report).getroot() for report in reports]
+          totals = {
+              key: sum(int(suite.get(key, "0")) for suite in suites)
+              for key in ("tests", "failures", "errors", "skipped")
+          }
+          required = {
+              "com.negopilot.backend.AuthMembershipPostgresTest",
+              "com.negopilot.backend.PersistentConversationServiceTest",
+              "com.negopilot.backend.AdminSupplierPostgresTest",
+          }
+          executed = {
+              suite.get("name") for suite in suites
+              if int(suite.get("tests", "0")) > 0
+              and int(suite.get("skipped", "0")) == 0
+          }
+          print(f"Surefire totals: {totals}")
+          missing = required - executed
+          if missing:
+              raise SystemExit(f"Required PostgreSQL tests did not run: {sorted(missing)}")
+          if totals["failures"] or totals["errors"] or totals["skipped"]:
+              raise SystemExit("All backend tests must pass without skips")
+          PY
 
   frontend:
     name: Frontend (Vue)
@@ -108,4 +155,5 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      - run: npm run check:api
       - run: npm run build

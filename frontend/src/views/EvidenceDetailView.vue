@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 
-import { getConversation } from '@/api/conversations'
+import { getSavedResponse } from '@/api/conversations'
 import type { Citation, Evidence, GenerationResponse } from '@/api/types'
 import ErrorNotice from '@/components/ErrorNotice.vue'
 import { isApiError } from '@/utils/errors'
@@ -18,7 +18,7 @@ import {
 import { NO_DATA, formatHeld, formatInteger, formatKrw, formatPercent, formatPpm } from '@/utils/format'
 import { provenanceLabel } from '@/utils/provenance'
 
-// 새 탭에서 열리므로 메모리 상태 없이 URL만으로 대화를 다시 불러온다
+// 새 탭에서 URL의 응답 ID로 저장된 질문과 전체 응답을 조회한다
 const props = defineProps<{
   conversationId: string
   responseId: string
@@ -34,17 +34,23 @@ const question = ref<string | null>(null)
 const loading = ref(false)
 const error = ref<unknown>(null)
 const notFound = ref(false)
+let loadEpoch = 0
+let controller: AbortController | null = null
+onBeforeUnmount(() => { loadEpoch += 1; controller?.abort() })
 
 async function load() {
+  const token = ++loadEpoch
+  controller?.abort()
+  controller = new AbortController()
   loading.value = true
   error.value = null
   notFound.value = false
   response.value = null
   evidence.value = null
   try {
-    const snapshot = await getConversation(props.conversationId)
-    const index = snapshot.messages.findIndex((m) => m.response?.response_id === props.responseId)
-    const res = index >= 0 ? snapshot.messages[index]?.response ?? null : null
+    const saved = await getSavedResponse(props.conversationId, props.responseId, controller.signal)
+    if (token !== loadEpoch) return
+    const res = saved.response
     const found = res?.answer.evidence.find((e) => e.id === props.evidenceId) ?? null
     if (!res || !found) {
       notFound.value = true
@@ -53,22 +59,21 @@ async function load() {
     response.value = res
     evidence.value = found
     citation.value = res.answer.citations.find((c) => c.evidence_id === found.id) ?? null
-    const previous = snapshot.messages[index - 1]
-    question.value = previous?.role === 'user' ? previous.content : null
+    question.value = saved.query
   } catch (e) {
-    error.value = e
+    if (token === loadEpoch) error.value = e
   } finally {
-    loading.value = false
+    if (token === loadEpoch) loading.value = false
   }
 }
 
 watch(() => [props.conversationId, props.responseId, props.evidenceId], load, { immediate: true })
 
-// '원래 화면으로 돌아가기'는 협력사 화면 주소만 받는다 (임의 주소로 보내지 않게)
+// 같은 앱의 대화와 협력사 화면 주소만 허용한다.
 const backPath = computed(() => {
   const v = route.query.back
   const s = Array.isArray(v) ? v[0] : v
-  return typeof s === 'string' && s.startsWith('/suppliers') ? s : '/suppliers'
+  return typeof s === 'string' && /^\/(chat|suppliers)(?:[/?]|$)/.test(s) && !s.includes('\\') ? s : '/chat'
 })
 const rfq = computed(() => {
   const v = route.query.rfq
@@ -93,17 +98,24 @@ const latestQuote = computed(() => {
 const supplierRows = computed(() => {
   const s = supplier.value
   if (!s) return []
-  const profile = provenanceLabel(s.provenance?.profile ?? s.source)
-  const operations = provenanceLabel(s.provenance?.operations ?? s.source)
+  const profile = provenanceLabel(s.provenance.profile)
+  const certifications = provenanceLabel(s.provenance.certifications)
+  const capabilities = provenanceLabel(s.provenance.capabilities)
+  const quality = provenanceLabel(s.provenance.quality)
+  const contracts = provenanceLabel(s.provenance.contracts)
   return [
     { item: '협력사 ID', value: s.supplier_id, source: profile, use: '대상 식별' },
-    { item: '공정 / 소재', value: mainCapability.value ? `${mainCapability.value.process} / ${mainCapability.value.material}` : NO_DATA, source: operations, use: 'RFQ 조건 비교' },
-    { item: '월 생산능력', value: mainCapability.value ? `${formatInteger(mainCapability.value.monthly_capacity)}개` : NO_DATA, source: operations, use: '공급능력 근거' },
-    { item: 'IATF 16949', value: formatHeld(s.iatf16949), source: profile, use: '필수 인증 확인' },
-    { item: 'ISO 14001', value: formatHeld(s.iso14001), source: profile, use: '환경 인증 확인' },
-    { item: '불량률', value: formatPpm(s.quality?.defect_ppm), source: operations, use: '품질 비교' },
-    { item: '납기 준수율', value: formatPercent(s.quality?.on_time_delivery_rate), source: operations, use: '납기 평가' },
-    { item: '최근 견적', value: latestQuote.value ? formatKrw(latestQuote.value.unit_price_krw) : NO_DATA, source: operations, use: '가격 비교' },
+    { item: '기업명', value: s.name ?? NO_DATA, source: profile, use: '대상 식별' },
+    { item: '지역', value: s.region ?? NO_DATA, source: profile, use: '공급 지역 확인' },
+    { item: '공정 / 소재', value: mainCapability.value ? `${mainCapability.value.process} / ${mainCapability.value.material}` : NO_DATA, source: capabilities, use: 'RFQ 조건 비교' },
+    { item: '월 생산능력', value: mainCapability.value ? `${formatInteger(mainCapability.value.monthly_capacity)}개` : NO_DATA, source: capabilities, use: '공급능력 근거' },
+    { item: 'IATF 16949', value: formatHeld(s.iatf16949), source: certifications, use: '필수 인증 확인' },
+    { item: 'ISO 14001', value: formatHeld(s.iso14001), source: certifications, use: '환경 인증 확인' },
+    { item: '불량률', value: formatPpm(s.quality.defect_ppm), source: quality, use: '품질 비교' },
+    { item: '납기 준수율', value: formatPercent(s.quality.on_time_delivery_rate), source: quality, use: '납기 평가' },
+    { item: '최근 견적', value: latestQuote.value ? formatKrw(latestQuote.value.unit_price_krw) : NO_DATA, source: provenanceLabel(latestQuote.value?.source), use: '가격 비교' },
+    { item: '대금 지급 기한', value: s.existing_contract?.payment_days == null ? NO_DATA : `${formatInteger(s.existing_contract.payment_days)}일`, source: contracts, use: '계약 조건 확인' },
+    { item: '납품대금 연동', value: s.existing_contract?.price_linkage == null ? NO_DATA : s.existing_contract.price_linkage ? '적용' : '미적용', source: contracts, use: '계약 조건 확인' },
   ]
 })
 
@@ -127,7 +139,7 @@ const effectiveDate = computed(() => {
   <div class="evidence-page">
     <header class="ev-header">
       <div>
-        <nav class="crumbs muted" aria-label="위치">NegoPilot / 협력사 / 근거 자료</nav>
+        <nav class="crumbs muted" aria-label="위치">NegoPilot / AI 대화 / 근거 자료</nav>
         <h1>근거 자료 상세</h1>
       </div>
       <RouterLink :to="backPath" class="btn btn-outline-primary back">← 원래 화면으로 돌아가기</RouterLink>
@@ -141,7 +153,7 @@ const effectiveDate = computed(() => {
           :error="error"
           :message="
             isApiError(error, 'CONVERSATION_NOT_FOUND')
-              ? '대화가 만료됐거나 없는 대화입니다. 서버를 다시 시작하면 대화 기록이 사라집니다.'
+              ? '대화가 삭제됐거나 접근 권한이 없습니다. 이 대화를 만든 계정으로 확인해 주세요.'
               : null
           "
           :retry="load"
@@ -159,7 +171,8 @@ const effectiveDate = computed(() => {
               <template v-if="supplier"> · {{ supplier.supplier_id }}</template>
               <template v-if="rfq"> · {{ rfq }}</template>
             </p>
-            <span class="badge">{{ stub ? 'MOCK · 시연 데이터' : '실제 조회 결과' }}</span>
+            <span class="badge">{{ stub ? 'STUB 테스트 실행' : 'LIVE Agent 실행' }}</span>
+            <p v-if="evidence.source === 'business'" class="sub">실제 모델과 도구를 실행해도 가상 데이터나 관리자 입력이 포함될 수 있습니다. 항목별 출처를 확인하세요.</p>
           </div>
           <p v-if="toolCall" class="tool muted">근거 도구 {{ toolSignature(toolCall) }}</p>
         </section>
@@ -188,7 +201,7 @@ const effectiveDate = computed(() => {
                   <div class="value">{{ formatPercent(supplier.quality?.on_time_delivery_rate) }}</div>
                 </div>
               </div>
-              <h3 class="table-title">기업·생산·품질 데이터{{ stub ? ' (시연)' : '' }}</h3>
+              <h3 class="table-title">기업과 생산 및 품질 데이터</h3>
               <div class="table-wrap">
                 <table>
                   <thead>
@@ -204,6 +217,21 @@ const effectiveDate = computed(() => {
                   </tbody>
                 </table>
               </div>
+              <template v-if="supplier.financials.length">
+                <h3 class="table-title">재무 데이터</h3>
+                <div class="table-wrap">
+                  <table>
+                    <thead><tr><th>사업연도</th><th>재무제표</th><th>매출액</th><th>영업이익</th><th>부채비율</th><th>출처</th></tr></thead>
+                    <tbody>
+                      <tr v-for="(row, index) in supplier.financials" :key="`${row.year}-${row.statement_type}-${index}`">
+                        <td>{{ row.year }}</td><td>{{ row.statement_type ?? NO_DATA }}</td>
+                        <td>{{ formatKrw(row.revenue_krw) }}</td><td>{{ formatKrw(row.operating_profit_krw) }}</td>
+                        <td>{{ formatPercent(row.debt_ratio) }}</td><td>{{ provenanceLabel(row.source) }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </template>
             </template>
 
             <template v-else-if="fieldRows">
@@ -211,22 +239,26 @@ const effectiveDate = computed(() => {
               <div class="table-wrap">
                 <table>
                   <thead>
-                    <tr><th>항목</th><th>조회값</th></tr>
+                    <tr><th>항목</th><th>조회값</th><th>출처</th></tr>
                   </thead>
                   <tbody>
                     <tr v-for="r in fieldRows" :key="r.key">
                       <td class="item">{{ r.label }}</td>
                       <td>{{ r.value }}</td>
+                      <td>{{ provenanceLabel(r.source) }}</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
             </template>
-
             <template v-else>
               <h3 class="table-title">{{ evidence.label }}</h3>
               <pre class="raw-text">{{ evidence.text }}</pre>
             </template>
+            <details v-if="supplier || fieldRows" class="raw-details">
+              <summary>원본 조회 응답 보기</summary>
+              <pre class="raw-text">{{ evidence.text }}</pre>
+            </details>
           </section>
 
           <section class="panel panel-pad" aria-labelledby="used-h">
@@ -236,10 +268,16 @@ const effectiveDate = computed(() => {
               “{{ response.answer.text }}”
             </blockquote>
 
-            <h3 class="side-sub">조회·출처 정보</h3>
+            <h3 class="side-sub">조회와 출처 정보</h3>
             <dl class="kv">
               <dt>조회 도구</dt><dd>{{ toolCall?.tool ?? NO_DATA }}</dd>
-              <dt>데이터 출처</dt><dd>{{ stub ? 'MOCK (가상 샘플)' : evidence.source === 'law' ? '국가법령정보센터 원문 색인' : '업무 데이터베이스' }}</dd>
+              <dt>실행 모드</dt><dd>{{ stub ? 'STUB 테스트 실행' : 'LIVE 모델과 도구 실행' }}</dd>
+              <dt>데이터 출처</dt><dd>{{ evidence.source === 'business' ? '항목별 출처 참조' : stub ? 'STUB 테스트 응답' : '국가법령정보센터 원문 색인' }}</dd>
+              <template v-if="supplier">
+                <dt>기본 정보 출처</dt><dd>{{ provenanceLabel(supplier.provenance.profile) }}</dd>
+                <dt>기본 정보 원출처</dt><dd>{{ provenanceLabel(supplier.provenance.profile_origin) }}</dd>
+                <dt>재무 출처</dt><dd>{{ provenanceLabel(supplier.provenance.financials) }}</dd>
+              </template>
               <dt>자료 성격</dt><dd>{{ evidence.source === 'law' ? '법령 조문' : '구조화된 기업 DB 필드' }}</dd>
               <template v-if="effectiveDate"><dt>시행일</dt><dd>{{ effectiveDate }}</dd></template>
               <dt>외부 원문 링크</dt>
@@ -255,7 +293,7 @@ const effectiveDate = computed(() => {
 
         <p class="info-bar" role="note">
           ⓘ 이 화면은 AI 답변이 인용한 근거를 독립된 새 탭에서 확인하는 화면입니다.
-          {{ stub ? '지금은 테스트 데이터이며, 실제 서비스에서는 조회 응답과 공시·법령 원문을 연결합니다.' : '' }}
+          {{ evidence.source === 'business' ? 'DART 공시와 MOCK 가상 데이터 및 관리자 입력을 구분해 확인하세요. 출처 정보가 없는 값은 실제 데이터로 확인된 값이 아닙니다.' : '' }}
         </p>
       </template>
     </main>
@@ -335,6 +373,8 @@ const effectiveDate = computed(() => {
   line-height: 1.7;
   white-space: pre-wrap;
 }
+.raw-details { margin-top: 20px; }
+.raw-details summary { cursor: pointer; margin-bottom: 10px; }
 .side-title {
   font-size: 16px;
   margin-bottom: 14px;

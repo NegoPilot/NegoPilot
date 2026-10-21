@@ -1,7 +1,10 @@
 """v2 live supplier lookup through business-mcp. A fake MCP session replaces the server and DB."""
 
 import socket
+import json
+from copy import deepcopy
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import httpx2 as httpx
 import pytest
@@ -28,7 +31,9 @@ def row(supplier_id, material, capacity, *, region="경남", source="MOCK", proc
     return {"supplier_id": supplier_id, "source": source, "name": f"기업 {supplier_id}", "region": region,
             "employees": 120, "revenue_eok": 300, "iatf16949": iatf, "iso14001": iso, "operating_margin": 0.05,
             "debt_ratio": 1.2, "process": process, "material": material, "monthly_capacity": capacity,
-            "defect_ppm": 150, "on_time_rate": 0.95, "audit_grade": "B", "years_dealing": 0}
+            "defect_ppm": 150, "on_time_rate": 0.95, "audit_grade": "B", "years_dealing": 0,
+            "certification_source": "MOCK", "capability_source": "MOCK", "quality_source": "MOCK",
+            "financial_sources": [source], "has_contract": True, "has_quotes": True}
 
 
 SEARCH_ROWS = {
@@ -43,6 +48,7 @@ DETAIL = {
     "defect_ppm": 120, "on_time_rate": 0.957, "audit_grade": "A", "years_dealing": 3,
     "payment_days": 60, "price_linkage": False, "raw_material_ratio": 0.45, "auto_renewal": True,
     "fin_year": 2024, "operating_margin": 0.05, "debt_ratio": 1.5,
+    "certification_source": "MOCK", "capability_source": "MOCK", "quality_source": "MOCK",
     "capabilities": [{"process": "다이캐스팅", "material": "ADC12", "monthly_capacity": 20000}],
     "financials": [
         {"bsns_year": 2023, "fs_div": "OFS", "source": "DART", "revenue": 400_000_000_000,
@@ -68,10 +74,11 @@ def forbid_network(monkeypatch):
 class FakeBusiness:
     """Records MCP calls and answers like business-mcp's tools."""
 
-    def __init__(self, *, failure=None, search_rows=None):
+    def __init__(self, *, failure=None, search_rows=None, detail=None):
         self.calls = []
         self.failure = failure
         self.search_rows = SEARCH_ROWS if search_rows is None else search_rows
+        self.detail = DETAIL if detail is None else detail
 
     @asynccontextmanager
     async def session(self):
@@ -89,11 +96,11 @@ class FakeBusiness:
             rows = self.search_rows.get(args["material"], [])
             return [item for item in rows if "region" not in args or item["region"] == args["region"]]
         if tool == "find_suppliers":
-            matches = [{"supplier_id": "SUP-0001", "name": "공시기업", "region": "경남"}]
-            hit = args["supplier"] == "SUP-0001"
+            matches = [{key: self.detail[key] for key in ("supplier_id", "name", "region")}]
+            hit = args["supplier"] == self.detail["supplier_id"]
             return {"matches": matches if hit else [], "total": int(hit), "match_type": "id"}
         if tool == "get_supplier":
-            return DETAIL
+            return self.detail
         raise AssertionError(f"unexpected tool {tool}")
 
 
@@ -202,13 +209,107 @@ async def test_detail_without_contract_returns_null_contract():
     assert data["existing_contract"] is None
 
 
-@pytest.mark.parametrize("supplier_id", ["SUP-0002", "1", "sup-0001", "SUP-00001", "SUP0001"])
+@pytest.mark.parametrize("supplier_id", ["SUP-0002", "SUP-00001"])
 async def test_detail_accepts_only_existing_exact_ids(supplier_id):
     business = FakeBusiness()
     response = await get(live_app(business), SEARCH + "/" + supplier_id)
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "SUPPLIER_NOT_FOUND"
     assert ("get_supplier", {"supplier": supplier_id}) not in business.calls
+
+
+@pytest.mark.parametrize("supplier_id", ["1", "sup-0001", "SUP0001", "SUP-1234567890123456789"])
+async def test_invalid_live_id_is_rejected_before_mcp(supplier_id):
+    business = FakeBusiness()
+    response = await get(live_app(business), SEARCH + "/" + supplier_id)
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert business.calls == []
+
+
+@pytest.mark.parametrize("supplier_id", ["SUP-10000", "SUP-123456789012345678"])
+async def test_manual_supplier_without_quality_financials_or_contract_uses_real_sources(supplier_id):
+    detail = DETAIL | {
+        "supplier_id": supplier_id, "source": "MANUAL", "financials": [], "recent_quotes": [],
+        "payment_days": None, "price_linkage": None, "defect_ppm": None, "on_time_rate": None,
+        "certification_source": "MANUAL", "capability_source": "MANUAL", "quality_source": "MOCK",
+    }
+    business = FakeBusiness(detail=detail)
+    data = live_data(await get(live_app(business), SEARCH + "/" + supplier_id))
+    assert data["supplier_id"] == supplier_id
+    assert data["quality"] == {"defect_ppm": None, "on_time_delivery_rate": None}
+    assert data["financials"] == [] and data["recent_quotes"] == []
+    assert data["existing_contract"] is None
+    assert data["provenance"] == {"profile": "MANUAL", "financials": "UNKNOWN", "operations": "MANUAL"}
+    assert business.calls == [("find_suppliers", {"supplier": supplier_id, "limit": 1}),
+                              ("get_supplier", {"supplier": supplier_id})]
+
+
+async def test_financial_and_operations_provenance_do_not_follow_profile_source():
+    detail = deepcopy(DETAIL)
+    detail.update(source="MANUAL", capability_source="MANUAL")
+    detail["financials"][0]["source"] = "MOCK"
+    data = live_data(await get(live_app(FakeBusiness(detail=detail)), SEARCH + "/SUP-0001"))
+    assert data["provenance"] == {"profile": "MANUAL", "financials": "MIXED", "operations": "MIXED"}
+    assert [entry["source"] for entry in data["financials"]] == ["MOCK", "DART"]
+
+
+@pytest.mark.parametrize(("has_contract", "has_quotes"), [(True, False), (False, True)])
+async def test_retained_mock_contract_or_quotes_prevent_manual_only_operations(has_contract, has_quotes):
+    detail = DETAIL | {"certification_source": "MANUAL", "capability_source": "MANUAL",
+                       "quality_source": "MANUAL"}
+    if not has_contract:
+        detail["payment_days"] = None
+    if not has_quotes:
+        detail["recent_quotes"] = []
+    data = live_data(await get(live_app(FakeBusiness(detail=detail)), SEARCH + "/SUP-0001"))
+    assert data["provenance"]["operations"] == "MIXED"
+
+
+async def test_search_aggregates_actual_sources_and_includes_manual_supplier_without_quality():
+    manual = row("SUP-10000", "ADC12", 5000, source="MANUAL") | {
+        "financial_sources": [], "has_contract": False, "has_quotes": False,
+        "certification_source": "MANUAL", "capability_source": "MANUAL",
+        "defect_ppm": None, "on_time_rate": None,
+    }
+    updated = row("SUP-0001", "ADC12", 5000, source="MANUAL") | {
+        "financial_sources": ["DART", "MOCK"], "capability_source": "MANUAL",
+    }
+    business = FakeBusiness(search_rows={"ADC12": [manual, updated]})
+    items = live_data(await get(live_app(business), SEARCH, {"process": "다이캐스팅"}))["items"]
+    assert [item["supplier_id"] for item in items] == ["SUP-0001", "SUP-10000"]
+    assert [item["provenance"] for item in items] == [
+        {"profile": "MANUAL", "financials": "MIXED", "operations": "MIXED"},
+        {"profile": "MANUAL", "financials": "UNKNOWN", "operations": "MANUAL"},
+    ]
+
+
+async def test_inactive_or_missing_supplier_is_not_read_after_active_lookup_misses():
+    business = FakeBusiness()
+    response = await get(live_app(business), SEARCH + "/SUP-10000")
+    assert response.status_code == 404
+    assert business.calls == [("find_suppliers", {"supplier": "SUP-10000", "limit": 1})]
+
+
+@pytest.mark.parametrize("supplier_id", ["SUP-1", "A-1", "SUP-1234567890123456789"])
+async def test_invalid_supplier_id_in_mcp_search_result_is_not_returned(supplier_id):
+    business = FakeBusiness(search_rows={"ADC12": [row(supplier_id, "ADC12", 5000)]})
+    response = await get(live_app(business), SEARCH, {"process": "다이캐스팅"})
+    assert response.status_code == 500
+
+
+def test_published_contract_matches_live_models_for_sources_and_ids():
+    from negopilot_agent.api.supplier_lookup_models import LiveProvenance, LiveSupplierDetail, LiveSupplierSummary
+
+    contract = json.loads((Path(__file__).resolve().parents[2] / "docs/contracts/supplier-lookup.openapi.json").read_text())
+    schemas = contract["components"]["schemas"]
+    for field in ("profile", "financials", "operations"):
+        assert schemas["Provenance"]["properties"][field]["enum"] == LiveProvenance.model_json_schema()["properties"][field]["enum"]
+    for name, model in (("SupplierDetail", LiveSupplierDetail), ("SupplierSummary", LiveSupplierSummary)):
+        actual = model.model_json_schema()["properties"]["supplier_id"]
+        assert {key: schemas[name]["properties"]["supplier_id"][key] for key in ("pattern", "minLength", "maxLength")} == {
+            key: actual[key] for key in ("pattern", "minLength", "maxLength")
+        }
 
 
 @pytest.mark.parametrize(("path", "params"), [

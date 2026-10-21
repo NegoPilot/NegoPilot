@@ -4,12 +4,11 @@
 export interface SignupDraft {
   name: string
   department: string
-  companyCode: string
   position: string
   email: string
 }
 
-const KEY = 'negopilot.signupDraft'
+const KEY = 'negopilot.signupReceipt.v1'
 let memory: SignupDraft | null = null
 
 export function saveSignupDraft(draft: SignupDraft) {

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Run the stub contract through real Spring and Python HTTP processes.
+"""Run legacy fixture contracts through Spring and Python HTTP processes.
 
 Only the standard library is needed by this runner. Dependencies and the Spring
 executable JAR must already have been prepared by their owning teams.
+Spring always uses legacy-test: no membership authentication or persistent DB.
 """
 
 from __future__ import annotations
@@ -456,7 +457,10 @@ class Smoke:
         port = unused_port(self.used_ports)
         env = child_environment(key)
         env.update({"AGENT_BASE_URL": f"http://127.0.0.1:{self.relay.port}",
-                    "SERVER_PORT": str(port)})
+                    "SERVER_PORT": str(port),
+                    # These fixture runners exercise the original memory contracts.
+                    # Never start the membership/DB application from this helper.
+                    "SPRING_PROFILES_ACTIVE": "legacy-test"})
         process = Process([shutil.which("java") or "java", "-jar", str(self.jar)],
                           ROOT / "backend", env, label)
         self.processes.append(process)

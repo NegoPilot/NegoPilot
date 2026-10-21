@@ -3,7 +3,7 @@
   "info": {
     "title": "NegoPilot Supplier Live Lookup API",
     "version": "0.3",
-    "description": "Live supplier lookup against business-mcp (PostgreSQL). Same request rules and response shapes as the v1 lookup in supplier-chat.openapi.json, with schema_version 0.3, mode live and DART/MOCK data sources. See supplier-lookup.md for cross-field rules."
+    "description": "Live supplier lookup against business-mcp (PostgreSQL). Same lookup shapes as v1 with schema_version 0.3 and mode live. Profiles support DART/MOCK/MANUAL. Financial provenance is aggregated from financial rows and operations from stored component sources. See supplier-lookup.md for cross-field rules."
   },
   "paths": {
     "/api/v2/business/catalog": {
@@ -312,9 +312,9 @@
             "required": true,
             "schema": {
               "type": "string",
-              "minLength": 1,
-              "maxLength": 100,
-              "pattern": "^[A-Za-z0-9_-]{1,100}$"
+              "minLength": 8,
+              "maxLength": 22,
+              "pattern": "^SUP-[0-9]{4,18}$"
             }
           }
         ]
@@ -638,9 +638,9 @@
             "required": true,
             "schema": {
               "type": "string",
-              "minLength": 1,
-              "maxLength": 100,
-              "pattern": "^[A-Za-z0-9_-]{1,100}$"
+              "minLength": 8,
+              "maxLength": 22,
+              "pattern": "^SUP-[0-9]{4,18}$"
             }
           }
         ],
@@ -879,19 +879,26 @@
             "type": "string",
             "enum": [
               "DART",
-              "MOCK"
+              "MOCK",
+              "MANUAL"
             ]
           },
           "financials": {
             "type": "string",
             "enum": [
               "DART",
-              "MOCK"
+              "MOCK",
+              "UNKNOWN",
+              "MIXED"
             ]
           },
           "operations": {
             "type": "string",
-            "const": "MOCK"
+            "enum": [
+              "MOCK",
+              "MANUAL",
+              "MIXED"
+            ]
           }
         },
         "required": [
@@ -971,9 +978,9 @@
         "properties": {
           "supplier_id": {
             "type": "string",
-            "minLength": 1,
-            "maxLength": 100,
-            "pattern": "^[A-Za-z0-9_-]{1,100}$"
+            "minLength": 8,
+            "maxLength": 22,
+            "pattern": "^SUP-[0-9]{4,18}$"
           },
           "name": {
             "type": "string",
@@ -1118,9 +1125,9 @@
         "properties": {
           "supplier_id": {
             "type": "string",
-            "minLength": 1,
-            "maxLength": 100,
-            "pattern": "^[A-Za-z0-9_-]{1,100}$"
+            "minLength": 8,
+            "maxLength": 22,
+            "pattern": "^SUP-[0-9]{4,18}$"
           },
           "name": {
             "type": "string",

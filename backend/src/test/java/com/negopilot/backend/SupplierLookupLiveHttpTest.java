@@ -35,6 +35,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /** v2 live lookups: Python answers from business-mcp, so Spring checks shape and filters instead of a fixture. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@org.springframework.test.context.ActiveProfiles("legacy-test")
 class SupplierLookupLiveHttpTest {
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final String SERVER_KEY = "supplier-lookup-live-test-key";
@@ -146,6 +147,31 @@ class SupplierLookupLiveHttpTest {
     void businessDataOutageIsRetryable() throws Exception {
         STATUS.set(503);
         assertError(get("/api/v2/business/catalog"), 503, "UPSTREAM_UNAVAILABLE", true);
+    }
+
+    @Test
+    void readsManualSupplierWithLongIdAndMissingOptionalData() throws Exception {
+        CORRUPT.set(body -> {
+            ObjectNode data = (ObjectNode) body.get("data");
+            data.put("supplier_id", "SUP-10000");
+            data.putObject("quality").putNull("defect_ppm").putNull("on_time_delivery_rate");
+            data.putArray("financials");
+            data.putArray("recent_quotes");
+            data.putNull("existing_contract");
+            data.putObject("provenance").put("profile", "MANUAL")
+                    .put("financials", "UNKNOWN").put("operations", "MANUAL");
+        });
+        var response = get("/api/v2/suppliers/SUP-10000");
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        assertThat(body(response).at("/data/supplier_id").stringValue()).isEqualTo("SUP-10000");
+        assertThat(PATHS).containsExactly("/internal/v2/suppliers/SUP-10000");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SUP-1", "sup-0001", "SUP-0001extra", "SUP-1234567890123456789"})
+    void rejectsInvalidLiveSupplierIdsBeforeCallingPython(String id) throws Exception {
+        assertError(get("/api/v2/suppliers/" + id), 400, "VALIDATION_ERROR", false);
+        assertThat(PATHS).isEmpty();
     }
 
     @Test

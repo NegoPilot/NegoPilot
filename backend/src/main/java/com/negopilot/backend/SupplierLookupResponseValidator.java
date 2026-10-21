@@ -3,7 +3,6 @@ package com.negopilot.backend;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -14,7 +13,10 @@ import tools.jackson.databind.JsonNode;
  */
 @Component
 final class SupplierLookupResponseValidator {
-    private static final Set<String> SOURCES = Set.of("DART", "MOCK");
+    private static final Set<String> PROFILE_SOURCES = Set.of("DART", "MOCK", "MANUAL");
+    private static final Set<String> FINANCIAL_SOURCES = Set.of("DART", "MOCK");
+    private static final Set<String> FINANCIAL_SUMMARIES = Set.of("DART", "MOCK", "UNKNOWN", "MIXED");
+    private static final Set<String> OPERATION_SOURCES = Set.of("MOCK", "MANUAL", "MIXED");
 
     void validateCatalog(JsonNode body) {
         JsonNode data = data(body);
@@ -54,7 +56,7 @@ final class SupplierLookupResponseValidator {
         for (JsonNode item : items) {
             object(item, "supplier_id", "name", "region", "iatf16949", "iso14001", "matched_capabilities",
                     "provenance");
-            String id = text(item.get("supplier_id"), 100);
+            String id = supplierId(item.get("supplier_id"));
             require(previous == null || previous.compareTo(id) < 0);
             previous = id;
             text(item.get("name"), 100);
@@ -76,6 +78,7 @@ final class SupplierLookupResponseValidator {
         object(supplier, "supplier_id", "name", "region", "iatf16949", "iso14001", "capabilities", "quality",
                 "financials", "recent_quotes", "existing_contract", "provenance");
         literal(supplier.get("supplier_id"), supplierId);
+        supplierId(supplier.get("supplier_id"));
         text(supplier.get("name"), 100);
         text(supplier.get("region"), 100);
         require(supplier.get("iatf16949").isBoolean() && supplier.get("iso14001").isBoolean());
@@ -85,13 +88,16 @@ final class SupplierLookupResponseValidator {
         nullableNumber(quality.get("defect_ppm"));
         nullableNumber(quality.get("on_time_delivery_rate"));
         array(supplier.get("financials"));
+        Set<String> financialSources = new HashSet<>();
         for (JsonNode financial : supplier.get("financials")) {
             object(financial, "year", "revenue_krw", "operating_profit_krw", "debt_ratio", "source");
             integer(financial.get("year"), 1900, 9999);
             nullableNumber(financial.get("revenue_krw"));
             nullableNumber(financial.get("operating_profit_krw"));
             nullableNumber(financial.get("debt_ratio"));
-            require(SOURCES.contains(text(financial.get("source"), 100)));
+            String source = text(financial.get("source"), 100);
+            require(FINANCIAL_SOURCES.contains(source));
+            financialSources.add(source);
         }
         array(supplier.get("recent_quotes"));
         for (JsonNode quote : supplier.get("recent_quotes")) {
@@ -110,6 +116,9 @@ final class SupplierLookupResponseValidator {
             require(contract.get("price_linkage").isBoolean());
         }
         provenance(supplier.get("provenance"));
+        String financialSummary = financialSources.isEmpty() ? "UNKNOWN"
+                : financialSources.size() == 1 ? financialSources.iterator().next() : "MIXED";
+        literal(supplier.get("provenance").get("financials"), financialSummary);
     }
 
     private static JsonNode data(JsonNode body) {
@@ -127,8 +136,15 @@ final class SupplierLookupResponseValidator {
 
     private static void provenance(JsonNode provenance) {
         object(provenance, "profile", "financials", "operations");
-        for (String field : List.of("profile", "financials")) require(SOURCES.contains(text(provenance.get(field), 100)));
-        literal(provenance.get("operations"), "MOCK");
+        require(PROFILE_SOURCES.contains(text(provenance.get("profile"), 100)));
+        require(FINANCIAL_SUMMARIES.contains(text(provenance.get("financials"), 100)));
+        require(OPERATION_SOURCES.contains(text(provenance.get("operations"), 100)));
+    }
+
+    private static String supplierId(JsonNode node) {
+        String value = text(node, 22);
+        require(value.matches("SUP-[0-9]{4,18}"));
+        return value;
     }
 
     private static void capabilities(JsonNode capabilities) {

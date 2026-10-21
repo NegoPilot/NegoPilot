@@ -19,7 +19,7 @@ MAX_FANOUT = 10      # top(n)/all로 값이 여러 개일 때 하위 질문 하�
 LAW_ARTICLES = 3     # law_check에서 search_regulation 결과 중 get_article로 전문을 가져올 조문 수
 REFERENCED_ARTICLES = 5   # 결과의 law_refs 중 get_article로 미리 조회할 최대 조문 수
 SUPPLIER_MATCH_LIMIT = 10
-SUPPLIER_ID = re.compile(r"^SUP-[0-9]{4}$", re.IGNORECASE)
+SUPPLIER_ID = re.compile(r"^SUP-[0-9]{4,}$", re.IGNORECASE)
 
 # 도구 인자 = 엔티티 이름 (계약 결정 3). 이름이 다른 것만 바꿔 적는다
 TOOL_PARAMS: dict[str, dict[str, str]] = {

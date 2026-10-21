@@ -1,33 +1,37 @@
 """v2 live supplier lookup contracts. Same shapes as v0.2 with business-mcp data sources."""
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field
+from pydantic import Field, StringConstraints
 
 from .supplier_chat_models import (
     CatalogData, Financials, StrictModel, SupplierDetail, SupplierListData, SupplierSummary,
 )
 
-# DART는 공시 값, MOCK은 business-mcp의 가상 값이다.
-LiveSource = Literal["DART", "MOCK"]
+LIVE_SUPPLIER_ID_PATTERN = r"^SUP-[0-9]{4,18}$"
+LiveSupplierId = Annotated[str, StringConstraints(
+    min_length=8, max_length=22, pattern=LIVE_SUPPLIER_ID_PATTERN,
+)]
+FinancialSource = Literal["DART", "MOCK"]
 
 
 class LiveProvenance(StrictModel):
-    profile: LiveSource
-    financials: LiveSource
-    # 생산능력·품질·계약·견적은 모두 가상 데이터다.
-    operations: Literal["MOCK"]
+    profile: Literal["DART", "MOCK", "MANUAL"]
+    financials: Literal["DART", "MOCK", "UNKNOWN", "MIXED"]
+    operations: Literal["MOCK", "MANUAL", "MIXED"]
 
 
 class LiveFinancials(Financials):
-    source: LiveSource
+    source: FinancialSource
 
 
 class LiveSupplierSummary(SupplierSummary):
+    supplier_id: LiveSupplierId
     provenance: LiveProvenance
 
 
 class LiveSupplierDetail(SupplierDetail):
+    supplier_id: LiveSupplierId
     financials: list[LiveFinancials]
     provenance: LiveProvenance
 

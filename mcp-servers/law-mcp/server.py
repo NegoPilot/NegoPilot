@@ -1,6 +1,6 @@
 """하도급법·연동제 관련 법령을 로컬 파일에서 제공하는 MCP Server.
 
-data/index/*.json 만 읽고, 실행 중에는 네트워크를 쓰지 않는다.
+기본 법령은 data/index/*.json에서 읽는다. 관리자 최신화 요청만 외부 수집을 실행한다.
 법령마다 여러 판(개정본)을 갖고 있어서, as_of 날짜에 시행 중인 판으로 답한다.
 
 실행:
@@ -9,15 +9,21 @@ data/index/*.json 만 읽고, 실행 중에는 네트워크를 쓰지 않는다.
 """
 
 import argparse
+import hashlib
 import json
 import math
+import os
+import secrets
+import threading
+from functools import wraps
 import re
 from collections import Counter
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from starlette.responses import JSONResponse
 
 INDEX_DIR = Path(__file__).resolve().parent / "data" / "index"
 
@@ -50,7 +56,90 @@ def load_laws() -> dict[str, dict]:
     return laws
 
 
+DATASET_LOCK = threading.RLock()
+
+
+def dataset_read(fn):
+    @wraps(fn)
+    def read(*args, **kwargs):
+        with DATASET_LOCK:
+            return fn(*args, **kwargs)
+    return read
+
+
 LAWS = load_laws()
+DATASET_COLLECTED_AT = None
+DATASET_LOADED_AT = datetime.now(timezone.utc).isoformat()
+DATASET_ID = hashlib.sha256(json.dumps(LAWS, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
+def admin_version_id(version: dict) -> str:
+    return version["effective_date"] + "_" + version["commit"]
+
+
+def admin_version_summary(version: dict) -> dict:
+    return {"version_id": admin_version_id(version), "effective_date": version["effective_date"],
+            "promulgation_date": version["promulgation_date"], "promulgation_no": version["promulgation_no"],
+            "source_url": version["source_url"], "source_commit": version["commit"],
+            "article_count": len(version["articles"])}
+
+
+def admin_exact_version(law_key: str, version_id: str) -> dict | None:
+    law = LAWS.get(law_key)
+    return next((v for v in law["versions"] if admin_version_id(v) == version_id), None) if law else None
+
+
+@mcp.tool(annotations={"readOnlyHint": True})
+@dataset_read
+def admin_law_catalog() -> dict:
+    """Return the dataset actually loaded by this process. No collection or editing."""
+    items = [{"law_key": key, "law_name": law["law_name"], "version_count": len(law["versions"]),
+              "article_count": sum(len(v["articles"]) for v in law["versions"])}
+             for key, law in sorted(LAWS.items())]
+    return {"dataset_id": DATASET_ID, "loaded_at": DATASET_LOADED_AT, "collected_at": DATASET_COLLECTED_AT,
+            "law_count": len(items), "version_count": sum(x["version_count"] for x in items),
+            "article_count": sum(x["article_count"] for x in items), "items": items}
+
+
+@mcp.tool(annotations={"readOnlyHint": True})
+@dataset_read
+def admin_law_versions(law_key: str) -> dict | None:
+    """List every retained version without choosing a date-dependent fallback."""
+    law = LAWS.get(law_key)
+    if law is None:
+        return None
+    return {"law_key": law_key, "law_name": law["law_name"],
+            "items": [admin_version_summary(v) for v in reversed(law["versions"])]}
+
+
+@mcp.tool(annotations={"readOnlyHint": True})
+@dataset_read
+def admin_law_articles(law_key: str, version_id: str, offset: int = 0, limit: int = 50) -> dict | None:
+    """Page article metadata from one exact retained version."""
+    if offset < 0 or not 1 <= limit <= 100:
+        raise ToolError("Invalid page")
+    version = admin_exact_version(law_key, version_id)
+    if version is None:
+        return None
+    articles = version["articles"]
+    return {"law_key": law_key, **admin_version_summary(version), "total": len(articles),
+            "offset": offset, "limit": limit,
+            "items": [{k: a[k] for k in ("no", "title", "deleted")} for a in articles[offset:offset+limit]]}
+
+
+@mcp.tool(annotations={"readOnlyHint": True})
+@dataset_read
+def admin_law_article(law_key: str, version_id: str, article_no: str) -> dict | None:
+    """Read one exact version's article. Never modify or refresh the dataset."""
+    version = admin_exact_version(law_key, version_id)
+    if version is None:
+        return None
+    no = normalize_article_no(article_no)
+    article = next((a for a in version["articles"] if a["no"] == no), None)
+    if article is None:
+        return None
+    return {"law_key": law_key, "law_name": version["law_name"], **admin_version_summary(version),
+            "article": article, "citation": citation(version, article)}
 
 
 def resolve_law(law: str) -> dict:
@@ -193,6 +282,7 @@ def search_units(law_keys: tuple[str, ...], as_of: str, include_addenda: bool):
 # ---------- Tools ----------
 
 @mcp.tool(annotations={"readOnlyHint": True})
+@dataset_read
 def list_laws(as_of: str | None = None) -> list[dict]:
     """제공하는 법령 목록과, as_of(YYYY-MM-DD, 기본 오늘)에 시행 중인 판·시행 예정 판을 반환한다."""
     day = parse_as_of(as_of)
@@ -207,6 +297,7 @@ def list_laws(as_of: str | None = None) -> list[dict]:
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
+@dataset_read
 def get_article(law: str, article_no: str, as_of: str | None = None) -> dict:
     """특정 조문 전문을 항 단위로 반환한다.
 
@@ -245,6 +336,7 @@ def get_article(law: str, article_no: str, as_of: str | None = None) -> dict:
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
+@dataset_read
 def search_regulation(query: str, laws: list[str] | None = None, as_of: str | None = None,
                       top_k: int = 5, include_addenda: bool = False) -> list[dict]:
     """질문과 관련된 조문을 항 단위로 찾아 인용 정보와 함께 반환한다.
@@ -300,6 +392,60 @@ def article_resource(law_key: str, article_no: str) -> str:
     a = get_article(law_key, article_no)
     body = "\n\n".join(p["text"] for p in a["paragraphs"])
     return f"{a['citation']}\n출처: {a['source_url']}\n\n{body}"
+
+
+# Refresh is an authenticated HTTP control endpoint. It is intentionally absent from MCP tools.
+def activate_dataset(laws, collected_at):
+    global LAWS, DATASET_ID, DATASET_LOADED_AT, DATASET_COLLECTED_AT
+    with DATASET_LOCK:
+        LAWS = laws
+        DATASET_ID = hashlib.sha256(json.dumps(laws, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        DATASET_COLLECTED_AT = collected_at
+        DATASET_LOADED_AT = datetime.now(timezone.utc).isoformat()
+        _search_cache.clear()
+
+
+REFRESH_MANAGER = None
+LAW_ADMIN_API_KEY = os.getenv("LAW_ADMIN_API_KEY", "")
+if os.getenv("LAW_RUNTIME_DIR"):
+    from law_refresh import LawRefreshManager
+    REFRESH_MANAGER = LawRefreshManager(os.environ["LAW_RUNTIME_DIR"], LAWS, activate_dataset)
+
+
+def refresh_auth(request):
+    key = request.headers.get("X-Law-Admin-Key", "")
+    return bool(LAW_ADMIN_API_KEY and secrets.compare_digest(key, LAW_ADMIN_API_KEY))
+
+
+@mcp.custom_route("/admin/refresh-jobs", methods=["POST", "GET"])
+async def refresh_jobs(request):
+    if not refresh_auth(request):
+        return JSONResponse({"error_code": "UNAUTHORIZED"}, status_code=401)
+    if REFRESH_MANAGER is None:
+        return JSONResponse({"error_code": "REFRESH_UNAVAILABLE"}, status_code=503)
+    if request.query_params or await request.body():
+        return JSONResponse({"error_code": "VALIDATION_ERROR"}, status_code=400)
+    if request.method == "GET":
+        return JSONResponse({"item": REFRESH_MANAGER.latest()})
+    from law_refresh import RefreshBusy
+    try:
+        return JSONResponse(REFRESH_MANAGER.start(), status_code=202)
+    except RefreshBusy:
+        return JSONResponse({"error_code": "REFRESH_BUSY"}, status_code=409)
+    except OSError:
+        return JSONResponse({"error_code": "REFRESH_UNAVAILABLE"}, status_code=503)
+
+
+@mcp.custom_route("/admin/refresh-jobs/{job_id}", methods=["GET"])
+async def refresh_job(request):
+    if not refresh_auth(request):
+        return JSONResponse({"error_code": "UNAUTHORIZED"}, status_code=401)
+    if REFRESH_MANAGER is None:
+        return JSONResponse({"error_code": "REFRESH_UNAVAILABLE"}, status_code=503)
+    if request.query_params or await request.body():
+        return JSONResponse({"error_code": "VALIDATION_ERROR"}, status_code=400)
+    job = REFRESH_MANAGER.get(request.path_params["job_id"])
+    return JSONResponse(job if job else {"error_code": "LAW_NOT_FOUND"}, status_code=200 if job else 404)
 
 
 if __name__ == "__main__":

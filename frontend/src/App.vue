@@ -1,17 +1,19 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 
 import AdminLayout from '@/layouts/AdminLayout.vue'
 import PublicLayout from '@/layouts/PublicLayout.vue'
+import { describeError } from '@/utils/errors'
 import { session, signOut } from '@/stores/session'
 
 const route = useRoute()
 const router = useRouter()
 
-function logout() {
-  signOut()
-  router.push({ name: 'login' })
+const logoutError = ref<string | null>(null)
+async function logout() {
+  try { await signOut(); await router.push({ name: 'login' }) }
+  catch (error) { logoutError.value = describeError(error).message }
 }
 // 근거 자료 상세는 새 탭에서 단독으로 열리는 화면이라 사이드바를 그리지 않는다
 const standalone = computed(() => route.meta.standalone === true)
@@ -25,9 +27,10 @@ const standalone = computed(() => route.meta.standalone === true)
     <nav class="sidebar" aria-label="주 메뉴">
       <div class="brand">
         <span class="brand-name">NegoPilot</span>
-        <span class="brand-team">한빛오토텍 구매1팀</span>
+        <span class="brand-team">{{ session?.department ?? '구매 업무 도우미' }}</span>
       </div>
-      <RouterLink to="/" class="nav-item" exact-active-class="on">
+      <RouterLink to="/chat" class="nav-item" active-class="on">✦ AI 대화</RouterLink>
+      <RouterLink to="/overview" class="nav-item" exact-active-class="on">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
           <path d="M2 7.2L8 2l6 5.2V14h-4v-4H6v4H2z" />
         </svg>
@@ -47,7 +50,8 @@ const standalone = computed(() => route.meta.standalone === true)
       </RouterLink>
       <div v-if="session" class="account">
         <span class="account-email" :title="session.email">{{ session.email }}</span>
-        <RouterLink v-if="session.role === 'admin'" :to="{ name: 'admin' }" class="btn account-btn">관리자 화면 →</RouterLink>
+        <RouterLink v-if="session.role === 'ADMIN'" :to="{ name: 'admin' }" class="btn account-btn">관리자 화면 →</RouterLink>
+        <p v-if="logoutError" class="field-error" role="alert">{{ logoutError }}</p>
         <button class="btn account-btn" type="button" @click="logout">로그아웃</button>
       </div>
     </nav>

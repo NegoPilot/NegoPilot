@@ -17,6 +17,10 @@ final class ApiException extends RuntimeException {
         this.retryable = retryable;
     }
 
+    static ApiException of(UUID id, int status, String code, String message, boolean retryable) {
+        return new ApiException(id, HttpStatus.valueOf(status), code, message, retryable);
+    }
+
     static ApiException validation(UUID id) {
         return new ApiException(id, HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Invalid query request", false);
     }

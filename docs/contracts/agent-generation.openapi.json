@@ -3,7 +3,7 @@
   "info": {
     "title": "NegoPilot Agent Generation HTTP contract",
     "version": "0.3.0",
-    "description": "Spring and Python execute the latest decomposition → Routing → Generation graph once. Live is the default. Stub substitutes model and tool I/O while keeping the real graph and AnswerGenerator. Existing v1 and fixture APIs retain their contracts. See agent-generation.md for runtime invariants."
+    "description": "Spring and Python execute the latest decomposition → Routing → Generation graph once. Live is the default. Stub substitutes model and tool I/O while keeping the real graph and AnswerGenerator. Existing v1 and fixture APIs retain their contracts. See agent-generation.md for runtime invariants. Production Spring authentication and CSRF are specified in membership.md. Production persistent conversation snapshots use v0.4 as specified in history.md. ConversationSnapshot here is the legacy-test profile contract only; GenerationExecutionResponse remains v0.3 in all profiles."
   },
   "paths": {
     "/api/v2/agent/queries": {

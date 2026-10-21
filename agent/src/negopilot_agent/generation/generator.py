@@ -28,13 +28,13 @@ from negopilot_shared import DecompositionResult, RouteResult, SubQueryOutcome
 
 from negopilot_agent.generation import verify
 from negopilot_agent.generation.answer import Answer, Evidence, GenerationDraft
-from negopilot_agent.generation.backends import Backend, GenerationAnthropicBackend, GenerationOpenAIBackend
+from negopilot_agent.generation.backends import Backend, GenerationAnthropicBackend, GenerationOpenAIBackend, GenerationOllamaBackend
 from negopilot_agent.generation.evidence import build_evidence
 from negopilot_agent.generation.prompt import SYSTEM_PROMPT, build_user_message
 
 log = logging.getLogger(__name__)
 
-DEFAULT_MODELS = {"anthropic": "claude-opus-5-5", "openai": "gpt-4.1-mini"}
+DEFAULT_MODELS = {"anthropic": "claude-opus-5-5", "openai": "gpt-4.1-mini", "ollama": "qwen3:8b"}
 
 # missing_args일 때 되물을 항목 이름 (엔티티 사전 → 사람 말). 계약 5절 미정 항목: 위치는 Routing과 상의
 ENTITY_LABELS = {
@@ -69,7 +69,7 @@ MAX_SUPPLIER_OPTIONS = 10
 class _SupplierCandidate(BaseModel):
     model_config = ConfigDict(strict=True)
 
-    supplier_id: str = Field(pattern=r"^SUP-[0-9]{4}$")
+    supplier_id: str = Field(pattern=r"^SUP-[0-9]{4,}$")
     name: str = Field(min_length=1, max_length=200, pattern=r"^[^\x00-\x1f\x7f]+$")
 
 
@@ -110,7 +110,7 @@ def _env_backend() -> str:
 
 @dataclass(frozen=True)
 class GeneratorSettings:
-    backend: str = field(default_factory=_env_backend)  # anthropic | openai
+    backend: str = field(default_factory=_env_backend)  # anthropic | openai | ollama
     model: str = field(default_factory=lambda: os.getenv(
         "NEGOPILOT_GENERATOR_MODEL", DEFAULT_MODELS.get(_env_backend(), DEFAULT_MODELS["openai"])))
     # 근거를 엮어 쓰는 작업이라 분해(low)보다 높게 시작한다. 평가 결과를 보고 조정한다 (anthropic 전용)
@@ -122,12 +122,14 @@ class GeneratorSettings:
 
 
 def make_backend(settings: GeneratorSettings, client: anthropic.AsyncAnthropic | None = None) -> Backend:
+    if settings.backend == "ollama":
+        return GenerationOllamaBackend.from_env(settings.model, settings.max_tokens)
     if settings.backend == "openai":
         return GenerationOpenAIBackend(openai.AsyncOpenAI(), settings.model, settings.max_tokens)  # OPENAI_API_KEY
     if settings.backend == "anthropic":
         return GenerationAnthropicBackend(client or anthropic.AsyncAnthropic(), settings.model, settings.effort,
                                           settings.max_tokens, settings.use_fallbacks)
-    raise ValueError(f"알 수 없는 백엔드 '{settings.backend}'. anthropic 또는 openai")
+    raise ValueError(f"알 수 없는 백엔드 '{settings.backend}'. anthropic 또는 openai 또는 ollama")
 
 
 @dataclass

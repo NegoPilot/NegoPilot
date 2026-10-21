@@ -80,7 +80,7 @@ def test_find_normalizes_loose_id_without_name_search(monkeypatch, supplier):
     }
     assert len(calls) == 1
     assert calls[0][1] == ("SUP-0001", 10)
-    assert "WHERE supplier_id = %s ORDER BY supplier_id LIMIT %s" in calls[0][0]
+    assert "WHERE supplier_id = %s AND status = 'ACTIVE' ORDER BY supplier_id LIMIT %s" in calls[0][0]
     assert "count(*) OVER () AS total" in calls[0][0]
 
 
@@ -163,7 +163,7 @@ def test_search_without_process_accepts_region_and_certification(monkeypatch):
 
     sql, params = calls[0]
     assert "c.process = %s" not in sql
-    assert "WHERE o.region = %s AND o.iatf16949" in sql
+    assert "WHERE o.status = 'ACTIVE' AND o.region = %s AND o.iatf16949" in sql
     assert params == ["경남", 20]
 
 
@@ -175,7 +175,7 @@ def test_iso14001_filter_and_column_are_added_only_when_required(monkeypatch):
     assert server.search_suppliers(region="부산") == rows
 
     assert "o.iatf16949, o.iso14001," in calls[0][0]
-    assert "WHERE o.region = %s AND o.iatf16949 AND o.iso14001 ORDER BY" in calls[0][0]
+    assert "WHERE o.status = 'ACTIVE' AND o.region = %s AND o.iatf16949 AND o.iso14001 ORDER BY" in calls[0][0]
     assert "AND o.iso14001" not in calls[1][0]
     assert calls[0][1] == calls[1][1] == ["부산", 20]
 
@@ -184,9 +184,32 @@ def test_search_with_no_filters_is_still_bounded_and_deterministic(monkeypatch):
     calls = mock_query(monkeypatch, [])
     assert server.search_suppliers() == []
     sql, params = calls[0]
-    assert "WHERE" not in sql
+    assert "WHERE o.status = 'ACTIVE'" in sql
     assert sql.endswith("ORDER BY o.defect_ppm, o.supplier_id, c.process, c.material LIMIT %s")
     assert params == [20]
+
+
+def test_search_returns_independent_source_metadata_without_quality_join(monkeypatch):
+    rows = [{"supplier_id": "SUP-10000", "source": "MANUAL", "defect_ppm": None,
+             "financial_sources": [], "has_contract": False, "has_quotes": False}]
+    calls = mock_query(monkeypatch, rows)
+    assert server.search_suppliers() == rows
+    sql = calls[0][0]
+    assert "ARRAY(SELECT DISTINCT f.source FROM financials f WHERE f.supplier_id = o.supplier_id ORDER BY f.source) AS financial_sources" in sql
+    assert "EXISTS(SELECT 1 FROM contracts ct WHERE ct.supplier_id = o.supplier_id) AS has_contract" in sql
+    assert "EXISTS(SELECT 1 FROM quotes qt WHERE qt.supplier_id = o.supplier_id) AS has_quotes" in sql
+    assert "JOIN quality" not in sql
+    assert "WHERE o.status = 'ACTIVE'" in sql
+
+
+@pytest.mark.parametrize("supplier_id", ["SUP-10000", "SUP-123456789012345678"])
+def test_long_canonical_id_uses_active_exact_query(monkeypatch, supplier_id):
+    calls = mock_query(monkeypatch, [candidate(supplier_id=supplier_id)])
+    result = server.find_suppliers(supplier_id)
+    assert result["matches"][0]["supplier_id"] == supplier_id
+    assert result["match_type"] == "id"
+    assert calls[0][1] == (supplier_id, 10)
+    assert "WHERE supplier_id = %s AND status = 'ACTIVE'" in calls[0][0]
 
 
 @pytest.mark.parametrize(("material", "expected"), [
@@ -198,9 +221,9 @@ def test_material_without_process_uses_actual_supported_code_union(monkeypatch, 
 
     assert server.search_suppliers(material=material) == []
 
-    assert "SELECT DISTINCT process, material FROM capabilities" in calls[0][0]
+    assert "SELECT DISTINCT c.process, c.material FROM capabilities c JOIN suppliers s" in calls[0][0]
     assert calls[1][1] == [expected, 20]
-    assert "WHERE c.material = ANY(%s)" in calls[1][0]
+    assert "WHERE o.status = 'ACTIVE' AND c.material = ANY(%s)" in calls[1][0]
     assert "c.process = %s" not in calls[1][0]
 
 
@@ -220,7 +243,7 @@ def test_existing_process_material_and_other_filters_keep_their_meaning(monkeypa
     assert result == rows
     sql, params = calls[-1]
     assert params == ["프레스", ["SPCC", "SPFH590"], "경남", 1000, 4]
-    assert "WHERE c.process = %s AND c.material = ANY(%s) AND o.region = %s" in sql
+    assert "WHERE o.status = 'ACTIVE' AND c.process = %s AND c.material = ANY(%s) AND o.region = %s" in sql
     assert "AND o.iatf16949 AND c.monthly_capacity >= %s" in sql
     assert sql.endswith("ORDER BY o.defect_ppm, o.supplier_id, c.process, c.material LIMIT %s")
 
@@ -251,7 +274,7 @@ def test_distinct_mode_applies_every_filter_before_representative_and_company_li
     assert result == rows
     sql, params = calls[-1]
     assert sql.startswith("SELECT * FROM ( SELECT DISTINCT ON (o.supplier_id) o.supplier_id")
-    assert "WHERE c.process = %s AND c.material = ANY(%s) AND o.region = %s" in sql
+    assert "WHERE o.status = 'ACTIVE' AND c.process = %s AND c.material = ANY(%s) AND o.region = %s" in sql
     assert "AND o.iatf16949 AND c.monthly_capacity >= %s ORDER BY o.supplier_id, c.process, c.material)" in sql
     assert sql.endswith("matched_suppliers ORDER BY defect_ppm, supplier_id LIMIT %s")
     assert sql.count("LIMIT") == 1
@@ -266,7 +289,7 @@ def test_distinct_region_search_has_no_process_requirement_or_inner_limit(monkey
 
     sql, params = calls[0]
     assert "c.process = %s" not in sql
-    assert "WHERE o.region = %s ORDER BY o.supplier_id, c.process, c.material)" in sql
+    assert "WHERE o.status = 'ACTIVE' AND o.region = %s ORDER BY o.supplier_id, c.process, c.material)" in sql
     assert sql.count("LIMIT") == 1
     assert params == ["부산", bounded]
 
@@ -277,7 +300,7 @@ def test_distinct_material_only_search_keeps_supported_code_union(monkeypatch):
     assert server.search_suppliers(material="알루미늄", distinct_suppliers=True) == []
 
     assert calls[1][1] == [["ADC12", "AL6061"], 20]
-    assert "WHERE c.material = ANY(%s) ORDER BY o.supplier_id, c.process, c.material)" in calls[1][0]
+    assert "WHERE o.status = 'ACTIVE' AND c.material = ANY(%s) ORDER BY o.supplier_id, c.process, c.material)" in calls[1][0]
 
 
 def test_distinct_search_does_not_convert_database_error_to_empty_list(monkeypatch):

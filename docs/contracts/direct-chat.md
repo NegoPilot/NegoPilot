@@ -2,7 +2,7 @@
 
 사용자는 기업을 먼저 선택하지 않고 채팅에 질문한다. Agent가 질문과 최근 대화를 해석한 뒤 필요한 기업 정보나 법령을 조회한다. 답변은 조회 근거를 사용한다. 대상이나 판단 조건을 정할 수 없을 때만 추가로 묻는다.
 
-기존 [Generation HTTP v0.3](agent-generation.md)의 v2 경로와 응답 형식을 그대로 사용한다. 새 endpoint나 필수 context는 없다.
+Agent 실행 응답은 [Generation HTTP v0.3](agent-generation.md)을 사용한다. 기본 실행의 회원 인증과 CSRF는 [회원 계약](membership.md)을 따른다. 대화 저장과 목록 및 이어하기는 [이력 v0.4](history.md)를 따른다. 선택 기업 문맥은 필수가 아니다.
 
 ## 처리 기준
 

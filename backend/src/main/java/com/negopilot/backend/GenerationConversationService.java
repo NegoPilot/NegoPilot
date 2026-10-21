@@ -4,12 +4,14 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.context.annotation.Profile;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
+@Profile("legacy-test")
 @Service
 final class GenerationConversationService {
     private static final int HISTORY_CONTENT_LIMIT = 4000;

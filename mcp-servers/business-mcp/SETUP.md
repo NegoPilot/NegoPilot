@@ -41,10 +41,13 @@ psql -d postgres -c "CREATE ROLE agent LOGIN PASSWORD 'agent';"
 createdb -O agent supplier_db
 ```
 
+기존 자료가 있는 DB를 업그레이드할 때는 아래 seed 단계를 건너뜁니다. 스키마 변경 계정의 DATABASE_URL을 명시한 뒤 `uv run python scripts/migrate_management.py`만 실행합니다. MCP 실행 계정은 [README의 SELECT 전용 권한](README.md#관리자-변경과-읽기-전용-mcp-계정)을 사용합니다.
+
 ## 4. DB에 데이터 넣기
 
 ```bash
 uv run python scripts/seed.py
+uv run python scripts/migrate_management.py  # DATABASE_URL을 명시한 뒤 비파괴 관리 스키마 적용
 ```
 
 레포에 들어 있는 DART 수집 결과(`data/dart_companies.csv`, `data/dart_financials.csv`)를 읽어 넣습니다.
@@ -99,13 +102,13 @@ tools = await client.get_tools()
 npx @modelcontextprotocol/inspector $(which uv) run --directory $(pwd) python server.py
 ```
 
-연결되면 Tool 5개(`list_rfqs`, `search_suppliers`, `get_supplier`, `rank_suppliers`, `check_offer`)와 Resource `business://catalog`가 보입니다.
+연결되면 Tool 6개(`list_rfqs`, `search_suppliers`, `find_suppliers`, `get_supplier`, `rank_suppliers`, `check_offer`)와 Resource `business://catalog`가 보입니다.
 예: "RFQ-2026-001에 맞는 협력사 순위 보여줘" → `rank_suppliers`, "서연이화 재무 알려줘" → `get_supplier`, "SUP-0034에 3,800원, 75일 결제, 연동 없이 제안해도 돼?" → `check_offer`
 
 ## 데이터 추가·갱신 방법
 
 회사를 더 넣거나 최신 공시로 바꾸고 싶을 때의 절차입니다. **실행 가이드 1~5단계에는 필요 없습니다.**
-팀원 모두 같은 seed 데이터를 쓰므로, 한 사람이 수집해서 바뀐 CSV를 PR로 올리고 나머지는 pull 후 `seed.py`만 다시 실행합니다.
+아래 재생성 절차는 새로 만든 격리 실습 DB에만 적용합니다. 관리자 수정이나 개인 대화가 참조하는 DB에는 seed를 다시 실행하지 않습니다. CSV의 기업 순서가 달라지면 기존 ID의 의미도 달라질 수 있습니다. 현재 기존 DB에 새 DART CSV를 병합하는 기능은 제공하지 않습니다.
 
 ### 수집하는 사람
 
@@ -133,10 +136,11 @@ npx @modelcontextprotocol/inspector $(which uv) run --directory $(pwd) python se
    - 응답은 `data/dart_raw/`(git 제외)에 캐시되어, 끊겨도(Ctrl+C) 다시 실행하면 이어서 받습니다.
    - 다른 업종을 넣으려면 `scripts/collect_dart.py`의 `AUTO_PARTS_KSIC`를, 수집 연도는 `YEARS`를 바꿉니다.
 
-5. **내 DB에 넣어 확인**
+5. **새 격리 실습 DB에 넣어 확인**
 
    ```bash
    uv run python scripts/seed.py
+   uv run python scripts/migrate_management.py
    uv run python -m pytest -q
    ```
 
@@ -152,12 +156,13 @@ npx @modelcontextprotocol/inspector $(which uv) run --directory $(pwd) python se
 
    PR 본문에 수집 날짜, 회사 수 변화(예: 30곳 → 85곳), `seed.py` 출력을 적습니다.
 
-### 나머지 팀원 (PR이 merge된 뒤)
+### 나머지 팀원 (PR이 merge된 뒤 새 실습 DB 준비)
 
 ```bash
 git switch main && git pull
 cd mcp-servers/business-mcp
-uv run python scripts/seed.py        # 테이블을 지우고 새 CSV로 다시 만듦
+uv run python scripts/seed.py        # 기존 관리 DB가 아닌 새 실습 DB에서만 실행
+uv run python scripts/migrate_management.py
 ```
 
 인증키는 필요 없습니다.

@@ -38,7 +38,7 @@ final class SupplierLookupController {
     JsonNode detail(@PathVariable String supplierId, HttpServletRequest request) {
         UUID id = begin(request);
         noParameters(request, id);
-        return gateway.liveDetail(validator.supplierId(supplierId), id);
+        return gateway.liveDetail(validator.lookupSupplierId(supplierId), id);
     }
 
     private static UUID begin(HttpServletRequest request) {

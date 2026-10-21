@@ -7,10 +7,10 @@
 import anthropic
 from openai.lib._pydantic import to_strict_json_schema
 
-from negopilot_agent.decomposition.backends import AnthropicBackend, Backend, OpenAIBackend
+from negopilot_agent.decomposition.backends import AnthropicBackend, Backend, OpenAIBackend, OllamaBackend
 from negopilot_agent.generation.answer import GenerationDraft
 
-__all__ = ["Backend", "GenerationAnthropicBackend", "GenerationOpenAIBackend"]
+__all__ = ["Backend", "GenerationAnthropicBackend", "GenerationOpenAIBackend", "GenerationOllamaBackend"]
 
 
 class GenerationAnthropicBackend(AnthropicBackend):
@@ -21,3 +21,7 @@ class GenerationAnthropicBackend(AnthropicBackend):
 class GenerationOpenAIBackend(OpenAIBackend):
     OUTPUT_MODEL = GenerationDraft
     OUTPUT_SCHEMA = to_strict_json_schema(GenerationDraft)
+
+
+class GenerationOllamaBackend(OllamaBackend):
+    OUTPUT_SCHEMA = GenerationDraft.model_json_schema()

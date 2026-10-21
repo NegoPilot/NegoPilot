@@ -1,51 +1,44 @@
 import { readonly, ref } from 'vue'
+import { currentMember, login, logout, type Member } from '@/api/auth'
+import { ApiError } from '@/api/client'
 
-// 예시 로그인 상태. 인증 API가 없어서 서버 확인 없이 이 브라우저에만 남긴다 (보안 기능이 아님).
-// 근거 자료 상세는 새 탭(noopener)으로 열리므로 탭끼리 공유되는 localStorage에 둔다.
-
-export interface Session {
-  email: string
-  role: 'member' | 'admin'
-}
-
-const KEY = 'negopilot.session'
-
-function read(): Session | null {
-  try {
-    const raw = localStorage.getItem(KEY)
-    if (!raw) return null
-    const value: unknown = JSON.parse(raw)
-    const s = value as Session
-    if (typeof s?.email === 'string' && (s.role === 'member' || s.role === 'admin')) return s
-  } catch {
-    // 저장소를 못 쓰면 로그인하지 않은 상태로 본다
-  }
-  return null
-}
-
-const current = ref<Session | null>(read())
-
+const current = ref<Member | null>(null)
+const failure = ref<unknown>(null)
+let initialized = false
+let pending: Promise<Member | null> | null = null
 export const session = readonly(current)
+export const sessionError = readonly(failure)
+// 이전 시안의 localStorage 역할 값은 인증에 사용하지 않는다.
+try { localStorage.removeItem('negopilot.session') } catch { /* 저장소 접근 없이도 세션을 확인한다. */ }
+window.addEventListener('negopilot:unauthenticated', () => { current.value = null; initialized = false })
 
-export function signIn(email: string, role: Session['role']) {
-  current.value = { email, role }
-  try {
-    localStorage.setItem(KEY, JSON.stringify(current.value))
-  } catch {
-    // 저장하지 못해도 이 탭에서는 로그인 상태로 둔다
-  }
+export async function refreshSession(): Promise<Member | null> {
+  if (pending) return pending
+  pending = (async () => {
+    try { current.value = await currentMember(); failure.value = null }
+    catch (error) {
+      current.value = null
+      failure.value = error instanceof ApiError && error.status === 401 ? null : error
+    }
+    initialized = true
+    return current.value
+  })().finally(() => { pending = null })
+  return pending
 }
-
-export function signOut() {
+export function ensureSession() { return initialized ? Promise.resolve(current.value) : refreshSession() }
+export async function signIn(email: string, password: string) {
+  const user = await login(email, password)
+  current.value = user
+  failure.value = null
+  initialized = true
+  return user
+}
+export async function signOut() {
+  try { await logout() }
+  catch (error) { if (!(error instanceof ApiError && error.status === 401)) throw error }
   current.value = null
-  try {
-    localStorage.removeItem(KEY)
-  } catch {
-    // 무시
-  }
+  initialized = true
 }
-
-/** 로그인 뒤 돌아갈 주소. 같은 사이트 안 경로만 받는다 */
 export function safeRedirect(value: unknown): string | null {
-  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') ? value : null
+  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\') ? value : null
 }

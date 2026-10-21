@@ -184,19 +184,46 @@ export interface GenerationResponse {
 }
 
 export interface StoredMessage {
+  seq: number
+  created_at: string
   message_id: string
   role: 'user' | 'assistant'
   content: string
   response: GenerationResponse | null
 }
 
-export interface ConversationSnapshot {
-  schema_version: '0.3'
+export interface ConversationSummary {
   conversation_id: string
+  title: string
+  created_at: string
+  updated_at: string
+  message_count: number
   context: ChatContext
-  storage: 'memory'
-  messages: StoredMessage[]
 }
+
+export interface ConversationSnapshot extends ConversationSummary {
+  schema_version: '0.4'
+  storage: 'database'
+  messages: StoredMessage[]
+  next_cursor: string | null
+}
+
+export interface ConversationList {
+  schema_version: '0.4'
+  storage: 'database'
+  items: ConversationSummary[]
+  next_cursor: string | null
+}
+
+export interface MessagePage {
+  schema_version: '0.4'
+  storage: 'database'
+  conversation_id: string
+  messages: StoredMessage[]
+  next_cursor: string | null
+}
+
+export interface SavedResponse { query: string; response: GenerationResponse }
 
 export interface ApiErrorBody {
   request_id: string | null

@@ -62,6 +62,11 @@ final class SupplierChatRequestValidator {
         return checkedSupplierId(raw);
     }
 
+    String lookupSupplierId(String raw) {
+        if (raw == null || !raw.matches("SUP-[0-9]{4,18}")) throw invalid();
+        return raw;
+    }
+
     private static ObjectNode context(JsonNode context) {
         if (!onlyFields(context, Set.of("selected_supplier_ids"))) throw invalid();
         JsonNode selected = context.get("selected_supplier_ids");

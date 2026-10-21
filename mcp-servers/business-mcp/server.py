@@ -65,7 +65,8 @@ mcp = FastMCP("BusinessServer", instructions=(
     "2차 협력사와 완성차의 기업 정보를 PostgreSQL DB에서 조회한다. "
     "완성차 견적 요청(RFQ), 협력사의 공정·소재별 생산능력, 품질·납기 실적, 기존 계약 조건, "
     "과거 견적 단가, 연도별 재무(매출·영업이익·부채 등)를 다루고, RFQ에 맞는 협력사 순위를 코드로 계산한다. "
-    "source가 'DART'인 기본 정보·재무는 공시 값이고 'MOCK'은 가상 값이다. "
+    "source가 'DART'인 기본 정보·재무는 공시 값이고 'MOCK'은 가상 값이다. 'MANUAL'은 관리자 입력이다. "
+    "인증과 생산능력 및 품질의 출처는 각각 certification_source와 capability_source 및 quality_source로 확인한다. "
     "쓸 수 있는 공정·소재·지역·RFQ 값은 business://catalog 에 있다. "
     "법 조문 내용과 해석은 다루지 않는다. notes에 하도급법·연동제 관련 내용이 나오면 law-mcp로 조문을 확인한다."
 ))
@@ -110,7 +111,8 @@ def resolve_process(process: str) -> str:
 
 def materials_by_process() -> dict[str, list[str]]:
     out = {p: [] for p in PROCESSES}
-    for r in query("SELECT DISTINCT process, material FROM capabilities ORDER BY process, material"):
+    for r in query("SELECT DISTINCT c.process, c.material FROM capabilities c JOIN suppliers s USING (supplier_id) "
+                   "WHERE s.status = 'ACTIVE' ORDER BY c.process, c.material"):
         out[r["process"]].append(r["material"])
     return out
 
@@ -121,8 +123,9 @@ def resolve_materials(material: str, process: str | None) -> list[str]:
     available = (by_process[process] if process is not None
                  else sorted({code for codes in by_process.values() for code in codes}))
     code = material.strip().upper().replace(" ", "")
-    if code in available:
-        return [code]
+    exact = [stored for stored in available if stored.upper().replace(" ", "") == code]
+    if exact:
+        return exact
     matched = [m for m in MATERIAL_ALIASES.get(squash(material), []) if m in available]
     if matched:
         return matched
@@ -141,18 +144,19 @@ def resolve_region(region: str) -> str:
 def resolve_supplier_id(supplier: str) -> str:
     """SUP-0001, 0001, 1 같은 ID나 회사명(일부)을 supplier_id 하나로 바꾼다."""
     text = supplier.strip()
-    m = re.fullmatch(r"(?:SUP-?)?(\d{1,4})", text, flags=re.IGNORECASE)
+    m = re.fullmatch(r"(?:SUP-?)?(\d{1,19})", text, flags=re.IGNORECASE)
     if m:
         sid = f"SUP-{int(m.group(1)):04d}"
-        if query("SELECT 1 FROM suppliers WHERE supplier_id = %s", (sid,)):
+        if query("SELECT 1 FROM suppliers WHERE supplier_id = %s AND status = 'ACTIVE'", (sid,)):
             return sid
         raise ToolError(f"{sid} 협력사가 없다. search_suppliers나 회사명으로 찾는다")
     name = re.sub(COMPANY_SUFFIX, "", text)
     if not name:
         raise ToolError("supplier 가 비어 있다")
+    literal_name = name.replace("!", "!!").replace("%", "!%").replace("_", "!_")
     rows = query("SELECT supplier_id, name FROM suppliers "
-                 "WHERE regexp_replace(name, %s, '', 'g') ILIKE %s ORDER BY supplier_id",
-                 (COMPANY_SUFFIX, f"%{name}%"))
+                 "WHERE status = 'ACTIVE' AND regexp_replace(name, %s, '', 'g') ILIKE %s ESCAPE '!' ORDER BY supplier_id",
+                 (COMPANY_SUFFIX, f"%{literal_name}%"))
     exact = [r for r in rows if re.sub(COMPANY_SUFFIX, "", r["name"]) == name]
     if len(exact) == 1 or len(rows) == 1:
         return (exact or rows)[0]["supplier_id"]
@@ -268,10 +272,15 @@ def search_suppliers(process: str | None = None, material: str | None = None, re
                o.iso14001,
                o.operating_margin, o.debt_ratio,
                c.process, c.material, c.monthly_capacity,
-               o.defect_ppm, o.on_time_rate, o.audit_grade, o.years_dealing
+               o.defect_ppm, o.on_time_rate, o.audit_grade, o.years_dealing,
+               o.certification_source, o.capability_source, o.quality_source,
+               ARRAY(SELECT DISTINCT f.source FROM financials f
+                     WHERE f.supplier_id = o.supplier_id ORDER BY f.source) AS financial_sources,
+               EXISTS(SELECT 1 FROM contracts ct WHERE ct.supplier_id = o.supplier_id) AS has_contract,
+               EXISTS(SELECT 1 FROM quotes qt WHERE qt.supplier_id = o.supplier_id) AS has_quotes
         FROM capabilities c JOIN supplier_overview o USING (supplier_id)
     """
-    conditions: list[str] = []
+    conditions: list[str] = ["o.status = 'ACTIVE'"]
     params: list = []
     if proc is not None:
         conditions.append("c.process = %s")
@@ -317,11 +326,11 @@ def find_suppliers(supplier: str, limit: int = 10) -> dict:
     if not text:
         raise ToolError("supplier 가 비어 있다")
     bounded_limit = max(1, min(limit, 100))
-    identifier = re.fullmatch(r"(?:SUP-?)?(\d{1,4})", text, flags=re.IGNORECASE)
+    identifier = re.fullmatch(r"(?:SUP-?)?(\d{1,19})", text, flags=re.IGNORECASE)
     if identifier:
         sid = f"SUP-{int(identifier.group(1)):04d}"
         rows = query("SELECT supplier_id, name, region, count(*) OVER () AS total FROM suppliers "
-                     "WHERE supplier_id = %s ORDER BY supplier_id LIMIT %s", (sid, bounded_limit))
+                     "WHERE supplier_id = %s AND status = 'ACTIVE' ORDER BY supplier_id LIMIT %s", (sid, bounded_limit))
         match_type = "id"
     else:
         name = re.sub(COMPANY_SUFFIX, "", text)
@@ -329,7 +338,7 @@ def find_suppliers(supplier: str, limit: int = 10) -> dict:
             raise ToolError("supplier 가 비어 있다")
         literal_name = name.replace("!", "!!").replace("%", "!%").replace("_", "!_")
         sql = ("SELECT supplier_id, name, region, count(*) OVER () AS total FROM suppliers "
-               "WHERE regexp_replace(name, %s, '', 'g') ILIKE %s ESCAPE '!' "
+               "WHERE status = 'ACTIVE' AND regexp_replace(name, %s, '', 'g') ILIKE %s ESCAPE '!' "
                "ORDER BY supplier_id LIMIT %s")
         rows = query(sql, (COMPANY_SUFFIX, literal_name, bounded_limit))
         match_type = "exact"
@@ -349,10 +358,15 @@ def get_supplier(supplier: str) -> dict:
 
     supplier: supplier_id(SUP-0001, 1) 또는 회사명(서연이화, (주)서연이화, 이름 일부도 된다).
               이름이 여러 곳에 맞으면 후보 목록을 오류로 알려 주니, 하나를 골라 supplier_id로 다시 부른다
-    source가 'DART'면 기본 정보와 재무는 공시 값이고, 'MOCK'이면 가상 값이다. 금액 단위는 원, revenue_eok는 억 원.
+    source는 기본 정보의 출처다. DART는 공시 값이고 MOCK은 가상 값이며 MANUAL은 관리자 입력이다.
+    재무 출처는 financials의 각 source를 확인한다. 운영 자료의 출처는 각각 *_source로 반환한다.
+    금액 단위는 원, revenue_eok는 억 원.
     """
     sid = resolve_supplier_id(supplier)
-    overview = query("SELECT * FROM supplier_overview WHERE supplier_id = %s", (sid,))[0]
+    records = query("SELECT * FROM supplier_overview WHERE supplier_id = %s AND status = 'ACTIVE'", (sid,))
+    if not records:
+        raise ToolError("활성 협력사가 없다")
+    overview = records[0]
     return {
         **overview,
         "capabilities": query("SELECT process, material, monthly_capacity FROM capabilities "
@@ -386,16 +400,19 @@ def rank_suppliers(rfq_id: str, w_price: float = 0.5, w_quality: float = 0.3,
         SELECT o.supplier_id, o.source, o.name, o.region, o.iatf16949, c.monthly_capacity,
                o.defect_ppm, o.on_time_rate, o.audit_grade, o.years_dealing,
                o.payment_days, o.price_linkage, o.raw_material_ratio, o.fin_year, o.operating_margin, o.debt_ratio,
+               o.certification_source, o.capability_source, o.quality_source,
                (SELECT unit_price FROM quotes q
                  WHERE q.supplier_id = o.supplier_id AND q.process = c.process AND q.material = c.material
                  ORDER BY quoted_at DESC LIMIT 1) AS last_price
         FROM capabilities c JOIN supplier_overview o USING (supplier_id)
-        WHERE c.process = %s AND c.material = %s
+        WHERE c.process = %s AND c.material = %s AND o.status = 'ACTIVE'
     """, (rfq["process"], rfq["material"]))
 
     candidates, excluded = [], []
     for r in rows:
-        if rfq["required_cert"] == "IATF16949" and not r["iatf16949"]:
+        if any(r[key] is None for key in ("defect_ppm", "on_time_rate", "audit_grade", "years_dealing", "last_price")):
+            excluded.append({"supplier_id": r["supplier_id"], "name": r["name"], "reason": "품질 또는 견적 자료 미등록"})
+        elif rfq["required_cert"] == "IATF16949" and not r["iatf16949"]:
             excluded.append({"supplier_id": r["supplier_id"], "name": r["name"], "reason": "IATF 16949 인증 없음"})
         elif r["monthly_capacity"] < needed_monthly:
             excluded.append({"supplier_id": r["supplier_id"], "name": r["name"],
@@ -469,15 +486,20 @@ def check_offer(supplier: str, rfq_id: str, unit_price: int, payment_days: int, 
         raise ToolError("raw_material_ratio 는 0~1 사이 비율로 입력한다 (예: 40% → 0.4)")
     sid = resolve_supplier_id(supplier)
     rfq = get_rfq(rfq_id)
-    s = query("SELECT * FROM supplier_overview WHERE supplier_id = %s", (sid,))[0]
+    records = query("SELECT * FROM supplier_overview WHERE supplier_id = %s AND status = 'ACTIVE'", (sid,))
+    if not records:
+        raise ToolError("활성 협력사가 없다")
+    s = records[0]
     cap = query("SELECT monthly_capacity FROM capabilities WHERE supplier_id = %s AND process = %s AND material = %s",
                 (sid, rfq["process"], rfq["material"]))
     last = query("SELECT unit_price FROM quotes WHERE supplier_id = %s AND process = %s AND material = %s "
                  "ORDER BY quoted_at DESC LIMIT 1", (sid, rfq["process"], rfq["material"]))
     market = query("""
         SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY unit_price) AS median, count(*) AS n
-        FROM (SELECT DISTINCT ON (supplier_id) unit_price FROM quotes
-              WHERE process = %s AND material = %s ORDER BY supplier_id, quoted_at DESC) latest
+        FROM (SELECT DISTINCT ON (q.supplier_id) q.unit_price FROM quotes q
+              JOIN suppliers s USING (supplier_id)
+              WHERE q.process = %s AND q.material = %s AND s.status = 'ACTIVE'
+              ORDER BY q.supplier_id, q.quoted_at DESC, q.quote_id DESC) latest
     """, (rfq["process"], rfq["material"]))[0]
 
     ratio = raw_material_ratio if raw_material_ratio is not None else s["raw_material_ratio"]
@@ -535,7 +557,9 @@ def check_offer(supplier: str, rfq_id: str, unit_price: int, payment_days: int, 
     refs = list(dict.fromkeys((r["law"], r["article_no"]) for f in findings for r in f["law_refs"]))
     return {
         "verdict": "위반 소지 있음" if by["violation"] else "확인 필요" if by["warning"] else "문제 없음",
-        "supplier": {"supplier_id": sid, "name": s["name"], "source": s["source"], "revenue_eok": s["revenue_eok"]},
+        "supplier": {"supplier_id": sid, "name": s["name"], "source": s["source"], "revenue_eok": s["revenue_eok"],
+                     "certification_source": s["certification_source"],
+                     "capability_source": s["capability_source"], "quality_source": s["quality_source"]},
         "rfq": {k: rfq[k] for k in ("rfq_id", "part_name", "process", "material", "annual_volume", "target_price")},
         "offer": {"unit_price": unit_price, "payment_days": payment_days, "price_linkage": price_linkage,
                   "raw_material_ratio": ratio, "contract_days": contract_days, "contract_amount": contract_amount},
@@ -551,8 +575,8 @@ def check_offer(supplier: str, rfq_id: str, unit_price: int, payment_days: int, 
 @mcp.resource("business://catalog", mime_type="application/json")
 def catalog() -> str:
     """쓸 수 있는 공정·소재(공정별), 별칭, 지역, RFQ 목록과 협력사 수. 쿼리를 정확한 값으로 바꿀 때 쓴다."""
-    regions = query("SELECT region, count(*) AS suppliers FROM suppliers GROUP BY region ORDER BY count(*) DESC, region")
-    counts = query("SELECT source, count(*) AS suppliers FROM suppliers GROUP BY source ORDER BY source")
+    regions = query("SELECT region, count(*) AS suppliers FROM suppliers WHERE status = 'ACTIVE' GROUP BY region ORDER BY count(*) DESC, region")
+    counts = query("SELECT source, count(*) AS suppliers FROM suppliers WHERE status = 'ACTIVE' GROUP BY source ORDER BY source")
     rfqs = query("SELECT rfq_id, part_name, process, material, required_cert, due_date FROM rfqs ORDER BY rfq_id")
     return json.dumps({"processes": materials_by_process(),
                        "process_aliases": PROCESS_ALIASES, "material_aliases": MATERIAL_ALIASES,

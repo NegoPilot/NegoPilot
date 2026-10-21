@@ -11,10 +11,10 @@ from .business_supplier_service import BusinessSupplierService, BusinessUnavaila
 from .models import ErrorResponse
 from .settings import ApiSettings
 from .supplier_chat_api import parse_search
-from .supplier_chat_models import StrictModel, SupplierId
+from .supplier_chat_models import StrictModel
 from .supplier_chat_service import SupplierNotFound
 from .supplier_lookup_models import (
-    LiveCatalogResponse, LiveSupplierDetailResponse, LiveSupplierSearchResponse,
+    LiveCatalogResponse, LiveSupplierDetailResponse, LiveSupplierId, LiveSupplierSearchResponse,
 )
 
 LOOKUP_V2_PREFIX = "/internal/v2"
@@ -81,7 +81,7 @@ def add_supplier_lookup_routes(
         return await run(operation, LiveSupplierSearchResponse)
 
     @router.get("/suppliers/{supplier_id}", response_model=LiveSupplierDetailResponse)
-    async def detail(supplier_id: SupplierId, request: Request) -> JSONResponse:
+    async def detail(supplier_id: LiveSupplierId, request: Request) -> JSONResponse:
         if request.query_params:
             return error_response(400, None, "VALIDATION_ERROR", "Invalid request.")
 

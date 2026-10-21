@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+@org.springframework.context.annotation.Profile("legacy-test")
 @RestController
 @RequestMapping(produces = MediaType.APPLICATION_JSON_VALUE)
 final class SupplierChatController {

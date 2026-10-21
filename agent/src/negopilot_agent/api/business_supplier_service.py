@@ -11,12 +11,12 @@ from negopilot_agent.routing.mcp_client import DEFAULT_URLS
 
 from .supplier_chat_models import CatalogData, SupplierSearch
 from .supplier_chat_service import SupplierNotFound
-from .supplier_lookup_models import LiveSupplierDetail, LiveSupplierListData
+from .supplier_lookup_models import LIVE_SUPPLIER_ID_PATTERN, LiveSupplierDetail, LiveSupplierListData
 
 CATALOG_URI = "business://catalog"
 # business-mcp caps search_suppliers at 100 rows. A full page may hide more matches.
 MCP_ROW_LIMIT = 100
-LIVE_SUPPLIER_ID = re.compile(r"SUP-[0-9]{4}")
+LIVE_SUPPLIER_ID = re.compile(LIVE_SUPPLIER_ID_PATTERN)
 
 
 class BusinessUnavailable(Exception):
@@ -54,9 +54,27 @@ async def mcp_session(url: str | None = None) -> AsyncIterator[BusinessSession]:
 SessionFactory = Callable[[], AbstractAsyncContextManager[BusinessSession]]
 
 
-def _provenance(source: str) -> dict[str, str]:
-    # DART 기업은 기본 정보와 재무만 공시 값이다. 생산능력·품질·계약·견적은 모두 가상 데이터다.
-    return {"profile": source, "financials": source, "operations": "MOCK"}
+def _aggregate_sources(sources: set[str], allowed: set[str]) -> str:
+    if not sources <= allowed:
+        raise ValueError("Unsupported business data source")
+    if not sources:
+        return "UNKNOWN"
+    return next(iter(sources)) if len(sources) == 1 else "MIXED"
+
+
+def _provenance(raw: dict[str, Any], financial_sources: set[str], *,
+                has_contract: bool, has_quotes: bool) -> dict[str, str]:
+    # 기본 정보와 재무의 출처는 독립적이다. 없는 품질 자료의 기본 출처는 집계하지 않는다.
+    operations = {raw["certification_source"], raw["capability_source"]}
+    if raw["defect_ppm"] is not None or raw["on_time_rate"] is not None:
+        operations.add(raw["quality_source"])
+    if has_contract or has_quotes:
+        operations.add("MOCK")  # 계약과 견적은 현재 수정할 수 없는 합성 자료다.
+    return {
+        "profile": raw["source"],
+        "financials": _aggregate_sources(financial_sources, {"DART", "MOCK"}),
+        "operations": _aggregate_sources(operations, {"MOCK", "MANUAL"}),
+    }
 
 
 def _capability(row: dict[str, Any]) -> dict[str, Any]:
@@ -100,7 +118,9 @@ def _detail(raw: dict[str, Any]) -> LiveSupplierDetail:
             "payment_days": raw["payment_days"],
             "price_linkage": raw["price_linkage"],
         },
-        "provenance": _provenance(raw["source"]),
+        "provenance": _provenance(raw, {row["source"] for row in raw["financials"]},
+                                  has_contract=raw["payment_days"] is not None,
+                                  has_quotes=bool(raw["recent_quotes"])),
     })
 
 
@@ -168,7 +188,8 @@ class BusinessSupplierService:
                 "iatf16949": row["iatf16949"],
                 "iso14001": row["iso14001"],
                 "matched_capabilities": [],
-                "provenance": _provenance(row["source"]),
+                "provenance": _provenance(row, set(row["financial_sources"]),
+                                          has_contract=row["has_contract"], has_quotes=row["has_quotes"]),
             })
             summary["matched_capabilities"].append(_capability(row))
         items = []

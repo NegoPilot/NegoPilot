@@ -10,6 +10,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
+@org.springframework.context.annotation.Profile("legacy-test")
 @Service
 final class SupplierChatService {
     private final ConcurrentHashMap<String, Conversation> conversations = new ConcurrentHashMap<>();

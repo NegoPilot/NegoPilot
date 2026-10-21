@@ -11,6 +11,7 @@ import sys
 import time
 import unittest
 import uuid
+from types import SimpleNamespace
 from unittest.mock import patch
 
 
@@ -61,6 +62,29 @@ class SmokeHelpersTest(unittest.TestCase):
         self.assertEqual(command[:4], [str(ROOT / "agent/.venv/bin/python"), "-B", "-m", "uvicorn"])
         self.assertNotIn("sync", command)
         process_class.return_value.ready.assert_called_once()
+
+    def test_spring_fixture_launcher_forces_legacy_profile_without_inherited_database(self):
+        runner = smoke.Smoke(Path('unused.jar'))
+        runner.relay = SimpleNamespace(port=12345)
+        inherited = {'SPRING_PROFILES_ACTIVE': 'production',
+                     'SPRING_APPLICATION_JSON': '{"spring":{"profiles":{"active":"production"}}}',
+                     'APP_DATABASE_URL': 'jdbc:postgresql://unused/application',
+                     'APP_DATABASE_PASSWORD': 'inherited-secret',
+                     'BUSINESS_DATABASE_ENABLED': 'true'}
+        with patch.dict(os.environ, inherited), patch.object(smoke, 'Process') as process_class, \
+                patch.object(smoke, 'unused_port', return_value=23456):
+            self.assertEqual(runner.start_spring('ephemeral-key', 'mock Spring'), 23456)
+        command, cwd, env, label = process_class.call_args.args
+        self.assertEqual(command[1:], ['-jar', 'unused.jar'])
+        self.assertEqual(env['SPRING_PROFILES_ACTIVE'], 'legacy-test')
+        self.assertEqual(env['AGENT_EXECUTION_MODE'], 'stub')
+        self.assertEqual(env['AGENT_BASE_URL'], 'http://127.0.0.1:12345')
+        self.assertEqual(env['SERVER_ADDRESS'], '127.0.0.1')
+        self.assertEqual(env['SERVER_PORT'], '23456')
+        for name in inherited:
+            if name != 'SPRING_PROFILES_ACTIVE':
+                self.assertNotIn(name, env)
+        process_class.return_value.ready.assert_called_once_with(23456)
 
     def test_keyboard_interrupt_stops_children_and_skips_further_checks(self):
         with (patch.object(sys, "argv", ["http_smoke.py", "--jar", "/tmp/prepared-test.jar"]),
