@@ -78,6 +78,19 @@ def test_contract_rejects(data, message):
         DecompositionResult.model_validate(data)
 
 
+@pytest.mark.parametrize("select, example", [
+    ("top3", 'top(3)'), ("top2", 'top(2)'), ("top(n)", 'top(2)'), ("first", 'top(2)'), ("top 10", 'top(10)'),
+])
+def test_select_error_shows_usable_example(select, example):
+    """select 형식 오류 메시지는 "top(n)"을 글자 그대로 따라 쓰지 않도록 실제 숫자가 든 예를 보여 준다."""
+    data = broken("08", lambda d: d["sub_queries"][1]["inputs"][0].update(select=select))
+    with pytest.raises(ValidationError) as err:
+        DecompositionResult.model_validate(data)
+    message = str(err.value)
+    assert f'"{example}"' in message
+    assert "top(n)" not in message.replace(f"'{select}'", "")
+
+
 def test_planned_intent_is_still_valid_output():
     """mail-mcp 전이라도 분해는 draft_email을 낼 수 있다. 미지원 처리는 Routing이 한다."""
     assert load_intents()["draft_email"].status == "planned"
