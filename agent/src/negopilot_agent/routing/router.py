@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import contextlib
 import itertools
 import re
 from typing import Any, Protocol
@@ -59,6 +60,12 @@ class Router:
         if decomposition.status != "ok":
             return RouteResult(status="not_routed")
 
+        # caller가 연결 재사용(session)을 지원하면 route() 한 번 동안 서버별 연결 하나를 같이 쓴다
+        session = getattr(self.caller, "session", None)
+        async with session() if session else contextlib.nullcontext():
+            return await self._route(decomposition)
+
+    async def _route(self, decomposition: DecompositionResult) -> RouteResult:
         by_id = {sq.id: sq for sq in decomposition.sub_queries}
         done: dict[str, SubQueryOutcome] = {}
         halt_reason: str | None = None

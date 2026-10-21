@@ -1,6 +1,7 @@
 """Adapters around the unchanged QueryDecomposer and Router."""
 
 import asyncio
+import contextlib
 from typing import Any, Protocol
 
 import anthropic
@@ -45,6 +46,11 @@ class SafeToolCaller:
             return await self.caller(server, tool, args)
         except Exception:
             raise ToolExecutionError(SAFE_TOOL_ERROR) from None
+
+    def session(self):
+        """감싼 caller의 연결 재사용을 그대로 쓴다 (McpToolCaller.session)."""
+        session = getattr(self.caller, "session", None)
+        return session() if session else contextlib.nullcontext()
 
 
 def public_routing(result: RouteResult) -> RouteResult:
