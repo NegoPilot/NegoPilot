@@ -1,0 +1,27 @@
+{
+  "note": "mail-mcp 전이라도 draft_email. 엔티티 값은 질문의 값 그대로",
+  "query": "SUP-0022에 RFQ-2026-003 견적 요청 메일 써 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "SUP-0022에 RFQ-2026-003 견적 요청 메일 써 줘",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "SUP-0022에 보낼 RFQ-2026-003 견적 요청 메일 초안",
+        "original_text": "SUP-0022에 RFQ-2026-003 견적 요청 메일",
+        "intent": "draft_email",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "supplier": "SUP-0022",
+          "rfq_id": "RFQ-2026-003"
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

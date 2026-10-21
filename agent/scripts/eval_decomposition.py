@@ -1,6 +1,7 @@
 """실제 모델로 쿼리 분해를 평가한다. fixture의 질문을 넣고 기대 결과와 비교한다.
 
-- dev (기본): shared/fixtures/decomposition. 프롬프트를 고칠 때 보는 개발용
+- dev (기본): shared/fixtures/decomposition + decomposition_dev. 프롬프트를 고칠 때 보는 개발용
+  (decomposition_dev는 Routing fixture와 묶이지 않은 추가 개발 질문)
 - validation: shared/fixtures/validation. 점수만 확인하는 검증용. 오답을 보고 프롬프트를 고치지 않는다
 
 API를 실제로 호출하므로 비용이 든다. 실행 전에 질문 수(--limit)와 모델·effort를 확인한다.
@@ -30,12 +31,12 @@ from negopilot_shared import DecompositionResult  # noqa: E402
 
 from negopilot_agent.decomposition import DecomposerSettings, QueryDecomposer  # noqa: E402
 
-SETS = {"dev": "decomposition", "validation": "validation"}
+SETS = {"dev": ("decomposition", "decomposition_dev"), "validation": ("validation",)}
 KEYS = ["status", "count", "intents", "entities", "dependencies", "exact"]
 
 
 def fixtures(name: str) -> list[Path]:
-    return sorted((ROOT.parent / "shared" / "fixtures" / SETS[name]).glob("*.json"))
+    return [p for d in SETS[name] for p in sorted((ROOT.parent / "shared" / "fixtures" / d).glob("*.json"))]
 
 
 def load_dotenv(path: Path, skip: tuple[str, ...] = ()) -> None:

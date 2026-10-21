@@ -8,6 +8,7 @@
 
 import json
 import logging
+import re
 import os
 from dataclasses import dataclass, field
 from datetime import date
@@ -84,7 +85,8 @@ class QueryDecomposer:
                 return failed_result(query)
             try:
                 # 스키마 형식은 모델 쪽 구조화 출력이 맞추고, 필드 사이 규칙은 여기서 검증한다
-                cleaned = drop_redundant_as_of(drop_disallowed_entities(drop_disallowed_inputs(text)), today)
+                cleaned = drop_redundant_as_of(
+                    clean_entity_values(drop_disallowed_entities(drop_disallowed_inputs(text))), today)
                 result = DecompositionResult.model_validate_json(cleaned)
             except ValidationError as err:
                 log.warning("분해 결과 형식 오류 (시도 %d): %s", attempt, err.error_count())
@@ -158,6 +160,39 @@ def drop_disallowed_entities(text: str) -> str:
             log.info("%s(%s)의 엔티티 %s 제거 (intent가 받지 않음)", sq.get("id"), spec.intent, extra)
             for k in extra:
                 del entities[k]
+    return json.dumps(data, ensure_ascii=False) if changed else text
+
+
+_JSON_JUNK = re.compile(r'^[\s"\'{}\[\],]+|[\s"\'{}\[\],]+$')
+
+
+def clean_entity_values(text: str) -> str:
+    """엔티티 값을 검증 전에 다듬는다 (#72).
+
+    - 문자열 값 앞뒤에 붙은 JSON 기호를 지운다. strict 구조화 출력이 가끔 `"SUP-0015},"`처럼 값에 `},`를 섞는다.
+      협력사 ID·이름·지역 같은 값은 이런 기호로 시작하거나 끝나지 않는다.
+    - price_change_pct는 지운다. 계약상 허용하지만 지금 Routing·Generation 어디서도 쓰지 않고(#62), 프롬프트로
+      막아도 모델이 계속 넣어 부호 오류(-100 등)만 생긴다. 증감률은 question에 남아 있다.
+    JSON이 아니거나 모양이 다르면 그대로 돌려줘 검증 오류로 처리되게 한다.
+    """
+    try:
+        data = json.loads(text)
+        sub_queries = data["sub_queries"]
+    except (ValueError, TypeError, KeyError):
+        return text
+    changed = False
+    for sq in sub_queries if isinstance(sub_queries, list) else []:
+        entities = sq.get("entities") if isinstance(sq, dict) else None
+        if not isinstance(entities, dict):
+            continue
+        if entities.get("price_change_pct") is not None:
+            del entities["price_change_pct"]
+            changed = True
+        for k, v in entities.items():
+            if isinstance(v, str) and (fixed := _JSON_JUNK.sub("", v)) != v and fixed:
+                log.info("%s의 %s 값 %r → %r (JSON 기호 제거)", sq.get("id"), k, v, fixed)
+                entities[k] = fixed
+                changed = True
     return json.dumps(data, ensure_ascii=False) if changed else text
 
 

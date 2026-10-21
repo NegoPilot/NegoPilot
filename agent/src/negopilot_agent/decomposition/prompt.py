@@ -217,6 +217,19 @@ EXAMPLES = [
             "assumptions": [],
         },
     },
+    {
+        # 회사 업무처럼 보여도 협상과 무관하면 되묻지 않고 out_of_scope (#72)
+        "query": "분기 보고서 PPT 양식 좀 만들어 줘",
+        "result": {
+            "schema_version": SCHEMA_VERSION, "status": "ok", "original_query": "분기 보고서 PPT 양식 좀 만들어 줘",
+            "sub_queries": [{
+                "id": "q1", "question": "보고서 양식 작성 요청", "original_text": "분기 보고서 PPT 양식 좀 만들어 줘",
+                "intent": "out_of_scope", "grounding": "none", "confidence": 0.9,
+                "entities": {}, "inputs": [], "depends_on": [],
+            }],
+            "clarification": None, "assumptions": [],
+        },
+    },
 ]
 
 
@@ -260,8 +273,12 @@ def build_system_prompt() -> str:
 6. entities에는 해당 intent가 허용한 엔티티 이름만 쓴다.
    law는 사용자가 법령 이름(하도급법, 상생협력법 같은 약칭 포함)을 말했을 때만 넣는다. 말하지 않았으면 비워서 모든 법령을 검색하게 한다.
    price_change_pct는 넣지 않는다. 증감률(5% 인하, 3% 인상)은 question에 남긴다.
+   "넣지 않는다"는 값이 null이라는 뜻이다. 출력 형식상 모든 엔티티 칸이 있으므로, 쓰지 않는 칸은 null로 둔다.
+   엔티티 값은 질문에 나온 문자열 그대로 쓴다. 따옴표, 괄호, 쉼표 같은 기호를 값에 붙이지 않는다.
    rfq_id는 RFQ-YYYY-NNN, article_no는 "제N조" 또는 "제N조의M", 날짜는 YYYY-MM-DD, 금액은 원 단위 정수다.
    현재 질문과 해당 작업의 대화 이력에 없는 값을 지어내서 채우지 않는다. 특히 top_n 같은 숫자는 사용자가 제시했을 때만 넣는다. 예시의 값을 따라 하지 않는다.
+   "1등", "1위", "제일 나은 곳"은 개수가 아니다. 뒤 질문의 inputs에서 select top1로 받고, 순위 하위 질문에는 top_n을 넣지 않는다.
+   top_n은 "상위 3곳", "두 군데만"처럼 개수를 말했을 때만 넣는다.
 7. grounding은 intent 목록에 적힌 값을 그대로 쓴다.
 8. question은 아래 용어 사전으로 법률·코드 용어로 바꿔 쓰고, 원문의 해당 부분은 original_text에 그대로 둔다.
    question에는 현업 표현(단가, 2차 업체, 깎다)을 남기지 않는다.
@@ -282,7 +299,8 @@ def build_system_prompt() -> str:
 
 # 근거와 되묻기 규칙 (할루시네이션 방지)
 - 우리 데이터(RFQ, 협력사, 단가, 계약)나 법 내용이 필요하면 grounding이 required인 intent로 보낸다.
-- 조문·숫자·회사 정보가 필요 없는 개념 설명만 general_knowledge다.
+- 조문·숫자·회사 정보가 필요 없는 개념 설명만 general_knowledge다. 협상·구매 업무의 용어 설명(RFQ, MOQ, IATF 16949 등)이 여기에 든다.
+  법이 정한 내용(기한, 의무, 서면이나 약정서에 적어야 할 사항, 금지 행위)을 묻는 질문은 법령 이름이 없어도 law_check다.
   일반 질문처럼 보여도 답에 조문 번호, 기한·비율·금액 같은 숫자, 특정 회사 정보가 들어가야 하면 required intent로 보낸다.
   예: "하도급법이 뭐야?" → general_knowledge / "하도급법상 대금은 며칠 안에 줘야 해?" → law_check
 - 근거가 필요한지 애매하면 required 쪽을 고른다.
@@ -304,7 +322,9 @@ def build_system_prompt() -> str:
   기업과 무관한 질문에 선택 기업을 끼워 넣지 않는다. original_query에는 선택 문맥을 붙이지 않는다.
 - confidence는 intent와 엔티티를 맞게 붙였다고 확신하는 정도(0~1)다. {CLARIFY_CONFIDENCE} 미만이면 정보가 부족한지 확인한다.
   낮은 confidence만으로 선택 기업이나 불필요한 정보를 요구하지 않는다.
-- 협력사 협상 업무와 무관한 질문은 out_of_scope다.
+- 협력사 협상 업무와 무관한 질문은 out_of_scope다. 협력사, RFQ, 단가, 계약, 하도급·연동·중소기업 법령과 관계없으면
+  회사 업무처럼 보여도(엑셀·사무 도구 사용법, 일정 잡기, 회식) out_of_scope로 하고 되묻지 않는다.
+  되묻기(clarify)는 협상 업무 안의 요청인데 대상이나 조건이 모호할 때만 쓴다.
 - status 규칙: ok면 sub_queries 1개 이상, clarification은 null / clarify면 clarification만 있고 sub_queries는 빈 목록.
 
 # 되묻기 뒤의 답변과 주제 전환
