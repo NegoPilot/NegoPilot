@@ -173,9 +173,12 @@ uv run python scripts/eval_decomposition.py --backend anthropic --limit 3   # Cl
 uv run python scripts/eval_decomposition.py --backend openai --set validation --repeat 3   # 검증 세트 3회 평균
 uv run python scripts/eval_generation.py --offline                  # Generation 근거 지표만 (모델 호출 없음)
 uv run python scripts/eval_generation.py --backend openai --repeat 3   # Generation 생성 + 채점 (비용 있음)
+uv run python scripts/eval_generation.py --backend openai --repeat 3 --set validation   # Generation 검증 세트
+uv run python scripts/route_generation_set.py    # Generation 검증 세트 입력을 실제 MCP 서버로 다시 Routing (서버 2개를 먼저 띄움)
 ```
 
 Generation 평가는 `shared/fixtures/routing` 11개를 입력으로 쓰고, 정답은 [`eval_data/generation_gold.json`](eval_data/generation_gold.json)에 있습니다 (기대 답변 종류, 근거에 꼭 있어야 할 문구, 답변에 담길 정답 포인트).
+`--set validation`은 [`eval_data/generation_validation/`](eval_data/generation_validation/) 12개(질문, 정답 분해 결과, 실제 MCP Routing 결과를 한 파일에)를 입력으로, [`eval_data/generation_validation_gold.json`](eval_data/generation_validation_gold.json)을 정답으로 씁니다. 분해 검증 세트와 같이 점수만 보고, 오답을 보고 프롬프트를 고치지 않습니다.
 `--offline`은 모델 없이 근거 포함률과 프롬프트 크기만 재고, 기본 모드는 답변 종류, 첫 시도 근거 검사 통과율, 재생성·가림 비율, 정답 포인트 커버율과 근거 없는 주장 수(gpt-4.1-mini 채점), 생성 시간을 잽니다.
 
 평가는 fixture의 질문을 넣고 상태, 하위 질문 개수, intent, 엔티티, 의존 관계를 기대 결과와 비교합니다.
