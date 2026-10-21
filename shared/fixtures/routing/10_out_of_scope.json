@@ -1,0 +1,21 @@
+{
+  "query": "오늘 날씨 어때?",
+  "decomposition": "decomposition/10_out_of_scope.json",
+  "routing": {
+    "schema_version": "0.1",
+    "status": "routed",
+    "outcomes": [
+      {
+        "id": "q1",
+        "intent": "out_of_scope",
+        "status": "out_of_scope",
+        "calls": [],
+        "referenced_articles": [],
+        "missing": [],
+        "message": null
+      }
+    ],
+    "halted": false,
+    "halt_reason": null
+  }
+}

@@ -13,18 +13,19 @@ from pathlib import Path
 import pytest
 from langgraph.graph import END, START, StateGraph
 
-from negopilot_shared import DecompositionResult
+from negopilot_shared import DecompositionResult, RouteResult, ToolCall
 
 from negopilot_agent.routing import Router, RoutingState, make_route_node
 from negopilot_agent.routing.extract import select_values
-from negopilot_agent.routing.results import ToolCall
 
 FIXTURE_DIR = Path(__file__).resolve().parents[2] / "shared" / "fixtures" / "decomposition"
 
 RFQS = [{"rfq_id": "RFQ-2026-002", "oem_id": "OEM-A", "part_name": "도어 힌지"},
         {"rfq_id": "RFQ-2026-001", "oem_id": "OEM-B", "part_name": "브래킷"}]
 RANKED = {"rfq": {"rfq_id": "RFQ-2026-001"}, "candidate_count": 3, "excluded": [],
-          "ranked": [{"supplier_id": "SUP-0007", "name": "(주)대한프레스"},
+          "ranked": [{"supplier_id": "SUP-0007", "name": "(주)대한프레스",
+                      "flags": [{"code": "PAYMENT_DAYS_OVER_60", "law_refs": [{"law": "subcontract_act",
+                                                                               "article_no": "제13조"}]}]},
                      {"supplier_id": "SUP-0003", "name": "서연이화"},
                      {"supplier_id": "SUP-0011", "name": "한일정공"}]}
 SEARCH_HITS = [{"law_key": "subcontract_act", "type": "조문", "article_no": "제4조", "title": "부당한 하도급대금의 결정 금지"},
@@ -58,7 +59,9 @@ class FakeCaller:
                 "list_rfqs": RFQS,
                 "rank_suppliers": RANKED,
                 "get_supplier": {"supplier_id": args.get("supplier"), "name": "협력사"},
-                "check_offer": {"verdict": "위반 가능", "findings": []},
+                "check_offer": {"verdict": "위반 소지 있음", "violations": [],
+                                "law_refs": [{"law": "subcontract_act", "article_no": "제13조"},
+                                             {"law": "subcontract_act", "article_no": "제3조"}]},
                 "search_regulation": SEARCH_HITS,
                 "get_article": {"law_key": args.get("law"), "article_no": args.get("article_no"),
                                 "title": "조문", "citation": f"하도급법 {args.get('article_no')}"},
@@ -85,8 +88,8 @@ def make(sub_queries: list[dict]) -> DecompositionResult:
 @pytest.mark.parametrize("path", sorted(FIXTURE_DIR.glob("*.json")), ids=lambda p: p.stem)
 async def test_every_fixture_routes(path):
     result = await Router(FakeCaller()).route(fixture(path.stem))
-    expected_statuses = {"09_clarify": [], "11_failed": [], "06_general_knowledge": ["no_tool"],
-                         "10_out_of_scope": ["no_tool"]}
+    expected_statuses = {"09_clarify": [], "11_failed": [], "06_general_knowledge": ["general_knowledge"],
+                         "10_out_of_scope": ["out_of_scope"]}
     statuses = [o.status for o in result.outcomes]
     assert statuses == expected_statuses.get(path.stem, ["ok"] * len(statuses))
 
@@ -121,15 +124,33 @@ async def test_law_check_searches_then_fetches_articles():
 async def test_offer_check_passes_entities_as_args():
     caller = FakeCaller()
     await Router(caller).route(fixture("05_offer_check"))
-    assert caller.calls == [("business-mcp", "check_offer",
-                             {"supplier": "SUP-0003", "rfq_id": "RFQ-2026-001", "unit_price": 12000,
-                              "payment_days": 75, "price_linkage": False})]
+    assert caller.calls[0] == ("business-mcp", "check_offer",
+                               {"supplier": "SUP-0003", "rfq_id": "RFQ-2026-001", "unit_price": 12000,
+                                "payment_days": 75, "price_linkage": False})
+
+
+async def test_law_refs_are_prefetched():
+    caller = FakeCaller()
+    offer = (await Router(caller).route(fixture("05_offer_check"))).outcomes[0]
+    assert [c.args["article_no"] for c in offer.referenced_articles] == ["제13조", "제3조"]
+    assert all(c.tool == "get_article" and c.server == "law-mcp" for c in offer.referenced_articles)
+    # 순위의 flags에 붙은 조문도 가져오고, 조문 조회는 inputs 값 꺼내기에 섞이지 않는다
+    ranking = (await Router(caller).route(fixture("03_rank_then_law"))).outcome("q1")
+    assert [c.args["article_no"] for c in ranking.referenced_articles] == ["제13조"]
+    assert [c.tool for c in ranking.calls] == ["rank_suppliers"]
+
+
+async def test_law_ref_failure_does_not_fail_sub_query():
+    caller = FakeCaller({"get_article": RuntimeError("law-mcp 꺼짐")})
+    offer = (await Router(caller).route(fixture("05_offer_check"))).outcomes[0]
+    assert offer.status == "ok"
+    assert all("law-mcp 꺼짐" in c.error for c in offer.referenced_articles)
 
 
 async def test_inputs_top1_feeds_next_group():
     caller = FakeCaller()
     result = await Router(caller).route(fixture("08_assumption_instead_of_clarify"))
-    assert caller.tools() == ["list_rfqs", "rank_suppliers"]
+    assert caller.tools() == ["list_rfqs", "rank_suppliers", "get_article"]   # 순위 flags의 조문
     assert result.outcome("q2").calls[0].args == {"rfq_id": "RFQ-2026-002"}   # 마감일 순 첫 번째
 
 
@@ -137,7 +158,8 @@ async def test_no_tool_and_not_routed():
     caller = FakeCaller()
     assert (await Router(caller).route(fixture("09_clarify"))).status == "not_routed"
     assert (await Router(caller).route(fixture("11_failed"))).status == "not_routed"
-    assert (await Router(caller).route(fixture("06_general_knowledge"))).outcomes[0].status == "no_tool"
+    assert (await Router(caller).route(fixture("06_general_knowledge"))).outcomes[0].status == "general_knowledge"
+    assert (await Router(caller).route(fixture("10_out_of_scope"))).outcomes[0].status == "out_of_scope"
     assert caller.calls == []
 
 
@@ -225,3 +247,9 @@ async def test_route_node_in_graph():
     out = await graph.compile().ainvoke({"query": "하도급법 제4조 보여줘",
                                          "decomposition": fixture("01_law_article")})
     assert out["routing"].outcomes[0].status == "ok"
+
+
+@pytest.mark.parametrize("path", sorted(FIXTURE_DIR.glob("*.json")), ids=lambda p: p.stem)
+async def test_output_round_trips_contract(path):
+    result = await Router(FakeCaller()).route(fixture(path.stem))
+    assert RouteResult.model_validate(result.model_dump(mode="json")) == result

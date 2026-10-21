@@ -1,0 +1,11 @@
+{
+  "query": "ㅁㄴㅇㄹ 그거 저번처럼 해줘",
+  "decomposition": "decomposition/11_failed.json",
+  "routing": {
+    "schema_version": "0.1",
+    "status": "not_routed",
+    "outcomes": [],
+    "halted": false,
+    "halt_reason": null
+  }
+}

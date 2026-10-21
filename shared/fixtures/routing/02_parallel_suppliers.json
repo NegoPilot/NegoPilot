@@ -1,0 +1,223 @@
+{
+  "query": "SUP-0001이랑 SUP-0002 품질 비교해줘",
+  "decomposition": "decomposition/02_parallel_suppliers.json",
+  "routing": {
+    "schema_version": "0.1",
+    "status": "routed",
+    "outcomes": [
+      {
+        "id": "q1",
+        "intent": "supplier_detail",
+        "status": "ok",
+        "calls": [
+          {
+            "server": "business-mcp",
+            "tool": "get_supplier",
+            "args": {
+              "supplier": "SUP-0001"
+            },
+            "result": {
+              "supplier_id": "SUP-0001",
+              "source": "DART",
+              "corp_code": "01036446",
+              "stock_code": "200880",
+              "induty_code": "303",
+              "name": "(주)서연이화",
+              "region": "경기",
+              "employees": 1068,
+              "revenue_eok": 45052,
+              "founded_year": 2014,
+              "biz_no_masked": "220-88-*****",
+              "iatf16949": false,
+              "iso14001": true,
+              "defect_ppm": 130,
+              "on_time_rate": 0.975,
+              "audit_grade": "B",
+              "years_dealing": 5,
+              "payment_days": 60,
+              "price_linkage": false,
+              "raw_material_ratio": 0.51,
+              "auto_renewal": true,
+              "fin_year": 2025,
+              "operating_margin": 0.036,
+              "debt_ratio": 1.6,
+              "capabilities": [
+                {
+                  "process": "사출",
+                  "material": "ABS",
+                  "monthly_capacity": 100000
+                },
+                {
+                  "process": "사출",
+                  "material": "PP",
+                  "monthly_capacity": 20000
+                }
+              ],
+              "financials": [
+                {
+                  "bsns_year": 2023,
+                  "fs_div": "CFS",
+                  "source": "DART",
+                  "revenue": 3574265560035,
+                  "operating_income": 193109887890,
+                  "net_income": 164039657136,
+                  "total_assets": 2357850900807,
+                  "total_liabilities": 1432265936654,
+                  "total_equity": 925584964153
+                },
+                {
+                  "bsns_year": 2024,
+                  "fs_div": "CFS",
+                  "source": "DART",
+                  "revenue": 4041529108352,
+                  "operating_income": 154404448469,
+                  "net_income": 154317070456,
+                  "total_assets": 2953841527430,
+                  "total_liabilities": 1792340376391,
+                  "total_equity": 1161501151039
+                },
+                {
+                  "bsns_year": 2025,
+                  "fs_div": "CFS",
+                  "source": "DART",
+                  "revenue": 4505249722750,
+                  "operating_income": 161799822068,
+                  "net_income": 61100274095,
+                  "total_assets": 3205041446005,
+                  "total_liabilities": 1972181090488,
+                  "total_equity": 1232860355517
+                }
+              ],
+              "recent_quotes": [
+                {
+                  "process": "사출",
+                  "material": "ABS",
+                  "unit_price": 1020,
+                  "quoted_at": "2026-05-20"
+                },
+                {
+                  "process": "사출",
+                  "material": "ABS",
+                  "unit_price": 1010,
+                  "quoted_at": "2025-06-20"
+                },
+                {
+                  "process": "사출",
+                  "material": "PP",
+                  "unit_price": 790,
+                  "quoted_at": "2025-04-21"
+                },
+                {
+                  "process": "사출",
+                  "material": "PP",
+                  "unit_price": 810,
+                  "quoted_at": "2025-02-19"
+                }
+              ]
+            },
+            "error": null
+          }
+        ],
+        "referenced_articles": [],
+        "missing": [],
+        "message": null
+      },
+      {
+        "id": "q2",
+        "intent": "supplier_detail",
+        "status": "ok",
+        "calls": [
+          {
+            "server": "business-mcp",
+            "tool": "get_supplier",
+            "args": {
+              "supplier": "SUP-0002"
+            },
+            "result": {
+              "supplier_id": "SUP-0002",
+              "source": "DART",
+              "corp_code": "00133663",
+              "stock_code": "053060",
+              "induty_code": "303",
+              "name": "(주)세동",
+              "region": "부산",
+              "employees": 217,
+              "revenue_eok": 1894,
+              "founded_year": 1986,
+              "biz_no_masked": "621-81-*****",
+              "iatf16949": true,
+              "iso14001": false,
+              "defect_ppm": 509,
+              "on_time_rate": 0.864,
+              "audit_grade": "B",
+              "years_dealing": 0,
+              "payment_days": null,
+              "price_linkage": null,
+              "raw_material_ratio": null,
+              "auto_renewal": null,
+              "fin_year": 2025,
+              "operating_margin": 0.048,
+              "debt_ratio": 2.33,
+              "capabilities": [
+                {
+                  "process": "사출",
+                  "material": "PP",
+                  "monthly_capacity": 8000
+                }
+              ],
+              "financials": [
+                {
+                  "bsns_year": 2023,
+                  "fs_div": "CFS",
+                  "source": "DART",
+                  "revenue": 169895212565,
+                  "operating_income": 12554831007,
+                  "net_income": 9802166185,
+                  "total_assets": 117868912085,
+                  "total_liabilities": 80445018581,
+                  "total_equity": 37423893504
+                },
+                {
+                  "bsns_year": 2024,
+                  "fs_div": "CFS",
+                  "source": "DART",
+                  "revenue": 171088252415,
+                  "operating_income": 10712273142,
+                  "net_income": -1152315260,
+                  "total_assets": 108643527911,
+                  "total_liabilities": 73542370176,
+                  "total_equity": 35101157735
+                },
+                {
+                  "bsns_year": 2025,
+                  "fs_div": "CFS",
+                  "source": "DART",
+                  "revenue": 189439770060,
+                  "operating_income": 9102838003,
+                  "net_income": 5881714294,
+                  "total_assets": 134390153086,
+                  "total_liabilities": 94091235079,
+                  "total_equity": 40298918007
+                }
+              ],
+              "recent_quotes": [
+                {
+                  "process": "사출",
+                  "material": "PP",
+                  "unit_price": 800,
+                  "quoted_at": "2025-06-14"
+                }
+              ]
+            },
+            "error": null
+          }
+        ],
+        "referenced_articles": [],
+        "missing": [],
+        "message": null
+      }
+    ],
+    "halted": false,
+    "halt_reason": null
+  }
+}

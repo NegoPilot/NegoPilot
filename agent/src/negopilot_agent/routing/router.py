@@ -8,14 +8,14 @@ import asyncio
 import itertools
 from typing import Any, Protocol
 
-from negopilot_shared import DecompositionResult, IntentSpec, load_intents
+from negopilot_shared import DecompositionResult, IntentSpec, RouteResult, SubQueryOutcome, ToolCall, load_intents
 from negopilot_shared.decomposition import SubQuery
 
 from negopilot_agent.routing.extract import select_values
-from negopilot_agent.routing.results import RouteResult, SubQueryOutcome, ToolCall
 
 MAX_FANOUT = 10      # top(n)/all로 값이 여러 개일 때 하위 질문 하나가 부를 수 있는 최대 호출 수
 LAW_ARTICLES = 3     # law_check에서 search_regulation 결과 중 get_article로 전문을 가져올 조문 수
+REFERENCED_ARTICLES = 5   # 결과의 law_refs 중 get_article로 미리 조회할 최대 조문 수
 
 # 도구 인자 = 엔티티 이름 (계약 결정 3). 이름이 다른 것만 바꿔 적는다
 TOOL_PARAMS: dict[str, dict[str, str]] = {
@@ -81,7 +81,9 @@ class Router:
             return SubQueryOutcome(id=sq.id, intent=sq.intent, status="unsupported",
                                    message=f"{spec.server or sq.intent}가 아직 없어 지원하지 않는 기능")
         if spec.server is None or not spec.tools:
-            return SubQueryOutcome(id=sq.id, intent=sq.intent, status="no_tool")
+            # 도구 없는 intent는 general_knowledge, out_of_scope 둘뿐이다 (intents.yaml)
+            status = "out_of_scope" if sq.intent == "out_of_scope" else "general_knowledge"
+            return SubQueryOutcome(id=sq.id, intent=sq.intent, status=status)
 
         if bad := [d for d in sq.depends_on if done[d].status != "ok"]:
             return SubQueryOutcome(id=sq.id, intent=sq.intent, status="skipped",
@@ -108,8 +110,11 @@ class Router:
         if missing := [k for k in REQUIRED.get(tool, []) if k not in combos[0]]:
             return SubQueryOutcome(id=sq.id, intent=sq.intent, status="missing_args", missing=missing,
                                    message=f"{tool} 필수 인자 없음: {', '.join(missing)}")
-        calls = await asyncio.gather(*(self._call(spec.server, tool, self._args(tool, c)) for c in combos))
-        return self._outcome(sq, list(calls))
+        calls = list(await asyncio.gather(*(self._call(spec.server, tool, self._args(tool, c)) for c in combos)))
+        outcome = self._outcome(sq, calls)
+        if outcome.status == "ok":
+            outcome.referenced_articles = await self._referenced_articles(calls)
+        return outcome
 
     async def _law_check(self, sq: SubQuery, spec: IntentSpec, ents: dict[str, Any]) -> SubQueryOutcome:
         """search_regulation(질문으로 검색) → 찾은 조문을 get_article로 전문 조회."""
@@ -132,6 +137,31 @@ class Router:
                        {"law": law, "article_no": no} | ({"as_of": ents["as_of"]} if "as_of" in ents else {}))
             for law, no in articles[:LAW_ARTICLES]))
         return self._outcome(sq, [search, *article_calls])
+
+    async def _referenced_articles(self, calls: list[ToolCall]) -> list[ToolCall]:
+        """결과에 붙은 law_refs({law, article_no})를 get_article로 미리 조회한다.
+
+        rank_suppliers: ranked[*].flags[*].law_refs, check_offer: law_refs.
+        조회 실패는 하위 질문을 실패로 만들지 않고 그 ToolCall의 error로만 남긴다.
+        """
+        refs: list[tuple[str, str]] = []
+
+        def add(items) -> None:
+            for r in items or []:
+                key = (r.get("law"), r.get("article_no"))
+                if all(key) and key not in refs:
+                    refs.append(key)
+
+        for c in calls:
+            if not isinstance(c.result, dict):
+                continue
+            add(c.result.get("law_refs"))
+            for cand in c.result.get("ranked") or []:
+                for flag in cand.get("flags") or []:
+                    add(flag.get("law_refs"))
+        return list(await asyncio.gather(*(
+            self._call("law-mcp", "get_article", {"law": law, "article_no": no})
+            for law, no in refs[:REFERENCED_ARTICLES])))
 
     @staticmethod
     def _args(tool: str, ents: dict[str, Any]) -> dict[str, Any]:

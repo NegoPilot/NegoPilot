@@ -60,13 +60,14 @@ graph.add_node("route", make_route_node())   # 상태: decomposition → routing
 | 인자 | 엔티티 이름 = 도구 인자명. 다른 것만 바꾼다 (`search_suppliers`의 `top_n` → `limit`). `price_change_pct`는 넘기지 않는다 ([`router.py`](src/negopilot_agent/routing/router.py)) |
 | `law_check` | `search_regulation(query=질문, laws=[law])` → 찾은 조문 최대 3개를 `get_article`로 전문 조회 |
 | 결과 대응표 | intent별로 결과에서 목록과 값을 꺼내 `top1`, `top(n)`, `all`, `by_name("이름")`을 해석 ([`extract.py`](src/negopilot_agent/routing/extract.py)). 값이 여러 개면 하나씩 부른다 (최대 10번) |
-| 도구 없는 intent | `general_knowledge`, `out_of_scope` → `no_tool`, `status: planned`(`draft_email`) → `unsupported`. 도구를 부르지 않는다 |
+| 도구 없는 intent | `general_knowledge`, `out_of_scope` → 같은 이름의 status, `status: planned`(`draft_email`) → `unsupported`. 도구를 부르지 않는다 |
 | 필수 인자 없음 | 도구를 부르지 않고 `missing_args`와 빠진 엔티티 이름 (Generation이 되묻기) |
 | 앞 결과 0건 | 그 하위 질문은 `empty`, 이후 묶음은 `skipped`, `halted: true` |
 | 도구 오류 | `error`와 오류 내용. 그 결과에 의존하는 하위 질문만 `skipped` |
 | 분해 `clarify`·`failed` | 아무것도 부르지 않고 `status: "not_routed"` |
 
-출력 형식([`results.py`](src/negopilot_agent/routing/results.py))은 Generation 담당과 합의 전 초안입니다. 합의되면 `shared/`로 옮깁니다.
+출력 형식은 [Routing 결과 계약](../docs/contracts/routing.md)(`negopilot_shared.RouteResult`)입니다. Generation이 status별로 할 일, 근거 인용 규칙도 계약 문서에 있습니다.
+결과에 붙은 `law_refs`(`rank_suppliers` flags, `check_offer`)는 `get_article`로 미리 조회해 `referenced_articles`에 넣습니다.
 
 ### 설정
 
@@ -81,6 +82,7 @@ graph.add_node("route", make_route_node())   # 상태: decomposition → routing
 uv sync
 uv run python -m pytest -q                       # 단위 테스트 (가짜 HTTP 전송·가짜 MCP, 비용 없음)
 uv run python scripts/route_fixtures.py          # fixtures를 실제 MCP 서버로 Routing (서버 2개를 먼저 띄움)
+uv run python scripts/route_fixtures.py --save   # 그 결과를 shared/fixtures/routing/에 저장 (계약을 바꿨을 때)
 uv run python scripts/eval_decomposition.py --backend ollama   # 로컬 모델 평가 (비용 없음)
 uv run python scripts/eval_decomposition.py --limit 3          # Claude 평가 (비용 발생)
 ```

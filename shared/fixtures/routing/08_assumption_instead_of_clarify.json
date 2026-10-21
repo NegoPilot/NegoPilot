@@ -1,0 +1,377 @@
+{
+  "query": "최근 RFQ 협력사 추천해줘",
+  "decomposition": "decomposition/08_assumption_instead_of_clarify.json",
+  "routing": {
+    "schema_version": "0.1",
+    "status": "routed",
+    "outcomes": [
+      {
+        "id": "q1",
+        "intent": "rfq_lookup",
+        "status": "ok",
+        "calls": [
+          {
+            "server": "business-mcp",
+            "tool": "list_rfqs",
+            "args": {},
+            "result": [
+              {
+                "rfq_id": "RFQ-2026-001",
+                "oem_id": "OEM-A",
+                "vehicle": "NX5",
+                "part_name": "알루미늄 브래킷",
+                "process": "다이캐스팅",
+                "material": "ADC12",
+                "annual_volume": 120000,
+                "target_price": 3900,
+                "required_cert": "IATF16949",
+                "due_date": "2026-11-20",
+                "oem_name": "A자동차(가상)"
+              },
+              {
+                "rfq_id": "RFQ-2026-002",
+                "oem_id": "OEM-A",
+                "vehicle": "NX5",
+                "part_name": "시트 레일 보강판",
+                "process": "프레스",
+                "material": "SPFH590",
+                "annual_volume": 240000,
+                "target_price": 1750,
+                "required_cert": "IATF16949",
+                "due_date": "2026-11-27",
+                "oem_name": "A자동차(가상)"
+              },
+              {
+                "rfq_id": "RFQ-2026-003",
+                "oem_id": "OEM-B",
+                "vehicle": "EV3",
+                "part_name": "배터리 커버 클립",
+                "process": "사출",
+                "material": "PA66",
+                "annual_volume": 600000,
+                "target_price": 1450,
+                "required_cert": null,
+                "due_date": "2026-12-04",
+                "oem_name": "B자동차(가상)"
+              },
+              {
+                "rfq_id": "RFQ-2026-004",
+                "oem_id": "OEM-B",
+                "vehicle": "EV3",
+                "part_name": "구동축 플랜지",
+                "process": "단조",
+                "material": "SCM440",
+                "annual_volume": 80000,
+                "target_price": 4100,
+                "required_cert": "IATF16949",
+                "due_date": "2026-12-11",
+                "oem_name": "B자동차(가상)"
+              },
+              {
+                "rfq_id": "RFQ-2026-005",
+                "oem_id": "OEM-A",
+                "vehicle": "SX2",
+                "part_name": "센서 하우징",
+                "process": "CNC가공",
+                "material": "AL6061",
+                "annual_volume": 50000,
+                "target_price": 5900,
+                "required_cert": null,
+                "due_date": "2026-12-18",
+                "oem_name": "A자동차(가상)"
+              },
+              {
+                "rfq_id": "RFQ-2026-006",
+                "oem_id": "OEM-B",
+                "vehicle": "EV3",
+                "part_name": "모터 브래킷",
+                "process": "다이캐스팅",
+                "material": "A380",
+                "annual_volume": 90000,
+                "target_price": 4400,
+                "required_cert": "IATF16949",
+                "due_date": "2027-01-08",
+                "oem_name": "B자동차(가상)"
+              }
+            ],
+            "error": null
+          }
+        ],
+        "referenced_articles": [],
+        "missing": [],
+        "message": null
+      },
+      {
+        "id": "q2",
+        "intent": "supplier_ranking",
+        "status": "ok",
+        "calls": [
+          {
+            "server": "business-mcp",
+            "tool": "rank_suppliers",
+            "args": {
+              "rfq_id": "RFQ-2026-001"
+            },
+            "result": {
+              "rfq": {
+                "rfq_id": "RFQ-2026-001",
+                "oem_id": "OEM-A",
+                "vehicle": "NX5",
+                "part_name": "알루미늄 브래킷",
+                "process": "다이캐스팅",
+                "material": "ADC12",
+                "annual_volume": 120000,
+                "target_price": 3900,
+                "required_cert": "IATF16949",
+                "due_date": "2026-11-20"
+              },
+              "needed_monthly_capacity": 10000,
+              "weights": {
+                "price": 0.5,
+                "quality": 0.3,
+                "delivery": 0.2
+              },
+              "ranked": [
+                {
+                  "supplier_id": "SUP-0034",
+                  "source": "MOCK",
+                  "name": "새길다이캐스팅",
+                  "region": "경기",
+                  "iatf16949": true,
+                  "monthly_capacity": 20000,
+                  "defect_ppm": 92,
+                  "on_time_rate": 0.888,
+                  "audit_grade": "C",
+                  "years_dealing": 0,
+                  "payment_days": null,
+                  "price_linkage": null,
+                  "raw_material_ratio": null,
+                  "fin_year": 2025,
+                  "operating_margin": 0.001,
+                  "debt_ratio": 1.06,
+                  "last_price": 3840,
+                  "scores": {
+                    "price": 1.0,
+                    "quality": 0.799,
+                    "delivery": 0.01
+                  },
+                  "total_score": 0.742,
+                  "gap_to_target_pct": -1.5,
+                  "notes": [
+                    "신규 후보(거래 이력 없음)"
+                  ],
+                  "flags": []
+                },
+                {
+                  "supplier_id": "SUP-0143",
+                  "source": "MOCK",
+                  "name": "해솔나래정밀",
+                  "region": "광주",
+                  "iatf16949": true,
+                  "monthly_capacity": 20000,
+                  "defect_ppm": 118,
+                  "on_time_rate": 0.985,
+                  "audit_grade": "A",
+                  "years_dealing": 0,
+                  "payment_days": null,
+                  "price_linkage": null,
+                  "raw_material_ratio": null,
+                  "fin_year": 2025,
+                  "operating_margin": 0.004,
+                  "debt_ratio": 1.78,
+                  "last_price": 4300,
+                  "scores": {
+                    "price": 0.281,
+                    "quality": 0.979,
+                    "delivery": 1.0
+                  },
+                  "total_score": 0.634,
+                  "gap_to_target_pct": 10.3,
+                  "notes": [
+                    "신규 후보(거래 이력 없음)"
+                  ],
+                  "flags": []
+                },
+                {
+                  "supplier_id": "SUP-0081",
+                  "source": "MOCK",
+                  "name": "바름다이캐스팅",
+                  "region": "경기",
+                  "iatf16949": true,
+                  "monthly_capacity": 40000,
+                  "defect_ppm": 822,
+                  "on_time_rate": 0.919,
+                  "audit_grade": "A",
+                  "years_dealing": 0,
+                  "payment_days": null,
+                  "price_linkage": null,
+                  "raw_material_ratio": null,
+                  "fin_year": 2025,
+                  "operating_margin": 0.05,
+                  "debt_ratio": 0.92,
+                  "last_price": 4040,
+                  "scores": {
+                    "price": 0.688,
+                    "quality": 0.403,
+                    "delivery": 0.327
+                  },
+                  "total_score": 0.53,
+                  "gap_to_target_pct": 3.6,
+                  "notes": [
+                    "신규 후보(거래 이력 없음)"
+                  ],
+                  "flags": []
+                },
+                {
+                  "supplier_id": "SUP-0015",
+                  "source": "DART",
+                  "name": "(주)디아이씨",
+                  "region": "울산",
+                  "iatf16949": true,
+                  "monthly_capacity": 40000,
+                  "defect_ppm": 561,
+                  "on_time_rate": 0.94,
+                  "audit_grade": "B",
+                  "years_dealing": 0,
+                  "payment_days": null,
+                  "price_linkage": null,
+                  "raw_material_ratio": null,
+                  "fin_year": 2025,
+                  "operating_margin": 0.024,
+                  "debt_ratio": 3.0,
+                  "last_price": 4230,
+                  "scores": {
+                    "price": 0.391,
+                    "quality": 0.517,
+                    "delivery": 0.541
+                  },
+                  "total_score": 0.459,
+                  "gap_to_target_pct": 8.5,
+                  "notes": [
+                    "신규 후보(거래 이력 없음)",
+                    "부채비율 300%: 재무 안정성 확인 필요"
+                  ],
+                  "flags": []
+                },
+                {
+                  "supplier_id": "SUP-0132",
+                  "source": "MOCK",
+                  "name": "미르미르다이캐스팅",
+                  "region": "대구",
+                  "iatf16949": true,
+                  "monthly_capacity": 40000,
+                  "defect_ppm": 948,
+                  "on_time_rate": 0.887,
+                  "audit_grade": "C",
+                  "years_dealing": 2,
+                  "payment_days": 60,
+                  "price_linkage": true,
+                  "raw_material_ratio": 0.34,
+                  "fin_year": 2025,
+                  "operating_margin": 0.013,
+                  "debt_ratio": 1.83,
+                  "last_price": 4480,
+                  "scores": {
+                    "price": 0.0,
+                    "quality": 0.099,
+                    "delivery": 0.0
+                  },
+                  "total_score": 0.03,
+                  "gap_to_target_pct": 14.9,
+                  "notes": [
+                    "납품대금 연동 약정 있음: 원재료 변동분은 연동 공식으로 반영"
+                  ],
+                  "flags": []
+                }
+              ],
+              "candidate_count": 5,
+              "excluded": [
+                {
+                  "supplier_id": "SUP-0020",
+                  "name": "우리산업홀딩스(주)",
+                  "reason": "IATF 16949 인증 없음"
+                },
+                {
+                  "supplier_id": "SUP-0031",
+                  "name": "가온다이캐스팅",
+                  "reason": "월 생산능력 8,000개 < 필요 10,000개"
+                },
+                {
+                  "supplier_id": "SUP-0048",
+                  "name": "아라다이캐스팅",
+                  "reason": "IATF 16949 인증 없음"
+                },
+                {
+                  "supplier_id": "SUP-0052",
+                  "name": "윤슬다이캐스팅",
+                  "reason": "IATF 16949 인증 없음"
+                },
+                {
+                  "supplier_id": "SUP-0064",
+                  "name": "이음다이캐스팅",
+                  "reason": "월 생산능력 3,000개 < 필요 10,000개"
+                },
+                {
+                  "supplier_id": "SUP-0079",
+                  "name": "도담온새다이캐스팅",
+                  "reason": "IATF 16949 인증 없음"
+                },
+                {
+                  "supplier_id": "SUP-0080",
+                  "name": "온새다이캐스팅",
+                  "reason": "IATF 16949 인증 없음"
+                },
+                {
+                  "supplier_id": "SUP-0102",
+                  "name": "미르다이캐스팅",
+                  "reason": "월 생산능력 3,000개 < 필요 10,000개"
+                },
+                {
+                  "supplier_id": "SUP-0105",
+                  "name": "아라시온다이캐스팅",
+                  "reason": "IATF 16949 인증 없음"
+                },
+                {
+                  "supplier_id": "SUP-0107",
+                  "name": "윤슬아라다이캐스팅",
+                  "reason": "IATF 16949 인증 없음"
+                },
+                {
+                  "supplier_id": "SUP-0117",
+                  "name": "도담가온정밀",
+                  "reason": "월 생산능력 3,000개 < 필요 10,000개"
+                },
+                {
+                  "supplier_id": "SUP-0119",
+                  "name": "다솜다이캐스팅",
+                  "reason": "월 생산능력 3,000개 < 필요 10,000개"
+                },
+                {
+                  "supplier_id": "SUP-0126",
+                  "name": "라온다이캐스팅",
+                  "reason": "IATF 16949 인증 없음"
+                },
+                {
+                  "supplier_id": "SUP-0131",
+                  "name": "새길여울다이캐스팅",
+                  "reason": "IATF 16949 인증 없음"
+                },
+                {
+                  "supplier_id": "SUP-0148",
+                  "name": "여울윤슬다이캐스팅",
+                  "reason": "IATF 16949 인증 없음"
+                }
+              ]
+            },
+            "error": null
+          }
+        ],
+        "referenced_articles": [],
+        "missing": [],
+        "message": null
+      }
+    ],
+    "halted": false,
+    "halt_reason": null
+  }
+}

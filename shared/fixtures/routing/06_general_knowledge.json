@@ -1,0 +1,21 @@
+{
+  "query": "RFQ가 뭐야?",
+  "decomposition": "decomposition/06_general_knowledge.json",
+  "routing": {
+    "schema_version": "0.1",
+    "status": "routed",
+    "outcomes": [
+      {
+        "id": "q1",
+        "intent": "general_knowledge",
+        "status": "general_knowledge",
+        "calls": [],
+        "referenced_articles": [],
+        "missing": [],
+        "message": null
+      }
+    ],
+    "halted": false,
+    "halt_reason": null
+  }
+}
