@@ -1,8 +1,10 @@
 # 최신 Agent Generation HTTP 계약 v0.3
 
-기준 main은 `14eb971265d9c179dd107cfb04c329160ef0b21f`다. Spring과 Python 사이에서 최신 `build_graph`의 분해와 Routing 및 Generation을 한 번 실행한다. 기존 v0.1 질의 실행과 v0.2 fixture 대화 경로는 호환성 검사용으로 유지한다. 생성 답변을 사용할 클라이언트는 아래 v2 공개 경로를 호출한다. 기본 실행 모드는 live이며 실패할 때 stub으로 전환하지 않는다.
+기준 main은 `4cad84287086f83f5a858ee9084f005557b81bff`이다. Spring과 Python 사이에서 최신 `build_graph`의 분해와 Routing 및 Generation을 한 번 실행한다. 기존 v0.1 질의 실행과 v0.2 fixture 대화 경로는 호환성 검사용으로 유지한다. 생성 답변을 사용할 클라이언트는 아래 v2 공개 경로를 호출한다. 기본 실행 모드는 live이며 실패할 때 stub으로 전환하지 않는다.
 
 정적 스키마는 [OpenAPI v0.3](agent-generation.openapi.json)에 있다.
+
+기업 선택 없이 채팅에서 질문하는 흐름과 필요한 정보만 추가로 묻는 기준은 [직접 질문 계약](direct-chat.md)에 있다. 기존 schema 0.3의 요청과 응답을 그대로 사용한다.
 
 ## 경로와 요청
 
@@ -47,7 +49,7 @@ Answer는 kind와 text 및 citations와 options 및 grounded와 notices 및 evid
 | failed이며 분해 status가 failed | FAILED | FAILED | DECOMPOSITION_FAILED |
 | 그 밖의 failed | FAILED | FAILED | GENERATION_FAILED |
 
-실행 상태는 최종 Answer의 의미를 따른다. 일부 Routing 오류나 누락 인자가 있어도 코어가 답변을 만들었다면 COMPLETED다. 부분 실패는 routing과 answer.notices에 남는다. 고정 안내도 Generation 처리가 완료된 결과다. COMPLETED가 항상 LLM 호출이나 모든 도구의 성공을 의미하지는 않는다.
+실행 상태는 최종 Answer의 의미를 따른다. 일부 Routing 오류나 누락 인자가 있어도 코어가 답변을 만들었다면 COMPLETED다. 부분 답변 뒤에 기업 선택이 필요한 경우 `answer` 종류에도 `options`가 포함될 수 있다. 부분 실패는 routing과 answer.notices에 남는다. 고정 안내도 Generation 처리가 완료된 결과다. COMPLETED가 항상 LLM 호출이나 모든 도구의 성공을 의미하지는 않는다.
 
 분해 clarify와 failed에서는 그래프가 Routing을 생략하므로 HTTP층이 `RouteResult(status="not_routed")`의 기본 필드를 채운다. Answer.kind=failed의 최상위 error.retryable은 false다. 오류 문구는 각각 `Query decomposition failed.`와 `Answer generation failed.`다.
 
@@ -59,7 +61,7 @@ Routing 진단 필드는 v0.1의 고정 문구로 정제한 사본을 Generator�
 
 대화 생성 요청은 `{context:Context}`다. 기업 정보는 fixture와 비교하지 않는다. snapshot은 schema_version="0.3"과 conversation_id 및 context와 storage="memory" 및 messages를 갖는다. 대화 ID는 기존 API와 같은 표준 UUID 형식이며 대소문자를 구분한다.
 
-메시지 요청은 `{query:string,context?:Context}`다. query는 앞뒤 공백을 제거한 뒤 검사한다. context를 생략하면 저장된 문맥을 쓴다. request_id와 history는 클라이언트가 지정하지 않는다. Spring이 최신 저장 메시지 20개를 전달한다. 생성된 긴 assistant 본문은 저장할 때 보존하며 모델 이력으로 보낼 때만 최대 4000 code point로 제한한다. 앞부분을 자른 결과가 공백만 남으면 전송용 이력에서 앞 공백을 제외한 뒤 다시 제한한다.
+메시지 요청은 `{query:string,context?:Context}`다. query는 앞뒤 공백을 제거한 뒤 검사한다. context를 생략하면 저장된 문맥을 쓴다. request_id와 history는 클라이언트가 지정하지 않는다. Spring이 최신 저장 메시지 20개를 전달한다. 생성된 긴 assistant 본문은 저장할 때 보존하며 모델 이력으로 보낼 때만 최대 4000 code point로 제한한다. 앞부분을 자른 결과가 공백만 남으면 전송용 이력에서 앞 공백을 제외한 뒤 다시 제한한다. 추가 질문의 선택지는 다음 입력의 번호를 해석할 수 있도록 전송용 assistant 이력에 번호와 함께 포함한다. 저장된 본문은 바꾸지 않는다. 전체 전송 길이 제한을 지키며 선택지 블록을 일부만 잘라 잘못된 번호를 만들지 않는다.
 
 메시지 응답은 실행 응답에 conversation_id와 response_id를 추가한다. response_id는 Spring이 생성한다. 저장 메시지는 message_id와 role 및 content와 response를 갖는다. user의 response는 null이며 assistant의 response에는 전체 메시지 응답을 저장한다. assistant.message_id는 response_id와 같다.
 

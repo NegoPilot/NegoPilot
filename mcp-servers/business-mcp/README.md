@@ -25,7 +25,8 @@
 | 종류 | 이름 | 설명 |
 | --- | --- | --- |
 | Tool | `list_rfqs()` | 완성차 견적 요청(RFQ) 목록, 마감일 순 |
-| Tool | `search_suppliers(process, material?, region?, iatf_required?, min_monthly_capacity?, limit?)` | 조건으로 협력사 후보 검색, 불량률 낮은 순 |
+| Tool | `search_suppliers(process?, material?, region?, iatf_required?, min_monthly_capacity?, limit?, distinct_suppliers?)` | 주어진 조건으로 협력사 후보 검색. 불량률 낮은 순 |
+| Tool | `find_suppliers(supplier, limit?)` | 이름이나 ID로 기업 후보 조회. 정확한 회사명 일치 우선 |
 | Tool | `get_supplier(supplier)` | 협력사 한 곳의 기본 정보, 품질, 계약, 생산능력, 재무, 최근 견적 |
 | Tool | `rank_suppliers(rfq_id, w_price?, w_quality?, w_delivery?, top_n?)` | RFQ 기준 후보 순위와 제외 사유. 점수는 코드로 계산 |
 | Tool | `check_offer(supplier, rfq_id, unit_price, payment_days, price_linkage, raw_material_ratio?, contract_days?, linkage_waived_by_agreement?, buyer_is_small_business?)` | 협상안의 하도급법 검사. 위반·경고·참고와 근거 조문 |
@@ -39,6 +40,30 @@
   - `supplier`: `SUP-0001`, `1`, 회사명(`서연이화`, `(주)서연이화`, 이름 일부)
 - 잘못된 값이 들어오면 `ToolError`로 사용 가능한 값이나 후보를 알려 줍니다. 예: `알 수 없는 공정 '용접'. 사용 가능: 다이캐스팅, 프레스, 사출, 단조, CNC가공`
 - `rank_suppliers`는 신규 후보 여부, 최근 영업적자, 부채비율 200% 초과 등을 `notes`(사람이 읽는 요약)로, 기존 계약의 법규 점검 결과를 `flags`로 함께 알려 줍니다.
+
+### 공정 없는 검색과 기업 이름 조회
+
+`search_suppliers`는 공정을 생략할 수 있습니다. 지역이나 인증 또는 소재만 지정해도 검색합니다. 조건을 모두 생략하면 제한된 전체 목록을 반환합니다. 소재를 지정하면 실제 DB에 있는 지원 코드를 확인합니다. 공정이 있으면 해당 공정의 코드만 사용하며 공정이 없으면 모든 공정의 코드 합집합을 사용합니다.
+
+기본값인 `distinct_suppliers=False`에서는 기존과 같은 공정별 소재 행을 반환합니다. 한 기업이 여러 행으로 나올 수 있습니다. `limit`은 기업 수가 아닌 반환 행 수이며 기본 20입니다. 1보다 작으면 1로 제한하고 100보다 크면 100으로 제한합니다. 정렬은 불량률 다음 기업 ID 다음 공정 다음 소재 순서입니다. 반환 행 수를 전체 기업 수로 해석하면 안 됩니다.
+
+기업 수를 지정한 검색에는 `distinct_suppliers=True`를 사용합니다. 예를 들어 `search_suppliers(region="부산", limit=3, distinct_suppliers=True)`는 조건에 맞는 서로 다른 기업을 최대 3곳 반환합니다. 모든 검색 조건을 적용한 행 중 기업마다 공정과 소재 순서로 대표 행 하나를 선택합니다. 그다음 불량률과 기업 ID 순서로 정렬하고 마지막에 `limit`을 적용합니다. 이 모드의 `limit`은 기업 수이며 범위는 동일하게 1부터 100까지입니다. 기본 모드의 동작과 응답 필드는 유지합니다.
+
+대표 행의 공정과 소재 및 월 생산능력은 해당 조건에 맞는 한 행의 값입니다. 기업 전체의 생산능력이나 모든 지원 공정을 뜻하지 않습니다. 전체 생산능력 목록과 재무 등은 `get_supplier`로 조회합니다. 반환 수가 `limit`과 같으면 전체 후보가 그 수뿐이라고 단정할 수 없습니다.
+
+`find_suppliers`는 상세 조회 전에 기업을 선택할 때 사용합니다. `SUP-0001`과 `0001` 및 `1`은 같은 ID로 조회합니다. 이름은 회사 표기와 공백을 제거하고 대소문자를 구분하지 않습니다. 정규화한 회사명이 정확히 일치하면 해당 후보만 반환합니다. 정확한 일치가 없을 때 부분 일치를 조회합니다. `%`와 `_` 및 `!`는 문자 그대로 검색합니다.
+
+```json
+{
+  "matches": [{"supplier_id": "SUP-0001", "name": "예시 기업", "region": "경남"}],
+  "total": 1,
+  "match_type": "exact"
+}
+```
+
+위 내용은 응답 형식을 보여 주는 예시입니다. `match_type`은 ID 조회일 때 `id`이며 이름 조회일 때 `exact` 또는 `partial`입니다. `matches`는 기업 ID 순서입니다. `limit`의 기본값은 10이며 1부터 100까지로 제한합니다. `total`은 이 제한을 적용하기 전의 후보 수입니다. 정확 일치가 있으면 `total`도 정확 일치 후보만 셉니다. 여러 후보를 임의로 한 기업으로 결정하지 않습니다.
+
+0건은 `matches: []`와 `total: 0`으로 반환합니다. 없는 ID의 `match_type`은 `id`이며 없는 이름은 `partial`입니다. 빈 입력은 `ToolError`입니다. DB 장애도 예외로 전달합니다. `get_supplier`의 기존 상세 응답과 모호한 이름 및 없는 기업의 오류 동작은 유지합니다.
 
 ## 협상안 검사 (`check_offer`)
 
@@ -75,6 +100,12 @@ uv run python -m pytest -q                 # MCP Client로 도구 호출 테스�
 
 - 접속 정보는 `DATABASE_URL` 환경변수로 바꿉니다. 기본값은 `postgresql://agent:agent@localhost:5432/supplier_db`입니다.
 - 테스트는 같은 DB 안에 임시 스키마(`pytest_business`)를 만들어 seed한 뒤 지우므로, 작업 중인 데이터는 건드리지 않습니다. DB에 연결할 수 없으면 테스트를 건너뜁니다.
+
+DB 없이 검색 규칙과 SQL 인자 및 상세 조회 호환성만 확인하려면 아래 명령을 사용합니다. `query`를 대역으로 바꾸고 DB 연결을 차단합니다. 기존 `tests/conftest.py`의 자동 seed를 실행하지 않습니다.
+
+```bash
+uv run python -m pytest offline_tests -q --confcutdir=offline_tests
+```
 
 ## LangGraph에서 연결하기
 
@@ -117,6 +148,7 @@ scripts/collect_dart.py     OpenDART에서 개황·재무·직원 수 수집 →
 scripts/seed.py             DART 회사 + 가상 협력사로 150곳 구성 (seed 42), DB에 넣고 data/*.csv 사본 저장
 server.py                   MCP Server
 tests/                      MCP Client 테스트 (임시 스키마 사용)
+offline_tests/              DB 없는 검색과 상세 조회 회귀 테스트
 docs/ERD.png                ERD
 docker-compose.yml          PostgreSQL 16 컨테이너
 SETUP.md                    단계별 실행 가이드, 데이터 추가·갱신 방법, 자주 나는 오류

@@ -105,7 +105,10 @@ class GenerationExecutor:
             decomposer = self.decomposer
             if decomposer is None:
                 if self.settings.mode == "stub":
-                    decomposition_backend = FixtureDecompositionBackend(request.query, request.context.model_dump())
+                    decomposition_backend = FixtureDecompositionBackend(
+                        request.query, request.context.model_dump(),
+                        [entry.model_dump() for entry in request.history],
+                    )
                 else:
                     decomposition_backend = LazyModelBackend("decomposition")
                     owned.append(decomposition_backend)

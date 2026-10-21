@@ -6,7 +6,7 @@ Routing은 도구 결과를 손대지 않고 넘기고(ToolCall.result), 근거 
 
 인용 규칙 (Routing 계약 1절 5·6)
 - 법 근거는 search_regulation 결과의 citation(항 단위)을 그대로 인용한다
-- law_check의 get_article 조문 전문은 설명할 때 참고만 한다 (citable=False)
+- law_check의 get_article 조문 전문도 정상 본문과 원문 URL 및 citation이 있으면 인용할 수 있다
 - law_article(get_article만 부름)은 그 결과의 citation을 인용한다
 - rank_suppliers flags·check_offer의 law_refs 조문은 Routing이 미리 조회한 referenced_articles의 citation을 인용한다.
   조회에 실패한 조문은 근거로 만들지 않고, 검사 항목 본문의 "관련 조문: 하도급법 제13조"처럼 번호만 남는다
@@ -17,6 +17,7 @@ Routing은 도구 결과를 손대지 않고 넘기고(ToolCall.result), 근거 
 import json
 from collections.abc import Callable, Iterable
 from typing import Any
+from urllib.parse import urlsplit
 
 from negopilot_shared import RouteResult, SubQueryOutcome, ToolCall
 
@@ -149,7 +150,8 @@ CONVERTERS: dict[str, Callable[[Any], list[Draft]]] = {
 
 
 def from_call(call: ToolCall) -> list[Draft]:
-    if call.error or call.result is None:
+    if call.error or call.result is None or call.tool == "find_suppliers":
+        # 이름 후보는 대상 확인에만 쓴다. 상세 조회가 반환한 사실을 근거로 사용한다.
         return []
     convert = CONVERTERS.get(call.tool)
     try:
@@ -161,17 +163,36 @@ def from_call(call: ToolCall) -> list[Draft]:
     return [{"source": source, "kind": call.tool, "label": f"{call.tool} 결과", "text": clip(compact(call.result))}]
 
 
+def _citable_article(call: ToolCall, draft: Draft) -> bool:
+    """검색 뒤 보충한 전문은 확인 가능한 원문과 정상 본문이 있을 때만 인용한다."""
+    if call.server != "law-mcp" or draft.get("kind") != "article" or not isinstance(call.result, dict):
+        return False
+    citation, url = call.result.get("citation"), call.result.get("source_url")
+    paragraphs = call.result.get("paragraphs")
+    if (not isinstance(citation, str) or not citation.strip()
+            or not isinstance(url, str) or not url.strip()
+            or not isinstance(paragraphs, list)
+            or not any(isinstance(p, dict) and isinstance(p.get("text"), str) and p["text"].strip()
+                       for p in paragraphs)):
+        return False
+    try:
+        parsed = urlsplit(url)
+        return parsed.scheme in {"http", "https"} and bool(parsed.hostname)
+    except ValueError:
+        return False
+
+
 def from_outcome(outcome: SubQueryOutcome) -> list[Draft]:
     """하위 질문 하나의 결과를 근거로 펼친다."""
     if outcome.status != "ok":
         return []
-    # law_check는 search_regulation → get_article 순서로 부른다. 이때 조문 전문은 참고용
+    # law_check는 검색 문단과 조문 전문을 구분한다. 정상 전문도 실제 설명의 근거로 인용할 수 있다.
     searched = any(c.tool == "search_regulation" for c in outcome.calls)
     drafts: list[Draft] = []
     for call in outcome.calls:
         for d in from_call(call):
             if call.tool == "get_article" and searched:
-                d = d | {"kind": "article_reference", "citable": False}
+                d = d | {"kind": "article_reference", "citable": _citable_article(call, d)}
             drafts.append(d)
     for ref in outcome.referenced_articles:        # 실패한 조회(error)는 from_call이 건너뛴다
         drafts += [d | {"kind": "referenced_article"} for d in from_call(ref)]

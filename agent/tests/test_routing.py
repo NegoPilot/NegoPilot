@@ -171,11 +171,11 @@ async def test_planned_intent_is_unsupported():
     assert caller.calls == []
 
 
-async def test_empty_previous_result_halts():
+async def test_empty_lookup_skips_its_dependent_without_global_halt():
     caller = FakeCaller({"list_rfqs": []})
     result = await Router(caller).route(fixture("08_assumption_instead_of_clarify"))
-    assert [o.status for o in result.outcomes] == ["ok", "empty"]
-    assert result.halted and "q1" in result.halt_reason
+    assert [o.status for o in result.outcomes] == ["empty", "skipped"]
+    assert not result.halted and result.halt_reason is None
     assert caller.tools() == ["list_rfqs"]
 
 

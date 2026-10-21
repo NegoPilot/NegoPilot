@@ -18,12 +18,13 @@ status별 처리는 Routing 결과 계약(docs/contracts/routing.md) 3절을 따
 import logging
 import os
 from dataclasses import dataclass, field
+from typing import Literal
 
 import anthropic
 import openai
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from negopilot_shared import DecompositionResult, RouteResult
+from negopilot_shared import DecompositionResult, RouteResult, SubQueryOutcome
 
 from negopilot_agent.generation import verify
 from negopilot_agent.generation.answer import Answer, Evidence, GenerationDraft
@@ -56,11 +57,52 @@ ENTITY_LABELS = {
 CAPABILITIES = ("협력사 검색·순위 추천, 협력사 상세 정보, RFQ 조회, 협상안(단가·결제 기간·연동)의 하도급법 검사, "
                 "하도급법·상생협력법 조문 조회")
 
-FAILED_TEXT = ("질문을 이해하지 못했습니다. 어떤 RFQ나 협력사에 대해, 무엇을 알고 싶은지 조금 더 구체적으로 다시 물어봐 주세요.\n"
-               "예: \"RFQ-2026-001 협력사 추천해 줘\", \"SUP-0003에 결제 75일 제안해도 돼?\"")
+FAILED_TEXT = "질문을 처리하는 중에 문제가 생겼습니다. 잠시 후 다시 시도해 주세요."
 GENERATION_FAILED_TEXT = "답변을 만드는 중에 문제가 생겼습니다. 잠시 후 다시 시도해 주세요."
 REFUSAL_TEXT = f"죄송하지만 그 질문은 NegoPilot이 도와드릴 수 있는 범위 밖입니다. 제가 할 수 있는 일은 {CAPABILITIES}입니다."
 NO_RESULT_TEXT = "요청하신 내용을 확인하지 못했습니다."
+SUPPLIER_SELECTION_TEXT = "이름이 일치하는 협력사가 여러 곳입니다. 조회할 협력사를 선택해 주세요."
+ARTICLE_LOOKUP_NOTICE = "검색된 법령 근거로 답변했습니다. 일부 조문 전문은 가져오지 못했습니다."
+SUPPLIER_LOOKUP_NOTICE = "일부 협력사 상세 정보를 가져오지 못했습니다. 확인된 자료로 답변했습니다."
+MAX_SUPPLIER_OPTIONS = 10
+
+
+class _SupplierCandidate(BaseModel):
+    model_config = ConfigDict(strict=True)
+
+    supplier_id: str = Field(pattern=r"^SUP-[0-9]{4}$")
+    name: str = Field(min_length=1, max_length=200, pattern=r"^[^\x00-\x1f\x7f]+$")
+
+
+class _SupplierMatches(BaseModel):
+    model_config = ConfigDict(strict=True)
+
+    matches: list[_SupplierCandidate]
+    total: int = Field(ge=0)
+    match_type: Literal["id", "exact", "partial"]
+
+
+def supplier_options(outcome: SubQueryOutcome) -> list[str]:
+    """Read selection labels only from a successful structured supplier lookup."""
+    if outcome.intent != "supplier_detail" or outcome.status != "missing_args" or "supplier" not in outcome.missing:
+        return []
+    options: dict[str, str] = {}
+    for call in outcome.calls:
+        if call.server != "business-mcp" or call.tool != "find_suppliers" or call.error is not None:
+            continue
+        try:
+            result = _SupplierMatches.model_validate(call.result)
+        except ValidationError:
+            continue
+        if result.total < max(2, len(result.matches)):
+            continue
+        for candidate in result.matches:
+            name = candidate.name.strip()
+            if name and candidate.supplier_id not in options:
+                options[candidate.supplier_id] = f"{name} ({candidate.supplier_id})"
+            if len(options) == MAX_SUPPLIER_OPTIONS:
+                return list(options.values())
+    return list(options.values()) if len(options) > 1 else []
 
 
 def _env_backend() -> str:
@@ -99,6 +141,7 @@ class Plan:
 
     notices: list[str] = field(default_factory=list)       # 답변 끝에 모을 안내 (계약 1절 3)
     missing: list[str] = field(default_factory=list)       # 되물을 엔티티
+    options: list[str] = field(default_factory=list)       # 구조화된 협력사 검색 결과에서 만든 선택지
     out_of_scope: bool = False
     general_knowledge: bool = False
     answerable: int = 0                                     # 근거로 답할 수 있는 하위 질문 수
@@ -115,6 +158,22 @@ def plan(decomposition: DecompositionResult, routing: RouteResult) -> Plan:
         match o.status:
             case "ok":
                 p.answerable += 1
+                if (o.intent == "law_check"
+                        and any(c.server == "law-mcp" and c.tool == "search_regulation"
+                                and c.error is None and isinstance(c.result, list) and c.result for c in o.calls)
+                        and any(c.server == "law-mcp" and c.tool == "get_article" and c.error is not None
+                                for c in o.calls)
+                        and ARTICLE_LOOKUP_NOTICE not in p.notices):
+                    p.notices.append(ARTICLE_LOOKUP_NOTICE)
+                if (o.intent == "supplier_detail"
+                        and any(c.server == "business-mcp" and c.tool == "get_supplier"
+                                and c.error is None and isinstance(c.result, dict)
+                                and all(isinstance(c.result.get(key), str) and c.result[key].strip()
+                                        for key in ("supplier_id", "name")) for c in o.calls)
+                        and any(c.server == "business-mcp" and c.tool == "get_supplier" and c.error is not None
+                                for c in o.calls)
+                        and SUPPLIER_LOOKUP_NOTICE not in p.notices):
+                    p.notices.append(SUPPLIER_LOOKUP_NOTICE)
             case "general_knowledge":
                 p.general_knowledge = True
             case "out_of_scope":
@@ -124,6 +183,8 @@ def plan(decomposition: DecompositionResult, routing: RouteResult) -> Plan:
                                  else f"{part}: 아직 지원하지 않는 기능입니다.")
             case "missing_args":
                 p.missing += [m for m in o.missing if m not in p.missing]
+                p.options += [option for option in supplier_options(o) if option not in p.options]
+                p.options = p.options[:MAX_SUPPLIER_OPTIONS]
             case "empty":
                 p.notices.append(f"{part}: 조건에 맞는 결과가 없습니다.")
             case "error":
@@ -142,6 +203,13 @@ def plan(decomposition: DecompositionResult, routing: RouteResult) -> Plan:
 def ask_missing(missing: list[str]) -> str:
     items = ", ".join(ENTITY_LABELS.get(m, m) for m in missing)
     return f"정확히 답하려면 {items} 정보가 더 필요합니다. 알려 주시면 이어서 확인하겠습니다."
+
+
+def clarification_text(p: Plan) -> str:
+    if not p.options:
+        return ask_missing(p.missing)
+    other_missing = [item for item in p.missing if item != "supplier"]
+    return SUPPLIER_SELECTION_TEXT + (" " + ask_missing(other_missing) if other_missing else "")
 
 
 def with_notices(text: str, notices: list[str]) -> str:
@@ -178,11 +246,12 @@ class AnswerGenerator:
 
         if not (p.answerable or p.general_knowledge):
             if p.missing:
-                return Answer(kind="clarify", text=with_notices(ask_missing(p.missing), p.notices), notices=p.notices)
+                return Answer(kind="clarify", text=with_notices(clarification_text(p), p.notices),
+                              options=p.options, notices=p.notices)
             return Answer(kind="no_result", text=with_notices(NO_RESULT_TEXT, p.notices), notices=p.notices)
 
         if p.missing:
-            p.notices.append(ask_missing(p.missing))
+            p.notices.append(clarification_text(p))
         evidence = build_evidence(routing)
         return await self._write(decomposition, evidence, p)
 
@@ -220,4 +289,5 @@ class AnswerGenerator:
             report.masked = True
         body, citations = verify.render_citations(body, evidence)
         return Answer(kind="answer", text=with_notices(body, p.notices), citations=citations,
-                      grounded=bool(citations), notices=p.notices, evidence=evidence, verification=report)
+                      options=p.options, grounded=bool(citations), notices=p.notices,
+                      evidence=evidence, verification=report)

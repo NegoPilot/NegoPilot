@@ -24,6 +24,7 @@ from negopilot_agent.api.settings import ApiSettings
 from negopilot_agent.decomposition import QueryDecomposer
 from negopilot_agent.decomposition import decomposer as decomposition_module
 from negopilot_agent.generation import AnswerGenerator
+from negopilot_agent.generation.answer import Evidence
 from negopilot_agent.generation import generator as generation_module
 from negopilot_agent import graph as graph_module
 from negopilot_agent.routing import McpToolCaller
@@ -184,6 +185,9 @@ class SupplierCaller:
 
     async def __call__(self, server, tool, args):
         self.calls.append((server, tool, deepcopy(args)))
+        if (server, tool) == ("business-mcp", "find_suppliers"):
+            return {"matches": [{"supplier_id": "SUP-0041", "name": args["supplier"], "region": "경남"}],
+                    "total": 1, "match_type": "exact"}
         if (server, tool) != ("business-mcp", "get_supplier"):
             self.unexpected.append((server, tool))
             raise AssertionError("Unexpected supplier tool")
@@ -312,7 +316,17 @@ async def test_shared_fixtures_run_through_graph_and_generator(monkeypatch, name
         assert data["answer"]["text"] == dec.clarification.question
         assert data["answer"]["options"] == dec.clarification.options
     if name == "07_number_needs_grounding":
-        assert any(not item["citable"] for item in data["answer"]["evidence"])
+        refs = [item for item in data["answer"]["evidence"] if item["kind"] == "article_reference"]
+        articles = [call["result"] for call in routing["outcomes"][0]["calls"]
+                    if call["tool"] == "get_article"]
+        assert refs and len(refs) == len(articles)
+        for reference, article in zip(refs, articles, strict=True):
+            assert reference["citable"] is True
+            assert reference["label"] == article["citation"]
+            assert reference["source_url"] == article["source_url"]
+        assert {item["id"] for item in refs} <= {
+            item["evidence_id"] for item in data["answer"]["citations"]
+        }
     if name == "05_offer_check":
         refs = [item for item in data["answer"]["evidence"] if item["kind"] == "referenced_article"]
         assert [item["label"] for item in refs] == [
@@ -494,6 +508,39 @@ async def test_masked_verification_errors_remain_a_completed_answer(monkeypatch)
     assert "[확인 필요]" in answer["text"] and "확인된 자료입니다. [1]" in answer["text"]
     assert "987654" not in answer["text"] and "E999" not in answer["text"]
     assert len(harness.answer_backend.requests) == 2
+
+
+async def test_explicitly_noncitable_evidence_is_rejected_from_http_citations(monkeypatch):
+    original_build = generation_module.build_evidence
+    restricted = Evidence(
+        id="E2", sub_query="q1", source="business", kind="restricted_reference",
+        label="인용 금지 참고 자료", text="설명할 때만 참고할 자료입니다.", citable=False,
+    )
+
+    def with_restricted_evidence(routing):
+        evidence = original_build(routing)
+        assert [item.id for item in evidence] == ["E1"]
+        return [*evidence, restricted.model_copy(deep=True)]
+
+    monkeypatch.setattr(generation_module, "build_evidence", with_restricted_evidence)
+    harness = Harness(monkeypatch, decomposition(supplier_part()), SupplierCaller(),
+                      draft("확인된 자료입니다. [E1] 참고 자료입니다. [E2]", ["E1", "E2"]))
+    body = payload()
+    data = assert_wire(await post(harness.app, body))
+    harness.assert_completed_graph(data, body)
+    answer = data["answer"]
+    assert data["execution_status"] == "COMPLETED" and data["generation_status"] == "COMPLETED"
+    assert data["error"] is None and answer["kind"] == "answer" and answer["grounded"] is True
+    assert answer["evidence"][-1] == restricted.model_dump(mode="json")
+    assert answer["verification"] == {
+        "attempts": 2, "unknown_citations": ["E2"], "ungrounded_numbers": [],
+        "ungrounded_articles": [], "masked": True,
+    }
+    assert [item["evidence_id"] for item in answer["citations"]] == ["E1"]
+    assert "확인된 자료입니다. [1]" in answer["text"] and "[E2]" not in answer["text"]
+    assert len(harness.answer_backend.requests) == 2
+    assert any(line.startswith('<e id="E2"') and 'citable="no"' in line
+               for line in harness.answer_backend.requests[0][1].splitlines())
 
 
 async def test_citation_retry_preserves_corrected_model_text_and_verification(monkeypatch):

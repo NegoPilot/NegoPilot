@@ -57,6 +57,9 @@ def items_of(intent: str, calls: list[ToolCall]) -> list[dict]:
     picked = calls
     if intent == "law_check":
         picked = [c for c in calls if c.tool == "get_article"]
+    elif intent == "supplier_detail":
+        # 이름 확인용 find_suppliers의 envelope는 상세 결과나 다음 단계의 입력이 아니다.
+        picked = [c for c in calls if c.tool == "get_supplier"]
     return [item for c in picked if c.error is None for item in rmap.items(c.result)]
 
 

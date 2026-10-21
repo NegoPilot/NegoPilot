@@ -6,6 +6,7 @@
 
 import asyncio
 import itertools
+import re
 from typing import Any, Protocol
 
 from negopilot_shared import DecompositionResult, IntentSpec, RouteResult, SubQueryOutcome, ToolCall, load_intents
@@ -16,6 +17,8 @@ from negopilot_agent.routing.extract import select_values
 MAX_FANOUT = 10      # top(n)/all로 값이 여러 개일 때 하위 질문 하나가 부를 수 있는 최대 호출 수
 LAW_ARTICLES = 3     # law_check에서 search_regulation 결과 중 get_article로 전문을 가져올 조문 수
 REFERENCED_ARTICLES = 5   # 결과의 law_refs 중 get_article로 미리 조회할 최대 조문 수
+SUPPLIER_MATCH_LIMIT = 10
+SUPPLIER_ID = re.compile(r"^SUP-[0-9]{4}$", re.IGNORECASE)
 
 # 도구 인자 = 엔티티 이름 (계약 결정 3). 이름이 다른 것만 바꿔 적는다
 TOOL_PARAMS: dict[str, dict[str, str]] = {
@@ -33,7 +36,6 @@ TOOL_PARAMS: dict[str, dict[str, str]] = {
 
 # 도구의 필수 인자 (엔티티 이름). 없으면 부르지 않고 missing_args로 Generation에 넘긴다
 REQUIRED: dict[str, list[str]] = {
-    "search_suppliers": ["process"],
     "get_supplier": ["supplier"],
     "rank_suppliers": ["rfq_id"],
     "check_offer": ["supplier", "rfq_id", "unit_price", "payment_days", "price_linkage"],
@@ -69,7 +71,9 @@ class Router:
             outcomes = await asyncio.gather(*(self._run(by_id[qid], done) for qid in group))
             for o in outcomes:
                 done[o.id] = o
-                if o.status == "empty" and halt_reason is None:
+                # 조회 자체가 0건이면 그 결과에 의존하는 질문만 건너뛴다.
+                # inputs 선택에서 값이 없는 경우의 기존 전체 중단 계약은 유지한다.
+                if o.status == "empty" and not o.calls and halt_reason is None:
                     halt_reason = f"{o.id}: {o.message}"
 
         return RouteResult(status="routed", outcomes=[done[sq.id] for sq in decomposition.sub_queries],
@@ -110,11 +114,86 @@ class Router:
         if missing := [k for k in REQUIRED.get(tool, []) if k not in combos[0]]:
             return SubQueryOutcome(id=sq.id, intent=sq.intent, status="missing_args", missing=missing,
                                    message=f"{tool} 필수 인자 없음: {', '.join(missing)}")
+        if sq.intent == "supplier_detail":
+            return await self._supplier_detail(sq, spec, combos)
         calls = list(await asyncio.gather(*(self._call(spec.server, tool, self._args(tool, c)) for c in combos)))
         outcome = self._outcome(sq, calls)
         if outcome.status == "ok":
             outcome.referenced_articles = await self._referenced_articles(calls)
         return outcome
+
+    async def _supplier_detail(self, sq: SubQuery, spec: IntentSpec,
+                               combos: list[dict[str, Any]]) -> SubQueryOutcome:
+        """이름은 구조화된 후보 조회로 확정하고 ID로 상세를 조회한다."""
+        calls: list[ToolCall] = []
+        resolved: list[str] = []
+        for combo in combos:
+            supplier = combo["supplier"]
+            if not isinstance(supplier, str) or not supplier.strip():
+                return SubQueryOutcome(id=sq.id, intent=sq.intent, status="missing_args",
+                                       missing=["supplier"], calls=calls)
+            # 기존 HTTP 문맥의 SUP- 접두 ID는 여기서 형식을 더 제한하지 않는다.
+            # 실제 존재 여부와 ID 해석은 get_supplier가 검증한다.
+            if supplier.strip().upper().startswith("SUP-"):
+                resolved.append(supplier)
+                continue
+            search = await self._call(spec.server, "find_suppliers",
+                                      {"supplier": supplier, "limit": SUPPLIER_MATCH_LIMIT})
+            calls.append(search)
+            if search.error:
+                return self._outcome(sq, calls)
+            result = search.result
+            if not self._valid_supplier_matches(result):
+                search.error = "Invalid supplier lookup response."
+                return self._outcome(sq, calls)
+            if result["total"] == 0:
+                return SubQueryOutcome(id=sq.id, intent=sq.intent, status="empty", calls=calls,
+                                       message="이름에 맞는 협력사가 없음")
+            if result["total"] > 1:
+                return SubQueryOutcome(id=sq.id, intent=sq.intent, status="missing_args", calls=calls,
+                                       missing=["supplier"], message="동일 이름의 후보 중 대상 선택 필요")
+            resolved.append(result["matches"][0]["supplier_id"])
+        details = list(await asyncio.gather(*(
+            self._call(spec.server, "get_supplier", {"supplier": supplier}) for supplier in resolved)))
+        for detail in details:
+            if detail.error is None and not self._valid_supplier_detail(detail.result):
+                detail.error = "Invalid supplier detail response."
+        calls += details
+        successful = [detail for detail in details if detail.error is None]
+        # 상세 fan-out의 일부 실패가 확인한 다른 기업의 근거까지 버리게 하지 않는다.
+        # 유효한 get_supplier 성공이 하나도 없으면 기존 error 처리를 유지한다.
+        outcome = (SubQueryOutcome(id=sq.id, intent=sq.intent, status="ok", calls=calls)
+                   if successful else self._outcome(sq, calls))
+        if successful:
+            outcome.referenced_articles = await self._referenced_articles(successful)
+        return outcome
+
+    @staticmethod
+    def _valid_supplier_detail(result: Any) -> bool:
+        return (isinstance(result, dict)
+                and all(isinstance(result.get(key), str) and result[key].strip()
+                        for key in ("supplier_id", "name")))
+
+    @staticmethod
+    def _valid_supplier_matches(result: Any) -> bool:
+        if not isinstance(result, dict):
+            return False
+        matches, total = result.get("matches"), result.get("total")
+        if (not isinstance(matches, list) or type(total) is not int or total < 0
+                or not isinstance(result.get("match_type"), str)
+                or result["match_type"] not in {"id", "exact", "partial"}
+                or len(matches) > SUPPLIER_MATCH_LIMIT or total < len(matches)
+                or bool(total) != bool(matches)):
+            return False
+        ids: set[str] = set()
+        for match in matches:
+            if (not isinstance(match, dict) or not isinstance(match.get("supplier_id"), str)
+                    or not SUPPLIER_ID.fullmatch(match["supplier_id"])
+                    or not isinstance(match.get("name"), str) or not match["name"].strip()
+                    or match["supplier_id"] in ids):
+                return False
+            ids.add(match["supplier_id"])
+        return True
 
     async def _law_check(self, sq: SubQuery, spec: IntentSpec, ents: dict[str, Any]) -> SubQueryOutcome:
         """search_regulation(질문으로 검색) → 찾은 조문을 get_article로 전문 조회."""
@@ -126,6 +205,11 @@ class Router:
         search = await self._call(spec.server, "search_regulation", args)
         if search.error:
             return self._outcome(sq, [search])
+        if not isinstance(search.result, list) or any(not isinstance(hit, dict) for hit in search.result):
+            search.error = "Invalid regulation search response."
+            return self._outcome(sq, [search])
+        if not search.result:
+            return self._outcome(sq, [search])
 
         articles: list[tuple[str, str]] = []
         for hit in search.result or []:
@@ -136,7 +220,8 @@ class Router:
             self._call(spec.server, "get_article",
                        {"law": law, "article_no": no} | ({"as_of": ents["as_of"]} if "as_of" in ents else {}))
             for law, no in articles[:LAW_ARTICLES]))
-        return self._outcome(sq, [search, *article_calls])
+        # 검색 근거는 이미 확보했다. 조문 전문 보충 실패가 그 근거를 버리게 하지 않는다.
+        return SubQueryOutcome(id=sq.id, intent=sq.intent, status="ok", calls=[search, *article_calls])
 
     async def _referenced_articles(self, calls: list[ToolCall]) -> list[ToolCall]:
         """결과에 붙은 law_refs({law, article_no})를 get_article로 미리 조회한다.
@@ -166,7 +251,11 @@ class Router:
     @staticmethod
     def _args(tool: str, ents: dict[str, Any]) -> dict[str, Any]:
         params = TOOL_PARAMS.get(tool, {})
-        return {params[k]: v for k, v in ents.items() if k in params}
+        args = {params[k]: v for k, v in ents.items() if k in params}
+        if tool == "search_suppliers" and "top_n" in ents:
+            # 사용자가 요청한 개수는 capability 행이 아닌 서로 다른 기업 수다.
+            args["distinct_suppliers"] = True
+        return args
 
     async def _call(self, server: str, tool: str, args: dict[str, Any]) -> ToolCall:
         try:
@@ -180,4 +269,8 @@ class Router:
         errors = [c.error for c in calls if c.error]
         if errors:
             return SubQueryOutcome(id=sq.id, intent=sq.intent, status="error", calls=calls, message=errors[0])
+        if calls and all(c.tool in {"search_suppliers", "list_rfqs", "search_regulation"}
+                         and c.result == [] for c in calls):
+            return SubQueryOutcome(id=sq.id, intent=sq.intent, status="empty", calls=calls,
+                                   message="조회 조건에 맞는 결과가 없음")
         return SubQueryOutcome(id=sq.id, intent=sq.intent, status="ok", calls=calls)

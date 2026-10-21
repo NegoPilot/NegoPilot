@@ -20,18 +20,19 @@
   tools: [search_suppliers]
   grounding: required
   status: active
-  description: 공정·소재·지역·인증·생산능력 조건으로 2차 협력사 후보 검색
+  description: 조회 가능한 2차 협력사 목록과 공정 및 소재와 지역 및 인증과 생산능력 조건 검색. 공정은 생략 가능
   entities: [process, material, region, iatf_required, min_monthly_capacity, top_n]
   examples:
     - 경남에 있는 프레스 협력사 찾아줘
     - IATF 인증 있는 알루미늄 다이캐스팅 업체 목록
+    - 조회할 수 있는 기업 목록 알려줘
 
 - intent: supplier_detail
   server: business-mcp
-  tools: [get_supplier]
+  tools: [get_supplier, find_suppliers]
   grounding: required
   status: active
-  description: 협력사 한 곳의 기본 정보, 품질·납기, 계약 조건, 생산능력, 재무, 최근 견적
+  description: 협력사 한 곳의 기본 정보와 품질 및 납기와 계약 조건 및 생산능력과 재무와 최근 견적. 이름은 후보 검색 후 대상을 확인하고 ID로 상세 조회
   entities: [supplier]
   examples:
     - SUP-0003 품질 실적 알려줘
@@ -52,7 +53,7 @@
   tools: [check_offer]
   grounding: required
   status: active
-  description: 구체적인 협상안(단가, 지급 기한, 연동 약정)이 하도급법 규칙에 어긋나는지 코드로 검사
+  description: 특정 기업과 RFQ의 완성된 협상안 또는 명시적으로 요청한 협상안 검사를 코드 규칙으로 수행. 필요한 거래 정보가 없으면 되묻기
   entities: [supplier, rfq_id, unit_price, payment_days, price_linkage, raw_material_ratio, contract_days,
              linkage_waived_by_agreement, buyer_is_small_business]
   examples:
@@ -63,7 +64,7 @@
   tools: [search_regulation, get_article]
   grounding: required
   status: active
-  description: 협상 행위나 조건이 하도급법·연동제·중소기업기본법에서 어떻게 다뤄지는지 (구체적 숫자 협상안이 없을 때)
+  description: 협상 행위나 일반 조건이 법령에서 어떻게 다뤄지는지 검색. 지급 90일이나 단가 5% 인하처럼 숫자가 있어도 일반 법적 조건 질문이면 사용. 법령명과 조문 번호 없이 검색 가능
   entities: [law, as_of, price_change_pct]
   examples:
     - 2차 협력사 단가를 일괄로 깎아도 돼?

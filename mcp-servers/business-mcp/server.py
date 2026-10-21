@@ -115,16 +115,19 @@ def materials_by_process() -> dict[str, list[str]]:
     return out
 
 
-def resolve_materials(material: str, process: str) -> list[str]:
-    """소재 코드나 계열 이름(알루미늄, 강판 등)을 그 공정에서 쓰는 소재 코드 목록으로 바꾼다."""
-    available = materials_by_process()[process]
+def resolve_materials(material: str, process: str | None) -> list[str]:
+    """소재 코드나 계열 이름을 실제 지원 코드로 바꾼다. 공정이 없으면 전체 공정을 확인한다."""
+    by_process = materials_by_process()
+    available = (by_process[process] if process is not None
+                 else sorted({code for codes in by_process.values() for code in codes}))
     code = material.strip().upper().replace(" ", "")
     if code in available:
         return [code]
     matched = [m for m in MATERIAL_ALIASES.get(squash(material), []) if m in available]
     if matched:
         return matched
-    raise ToolError(f"{process} 공정에 소재 '{material}'가 없다. 사용 가능: {', '.join(available) or '없음'}")
+    scope = f"{process} 공정" if process is not None else "전체 공정"
+    raise ToolError(f"{scope}에 소재 '{material}'가 없다. 사용 가능: {', '.join(available) or '없음'}")
 
 
 def resolve_region(region: str) -> str:
@@ -239,43 +242,100 @@ def list_rfqs() -> list[dict]:
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
-def search_suppliers(process: str, material: str | None = None, region: str | None = None,
+def search_suppliers(process: str | None = None, material: str | None = None, region: str | None = None,
                      iatf_required: bool = False, min_monthly_capacity: int | None = None,
-                     limit: int = 20) -> list[dict]:
+                     limit: int = 20, distinct_suppliers: bool = False) -> list[dict]:
     """공정·소재·지역·인증·월 생산능력 조건으로 2차 협력사 후보를 찾아 불량률이 낮은 순으로 반환한다.
 
-    process: 다이캐스팅, 프레스, 사출, 단조, CNC가공 중 하나. '스탬핑', '사출성형', 'CNC' 같은 별칭도 된다
-    material: 소재 코드(ADC12, SPFH590, PA66 등)나 계열 이름(알루미늄, 강판, 나일론). 생략하면 공정만으로 찾는다
+    process: 다이캐스팅, 프레스, 사출, 단조, CNC가공 중 하나. 별칭도 된다. 생략하면 모든 공정에서 찾는다
+    material: 소재 코드(ADC12, SPFH590, PA66 등)나 계열 이름(알루미늄, 강판, 나일론).
+              공정 없이 지정하면 모든 공정의 실제 지원 코드에서 찾는다
     region: 시·도 (경남, 경상남도, 울산광역시 등). 생략하면 전국
     iatf_required: True면 IATF 16949 인증이 있는 곳만
     min_monthly_capacity: 월 생산능력 하한(개). 연간 물량이면 12로 나눠서 넣는다
-    limit: 최대 개수 (1~100)
+    limit: 반환 행의 최대 개수 (1~100). 기본 모드에서는 한 기업이 여러 행으로 나올 수 있다
+    distinct_suppliers: True면 조건에 맞는 기업마다 대표 공정과 소재 행 하나를 반환한다.
+                        이때 limit은 기업 수다. 대표 행의 생산능력은 해당 공정과 소재의 값이며
+                        기업 전체 생산능력이나 모든 지원 공정을 뜻하지 않는다. 전체 정보는 get_supplier로 조회한다
     특정 RFQ에 맞는 순위가 필요하면 rank_suppliers를 쓴다.
     """
-    proc = resolve_process(process)
-    sql = """
-        SELECT o.supplier_id, o.source, o.name, o.region, o.employees, o.revenue_eok, o.iatf16949,
+    proc = resolve_process(process) if process is not None else None
+    distinct = "DISTINCT ON (o.supplier_id) " if distinct_suppliers else ""
+    sql = f"""
+        SELECT {distinct}o.supplier_id, o.source, o.name, o.region, o.employees, o.revenue_eok, o.iatf16949,
                o.operating_margin, o.debt_ratio,
                c.process, c.material, c.monthly_capacity,
                o.defect_ppm, o.on_time_rate, o.audit_grade, o.years_dealing
         FROM capabilities c JOIN supplier_overview o USING (supplier_id)
-        WHERE c.process = %s
     """
-    params: list = [proc]
+    conditions: list[str] = []
+    params: list = []
+    if proc is not None:
+        conditions.append("c.process = %s")
+        params.append(proc)
     if material:
-        sql += " AND c.material = ANY(%s)"
+        conditions.append("c.material = ANY(%s)")
         params.append(resolve_materials(material, proc))
     if region:
-        sql += " AND o.region = %s"
+        conditions.append("o.region = %s")
         params.append(resolve_region(region))
     if iatf_required:
-        sql += " AND o.iatf16949"
+        conditions.append("o.iatf16949")
     if min_monthly_capacity:
-        sql += " AND c.monthly_capacity >= %s"
+        conditions.append("c.monthly_capacity >= %s")
         params.append(min_monthly_capacity)
-    sql += " ORDER BY o.defect_ppm, o.supplier_id LIMIT %s"
+    if conditions:
+        sql += " WHERE " + " AND ".join(conditions)
+    if distinct_suppliers:
+        # 모든 조건에 맞는 행에서 대표를 고른 뒤 기업을 정렬하고 제한한다.
+        # 먼저 행 수를 제한하면 한 기업의 여러 공정이 다른 기업을 밀어낼 수 있다.
+        sql += " ORDER BY o.supplier_id, c.process, c.material"
+        sql = f"SELECT * FROM ({sql}) matched_suppliers ORDER BY defect_ppm, supplier_id LIMIT %s"
+    else:
+        sql += " ORDER BY o.defect_ppm, o.supplier_id, c.process, c.material LIMIT %s"
     params.append(max(1, min(limit, 100)))
     return query(sql, params)
+
+
+@mcp.tool(annotations={"readOnlyHint": True})
+def find_suppliers(supplier: str, limit: int = 10) -> dict:
+    """이름이나 느슨한 ID로 협력사 후보를 찾는다. 상세 조회 전에 대상을 선택할 때 쓴다.
+
+    supplier: SUP-0001, 0001, 1 또는 회사명. 회사 표기와 공백은 제거하고 대소문자를 구분하지 않는다.
+              정확한 회사명 일치가 있으면 그 후보만 반환한다. 없으면 이름 일부로 찾는다.
+              이름의 %, _와 !는 검색 명령이 아닌 문자 그대로 해석한다.
+    limit: matches에 담을 최대 기업 수 (1~100). 기본 10.
+    결과: {matches: [{supplier_id, name, region}], total, match_type: id|exact|partial}.
+          total은 limit 전의 후보 수다. 0건은 빈 matches로 반환하며 DB 오류는 예외로 전달한다.
+    """
+    text = supplier.strip()
+    if not text:
+        raise ToolError("supplier 가 비어 있다")
+    bounded_limit = max(1, min(limit, 100))
+    identifier = re.fullmatch(r"(?:SUP-?)?(\d{1,4})", text, flags=re.IGNORECASE)
+    if identifier:
+        sid = f"SUP-{int(identifier.group(1)):04d}"
+        rows = query("SELECT supplier_id, name, region, count(*) OVER () AS total FROM suppliers "
+                     "WHERE supplier_id = %s ORDER BY supplier_id LIMIT %s", (sid, bounded_limit))
+        match_type = "id"
+    else:
+        name = re.sub(COMPANY_SUFFIX, "", text)
+        if not name:
+            raise ToolError("supplier 가 비어 있다")
+        literal_name = name.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+        sql = ("SELECT supplier_id, name, region, count(*) OVER () AS total FROM suppliers "
+               "WHERE regexp_replace(name, %s, '', 'g') ILIKE %s ESCAPE '!' "
+               "ORDER BY supplier_id LIMIT %s")
+        rows = query(sql, (COMPANY_SUFFIX, literal_name, bounded_limit))
+        match_type = "exact"
+        if not rows:
+            rows = query(sql, (COMPANY_SUFFIX, f"%{literal_name}%", bounded_limit))
+            match_type = "partial"
+    return {
+        "matches": [{key: row[key] for key in ("supplier_id", "name", "region")} for row in rows],
+        "total": int(rows[0]["total"]) if rows else 0,
+        "match_type": match_type,
+    }
 
 
 @mcp.tool(annotations={"readOnlyHint": True})

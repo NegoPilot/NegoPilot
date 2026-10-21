@@ -9,6 +9,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -197,6 +198,91 @@ class GenerationConversationServiceTest {
     }
 
     @Test
+    void sendsEveryNumberedOptionOnTheNextTurnWithoutChangingStoredContentOrResponse() {
+        String answer = "어느 기업을 확인할까요?";
+        String forwarded = forwardAnswerAsHistory(answer, result -> {
+            result.put("execution_status", "NEEDS_INPUT");
+            ObjectNode generated = (ObjectNode) result.get("answer");
+            generated.put("kind", "clarify");
+            generated.putArray("options").add("해솔정밀 (SUP-0041)").add("해솔기공 (SUP-0042)");
+        });
+        assertThat(forwarded).isEqualTo(answer + "\n\n선택지 데이터:\n"
+                + "[{\"number\":1,\"text\":\"해솔정밀 (SUP-0041)\"},{\"number\":2,\"text\":\"해솔기공 (SUP-0042)\"}]");
+    }
+
+    @Test
+    void optionsRetainTheirUnicodeEmojiAndEscapedJsonCharacters() {
+        String first = "해솔 \"정밀\" 😀\n서울\\부산";
+        String second = "두 번째\t🧑‍🔧";
+        String forwarded = forwardAnswerAsHistory("선택해 주세요.", result ->
+                ((ObjectNode) result.get("answer")).putArray("options").add(first).add(second));
+        String encoded = forwarded.substring(forwarded.indexOf("\n\n선택지 데이터:\n") + "\n\n선택지 데이터:\n".length());
+        JsonNode decoded = JSON.readTree(encoded);
+        assertThat(decoded.size()).isEqualTo(2);
+        assertThat(decoded.get(0).get("number").intValue()).isEqualTo(1);
+        assertThat(decoded.get(0).get("text").stringValue()).isEqualTo(first);
+        assertThat(decoded.get(1).get("number").intValue()).isEqualTo(2);
+        assertThat(decoded.get(1).get("text").stringValue()).isEqualTo(second);
+        assertThat(encoded).contains("\\\"정밀\\\"", "\\n", "서울\\\\부산", "\\t");
+    }
+
+    @Test
+    void reservesTheCompleteOptionsBeforeClippingALongEmojiAnswer() {
+        String suffix = "\n\n선택지 데이터:\n[{\"number\":1,\"text\":\"선택 😀\"},{\"number\":2,\"text\":\"다른 선택\"}]";
+        int bodyLimit = 4000 - suffix.codePointCount(0, suffix.length());
+        String forwarded = forwardAnswerAsHistory("😀".repeat(5000) + "원문 끝", result ->
+                ((ObjectNode) result.get("answer")).putArray("options").add("선택 😀").add("다른 선택"));
+        assertThat(forwarded).isEqualTo("😀".repeat(bodyLimit) + suffix);
+        assertThat(forwarded.codePointCount(0, forwarded.length())).isEqualTo(4000);
+    }
+
+    @Test
+    void retainsOneFullEmojiWhenTheOptionsLeaveExactlyOneBodyCodePoint() {
+        String emptySuffix = "\n\n선택지 데이터:\n[{\"number\":1,\"text\":\"\"}]";
+        String option = "가".repeat(3999 - emptySuffix.codePointCount(0, emptySuffix.length()));
+        String forwarded = forwardAnswerAsHistory("😀본문 전체", result ->
+                ((ObjectNode) result.get("answer")).putArray("options").add(option));
+        assertThat(forwarded).isEqualTo("😀\n\n선택지 데이터:\n[{\"number\":1,\"text\":\"" + option + "\"}]");
+        assertThat(forwarded.codePointCount(0, forwarded.length())).isEqualTo(4000);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {4000, 4001})
+    void omitsAllOptionsWhenTheirEncodedSuffixLeavesNoBodySpace(int suffixLength) {
+        String emptySuffix = "\n\n선택지 데이터:\n[{\"number\":1,\"text\":\"\"},{\"number\":2,\"text\":\"유지하면 안 되는 일부 선택지\"}]";
+        String option = "가".repeat(suffixLength - emptySuffix.codePointCount(0, emptySuffix.length()));
+        String forwarded = forwardAnswerAsHistory("😀".repeat(4001), result ->
+                ((ObjectNode) result.get("answer")).putArray("options").add(option).add("유지하면 안 되는 일부 선택지"));
+        assertThat(forwarded).isEqualTo("😀".repeat(4000));
+    }
+
+    @Test
+    void measuresEscapedOptionsInsteadOfTheirUnencodedLengthWhenReservingSpace() {
+        String option = "\n".repeat(2500);
+        String forwarded = forwardAnswerAsHistory("😀".repeat(4001), result ->
+                ((ObjectNode) result.get("answer")).putArray("options").add(option));
+        assertThat(forwarded).isEqualTo("😀".repeat(4000));
+    }
+
+    @Test
+    void reservedOptionsDoNotMakeTheClippedBodyBlank() {
+        String suffix = "\n\n선택지 데이터:\n[{\"number\":1,\"text\":\"기업 😀\"}]";
+        int bodyLimit = 4000 - suffix.codePointCount(0, suffix.length());
+        String answer = " \t\u00a0\u0085".repeat(1001) + "😀".repeat(4001);
+        String forwarded = forwardAnswerAsHistory(answer, result ->
+                ((ObjectNode) result.get("answer")).putArray("options").add("기업 😀"));
+        assertThat(forwarded).isEqualTo("😀".repeat(bodyLimit) + suffix);
+        assertThat(forwarded.codePointCount(0, forwarded.length())).isEqualTo(4000);
+    }
+
+    @Test
+    void missingOptionsKeepTheExistingHistoryClipping() {
+        String forwarded = forwardAnswerAsHistory("😀".repeat(4001), result ->
+                ((ObjectNode) result.get("answer")).remove("options"));
+        assertThat(forwarded).isEqualTo("😀".repeat(4000));
+    }
+
+    @Test
     void sendsOnlyTheLatestTwentyMessagesAndRetainsOneHundredInCompletePairs() {
         String id = create(null);
         List<ObjectNode> sent = new ArrayList<>();
@@ -292,20 +378,29 @@ class GenerationConversationServiceTest {
     }
 
     private String forwardAnswerAsHistory(String answer) {
+        return forwardAnswerAsHistory(answer, response -> {});
+    }
+
+    private String forwardAnswerAsHistory(String answer, Consumer<ObjectNode> customizeResponse) {
         String id = create(null);
         List<ObjectNode> sent = new ArrayList<>();
         when(gateway.execute(any(UUID.class), any(ObjectNode.class))).thenAnswer(invocation -> {
             ObjectNode request = invocation.getArgument(1);
             sent.add(request.deepCopy());
-            return response(invocation.getArgument(0), request, answer, "COMPLETED");
+            ObjectNode result = response(invocation.getArgument(0), request, answer, "COMPLETED");
+            customizeResponse.accept(result);
+            return result;
         });
         JsonNode first = service.message(id, input("첫 질문", null), UUID.randomUUID());
-        service.message(id, input("후속 질문", null), UUID.randomUUID());
+        JsonNode storedBeforeNextTurn = service.get(id, UUID.randomUUID()).path("messages").get(1);
+        service.message(id, input("2번", null), UUID.randomUUID());
         new GenerationRequestValidator().validateQuery(sent.get(1));
+        assertThat(sent.get(1).get("query").stringValue()).isEqualTo("2번");
         JsonNode stored = service.get(id, UUID.randomUUID()).path("messages").get(1);
         assertThat(first.path("answer").path("text").stringValue()).isEqualTo(answer);
         assertThat(stored.path("content").stringValue()).isEqualTo(answer);
-        assertThat(stored.path("response").path("answer").path("text").stringValue()).isEqualTo(answer);
+        assertThat(stored.path("response")).isEqualTo(first);
+        assertThat(stored).isEqualTo(storedBeforeNextTurn);
         return sent.get(1).path("history").get(1).path("content").stringValue();
     }
 

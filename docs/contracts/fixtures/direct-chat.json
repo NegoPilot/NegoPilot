@@ -1,0 +1,17 @@
+{
+  "notice": "직접 질문 연결 검증용 가상 기업입니다. 실제 기업 정보가 아닙니다.",
+  "suppliers": [
+    {
+      "supplier_id": "SUP-0060",
+      "name": "해솔금형",
+      "region": "경남",
+      "iatf16949": false,
+      "capabilities": [{"process": "프레스", "material": "SPCC", "monthly_capacity": 20000}],
+      "quality": {"defect_ppm": null, "on_time_delivery_rate": null},
+      "financials": [],
+      "recent_quotes": [],
+      "existing_contract": null,
+      "provenance": {"profile": "STUB", "financials": "STUB", "operations": "STUB"}
+    }
+  ]
+}
