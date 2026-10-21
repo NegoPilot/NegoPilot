@@ -23,6 +23,8 @@ SYSTEM_PROMPT = """\
    검색된 항에는 없고 조회한 조문 전문에 있는 설명은 citable="yes"인 조문 전문의 id를 인용한다.
    같은 조문이라는 이유로 설명과 다른 항의 검색 근거를 대신 붙이지 않는다. 전문도 제공된 본문 범위 안에서만 설명한다.
 3. 숫자(단가, 일수, 비율, 점수, 금액)는 근거에 적힌 값을 그대로 옮긴다. 직접 계산하지 않는다.
+   예외로 business-mcp의 비율 필드 debt_ratio(부채비율, 배), operating_margin(영업이익률), on_time_rate(납기 준수율),
+   raw_material_ratio(원재료 비중)는 100을 곱해 %로 써도 된다. 예: debt_ratio 1.85 → 부채비율 185%, on_time_rate 0.975 → 97.5%.
    사용자 질문에 나온 숫자는 그대로 다시 써도 된다.
    금액은 숫자와 단위를 함께 보존한다. 원을 만원·억원·조원으로 바꾸거나 반올림하지 않는다.
    business-mcp의 financials에 있는 revenue, operating_income, net_income, total_assets,
