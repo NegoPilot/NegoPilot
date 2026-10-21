@@ -7,6 +7,7 @@ import json
 
 import httpx2
 import openai
+import pytest
 
 from negopilot_agent import timing
 from negopilot_agent.decomposition.backends import OpenAIBackend
@@ -61,3 +62,16 @@ async def test_openai_backend_records_tokens():
     assert len(llm) == 1 and llm[0].stage == "decompose_query"
     assert llm[0].meta == {"input_tokens": 1200, "output_tokens": 80, "cached_tokens": 1024}
     assert t.summary()["cached_tokens"] == 1024
+
+
+def test_cost_uses_cached_price_and_ignores_unknown_models():
+    """비용 = (입력-캐시)×입력 단가 + 캐시×캐시 단가 + 출력×출력 단가. 단가를 모르는 모델은 빼고 센다 (#108)."""
+    from negopilot_agent.timing import Span, Timings, cost_usd
+    known = Span("llm", "gpt-4.1-mini-2025-04-14", "generate", 0, 1,
+                 {"input_tokens": 10_000, "cached_tokens": 8_000, "output_tokens": 500})
+    unknown = Span("llm", "claude-opus-5-5", "decompose_query", 0, 1, {"input_tokens": 1000, "output_tokens": 100})
+    assert cost_usd(known) == pytest.approx((2_000 * 0.40 + 8_000 * 0.10 + 500 * 1.60) / 1_000_000)
+    assert cost_usd(unknown) is None
+    summary = Timings(spans=[known, unknown]).summary()
+    assert summary["cost_usd"] == pytest.approx(0.0024)
+    assert summary["cost_unknown_calls"] == 1
