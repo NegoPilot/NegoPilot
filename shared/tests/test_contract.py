@@ -17,6 +17,8 @@ from negopilot_shared import DecompositionResult, load_intents
 
 FIXTURES = sorted((Path(__file__).resolve().parent.parent / "fixtures" / "decomposition").glob("*.json"))
 VALIDATION = sorted((Path(__file__).resolve().parent.parent / "fixtures" / "validation").glob("*.json"))
+# Routing fixture와 묶이지 않은 추가 개발 질문 (프롬프트 보강용)
+DEV_EXTRA = sorted((Path(__file__).resolve().parent.parent / "fixtures" / "decomposition_dev").glob("*.json"))
 
 
 def load(name: str) -> dict:
@@ -24,7 +26,7 @@ def load(name: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))["expected"]
 
 
-@pytest.mark.parametrize("path", FIXTURES + VALIDATION, ids=lambda p: p.stem)
+@pytest.mark.parametrize("path", FIXTURES + DEV_EXTRA + VALIDATION, ids=lambda p: p.stem)
 def test_fixture_matches_contract(path):
     data = json.loads(path.read_text(encoding="utf-8"))
     assert {"note", "query", "expected"} <= data.keys()
@@ -87,4 +89,4 @@ def test_validation_set_is_separate_from_dev_fixtures():
         return {json.loads(p.read_text(encoding="utf-8"))["query"] for p in paths}
     registry_examples = {q for spec in load_intents().values() for q in spec.examples}
     assert len(VALIDATION) >= 20
-    assert not queries(VALIDATION) & (queries(FIXTURES) | registry_examples)
+    assert not queries(VALIDATION) & (queries(FIXTURES) | queries(DEV_EXTRA) | registry_examples)

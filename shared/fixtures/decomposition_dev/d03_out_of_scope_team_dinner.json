@@ -1,0 +1,24 @@
+{
+  "note": "업무처럼 보여도 협상과 무관하면 out_of_scope (되묻지 않는다)",
+  "query": "다음 주 팀 회식 장소 정해 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "다음 주 팀 회식 장소 정해 줘",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "회식 장소 선정",
+        "original_text": "다음 주 팀 회식 장소 정해 줘",
+        "intent": "out_of_scope",
+        "grounding": "none",
+        "confidence": 0.9,
+        "entities": {},
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

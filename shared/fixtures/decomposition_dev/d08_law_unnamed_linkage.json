@@ -1,0 +1,24 @@
+{
+  "note": "법령 이름이 없으면 law를 넣지 않는다 (연동 질문이어도)",
+  "query": "연동 약정서에는 어떤 내용을 적어야 해?",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "연동 약정서에는 어떤 내용을 적어야 해?",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "납품대금 연동 약정 서면에 적어야 할 사항",
+        "original_text": "연동 약정서에는 어떤 내용을 적어야 해?",
+        "intent": "law_check",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {},
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

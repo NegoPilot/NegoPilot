@@ -1,0 +1,26 @@
+{
+  "note": "법령을 말했으니 law. 감액률은 price_change_pct가 아니라 question에",
+  "query": "하도급법상 단가를 10% 깎자고 하면 문제 돼?",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "하도급법상 단가를 10% 깎자고 하면 문제 돼?",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "원사업자가 수급사업자에게 하도급대금 10% 감액을 요구하는 행위의 하도급법상 제한",
+        "original_text": "하도급법상 단가를 10% 깎자고 하면 문제 돼?",
+        "intent": "law_check",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "law": "subcontract_act"
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

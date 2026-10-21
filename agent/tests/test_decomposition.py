@@ -166,8 +166,8 @@ def test_prompt_examples_follow_contract():
 
 
 def test_prompt_examples_do_not_leak_eval_fixtures():
-    validation = (FIXTURES[0].parent.parent / "validation").glob("*.json")
-    fixture_queries = {json.loads(p.read_text(encoding="utf-8"))["query"] for p in [*FIXTURES, *validation]}
+    others = [p for d in ("validation", "decomposition_dev") for p in (FIXTURES[0].parent.parent / d).glob("*.json")]
+    fixture_queries = {json.loads(p.read_text(encoding="utf-8"))["query"] for p in [*FIXTURES, *others]}
     assert not fixture_queries & {ex["query"] for ex in EXAMPLES}
 
 
@@ -393,3 +393,22 @@ def test_drop_disallowed_entities_leaves_other_output_alone():
     terms["sub_queries"][0]["entities"]["payment_days"] = 90              # 협상 조건은 intent 오류 신호라 남긴다
     assert drop_disallowed_entities(json.dumps(terms)) == json.dumps(terms)
     assert drop_disallowed_entities("not json") == "not json"
+
+
+async def test_entity_values_are_cleaned_without_retry():
+    """값에 섞인 JSON 기호는 지우고, 쓰지 않는 price_change_pct는 버린다 (#72)."""
+    data = fixture("03")
+    messy = json.loads(json.dumps(data["expected"]))
+    messy["sub_queries"][0]["entities"]["rfq_id"] = "RFQ-2026-001\"},"
+    messy["sub_queries"][1]["entities"]["price_change_pct"] = 5
+    fake = FakeClaude(message_json(json.dumps(messy, ensure_ascii=False)))
+    result = await fake.decomposer().decompose(data["query"])
+    assert len(fake.requests) == 1
+    assert result == DecompositionResult.model_validate(data["expected"])
+
+
+def test_clean_entity_values_leaves_normal_values_alone():
+    from negopilot_agent.decomposition.decomposer import clean_entity_values
+    plain = json.dumps(fixture("05")["expected"], ensure_ascii=False)
+    assert clean_entity_values(plain) == plain
+    assert clean_entity_values("not json") == "not json"
