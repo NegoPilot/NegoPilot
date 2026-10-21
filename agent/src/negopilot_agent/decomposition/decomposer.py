@@ -6,6 +6,7 @@
 - API 장애(네트워크, 5xx, 429)는 재시도한 뒤에도 실패하면 예외로 올려 Harness의 Recovery가 처리한다
 """
 
+import json
 import logging
 import os
 from dataclasses import dataclass, field
@@ -13,7 +14,7 @@ from dataclasses import dataclass, field
 import anthropic
 from pydantic import ValidationError
 
-from negopilot_shared import DecompositionResult
+from negopilot_shared import DecompositionResult, load_intents
 
 from negopilot_agent.decomposition.backends import AnthropicBackend, Backend, OllamaBackend
 from negopilot_agent.decomposition.prompt import build_system_prompt, build_user_message
@@ -80,7 +81,7 @@ class QueryDecomposer:
                 return failed_result(query)
             try:
                 # 스키마 형식은 모델 쪽 구조화 출력이 맞추고, 필드 사이 규칙은 여기서 검증한다
-                result = DecompositionResult.model_validate_json(text)
+                result = DecompositionResult.model_validate_json(drop_disallowed_inputs(text))
             except ValidationError as err:
                 log.warning("분해 결과 형식 오류 (시도 %d): %s", attempt, err.error_count())
                 feedback = ("\n\n직전 출력이 계약 형식을 어겼다. 아래 오류를 고쳐서 다시 출력해라.\n"
@@ -91,6 +92,34 @@ class QueryDecomposer:
                 result = result.model_copy(update={"original_query": query})
             return drop_unused_dependencies(result)
         return failed_result(query)
+
+
+def drop_disallowed_inputs(text: str) -> str:
+    """intent가 허용하지 않는 slot의 inputs를 검증 전에 지운다.
+
+    예: law_check에 supplier를 앞 결과에서 받겠다는 inputs. 법 검색 도구는 협력사를 입력으로 받지 않아
+    쓸모가 없는 값이고, 이 하나 때문에 재시도하면 호출만 늘어난다. 남은 depends_on은 drop_unused_dependencies가 정리한다.
+    JSON이 아니거나 모양이 다르면 그대로 돌려줘 검증 오류로 처리되게 한다.
+    """
+    try:
+        data = json.loads(text)
+        sub_queries = data["sub_queries"]
+    except (ValueError, TypeError, KeyError):
+        return text
+    intents = load_intents()
+    changed = False
+    for sq in sub_queries if isinstance(sub_queries, list) else []:
+        spec = intents.get(sq.get("intent")) if isinstance(sq, dict) else None
+        if spec is None or not isinstance(sq.get("inputs"), list):
+            continue
+        allowed = set(spec.entities) | {"price_change_pct"}
+        kept = [i for i in sq["inputs"] if not isinstance(i, dict) or i.get("slot") in allowed]
+        if len(kept) != len(sq["inputs"]):
+            changed = True
+            dropped = [i.get("slot") for i in sq["inputs"] if i not in kept]
+            log.info("%s(%s)의 inputs에서 허용되지 않는 slot %s 제거", sq.get("id"), spec.intent, dropped)
+            sq["inputs"] = kept
+    return json.dumps(data, ensure_ascii=False) if changed else text
 
 
 def drop_unused_dependencies(result: DecompositionResult) -> DecompositionResult:

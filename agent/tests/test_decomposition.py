@@ -252,3 +252,24 @@ async def test_dependency_with_inputs_is_kept():
     fake = FakeClaude(message_json(json.dumps(data["expected"], ensure_ascii=False)))
     result = await fake.decomposer().decompose(data["query"])
     assert result.sub_queries[1].depends_on == ["q1"]
+
+
+async def test_disallowed_input_slot_is_dropped_without_retry():
+    """law_check는 supplier를 받지 않는다. 그 inputs 하나 때문에 재시도하지 않고 지운다 (#31)."""
+    data = fixture("03")
+    with_input = json.loads(json.dumps(data["expected"]))
+    with_input["sub_queries"][1]["inputs"] = [{"slot": "supplier", "from": "q1", "select": "top1"}]
+    with_input["sub_queries"][1]["depends_on"] = ["q1"]
+    fake = FakeClaude(message_json(json.dumps(with_input, ensure_ascii=False)))
+    result = await fake.decomposer().decompose(data["query"])
+    assert len(fake.requests) == 1
+    assert result == DecompositionResult.model_validate(data["expected"])
+    assert result.parallel_groups() == [["q1", "q2"]]
+
+
+def test_drop_disallowed_inputs_leaves_other_output_alone():
+    from negopilot_agent.decomposition.decomposer import drop_disallowed_inputs
+    allowed = json.dumps(fixture("08")["expected"], ensure_ascii=False)
+    assert drop_disallowed_inputs(allowed) == allowed            # 허용된 slot은 그대로
+    assert drop_disallowed_inputs("not json") == "not json"      # 검증 단계가 오류로 처리
+    assert drop_disallowed_inputs('{"status": "failed"}') == '{"status": "failed"}'
