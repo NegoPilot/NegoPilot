@@ -60,13 +60,33 @@ graph.add_node("route", make_route_node())   # 상태: decomposition → routing
 | 인자 | 엔티티 이름 = 도구 인자명. 다른 것만 바꾼다 (`search_suppliers`의 `top_n` → `limit`). `price_change_pct`는 넘기지 않는다 ([`router.py`](src/negopilot_agent/routing/router.py)) |
 | `law_check` | `search_regulation(query=질문, laws=[law])` → 찾은 조문 최대 3개를 `get_article`로 전문 조회 |
 | 결과 대응표 | intent별로 결과에서 목록과 값을 꺼내 `top1`, `top(n)`, `all`, `by_name("이름")`을 해석 ([`extract.py`](src/negopilot_agent/routing/extract.py)). 값이 여러 개면 하나씩 부른다 (최대 10번) |
-| 도구 없는 intent | `general_knowledge`, `out_of_scope` → `no_tool`, `status: planned`(`draft_email`) → `unsupported`. 도구를 부르지 않는다 |
+| 도구 없는 intent | `general_knowledge` → `general_knowledge`, `out_of_scope` → `out_of_scope`, `status: planned`(`draft_email`) → `unsupported`. 도구를 부르지 않는다 |
 | 필수 인자 없음 | 도구를 부르지 않고 `missing_args`와 빠진 엔티티 이름 (Generation이 되묻기) |
 | 앞 결과 0건 | 그 하위 질문은 `empty`, 이후 묶음은 `skipped`, `halted: true` |
 | 도구 오류 | `error`와 오류 내용. 그 결과에 의존하는 하위 질문만 `skipped` |
 | 분해 `clarify`·`failed` | 아무것도 부르지 않고 `status: "not_routed"` |
 
-출력 형식([`results.py`](src/negopilot_agent/routing/results.py))은 Generation 담당과 합의 전 초안입니다. 합의되면 `shared/`로 옮깁니다.
+출력 형식([`results.py`](src/negopilot_agent/routing/results.py))은 Generation 담당과 일부 합의한 초안입니다. 합의되면 `shared/`로 옮깁니다.
+
+### Generation과 합의한 처리 규칙
+
+| 항목 | 규칙 |
+| --- | --- |
+| 입력 | Generation은 `decomposition`과 `routing`을 둘 다 받는다. 하위 질문은 `id`로 맞춘다 |
+| `not_routed` | `routing`은 보지 않고 `decomposition.status`(`clarify`, `failed`)로 처리 |
+| `ok` | 도구 결과로 답하고 근거를 인용 |
+| `general_knowledge` | 도구 없이 답하고 "근거 자료 없음" 표시. 조문·숫자·회사 정보는 지우거나 "확인 필요" |
+| `out_of_scope` | 정중히 거절하고 할 수 있는 일 안내 |
+| `unsupported` | 아직 지원하지 않는 기능이라고 안내 |
+| `missing_args` | `missing`의 엔티티를 사람 말로 바꿔 되묻기 |
+| `empty` | 조건에 맞는 결과가 없다고 안내하고 조건 완화 제안 |
+| `skipped` | 짧게 언급하거나 생략 |
+| 일부만 `ok` | 되는 부분은 답하고, 되묻기·안내는 마지막에 한 번에 모은다 |
+| `error` | 사용자에게는 "자료를 가져오지 못했어요" 같은 일반 문구만. 오류 원문은 로그에만 |
+| `halted` | `halt_reason`을 참고해 Generation이 안내 문구를 만든다 |
+| 도구 결과 | `result`는 MCP 도구 반환값 그대로. 인용이 불편해지면 공통 `evidence` 목록을 추가한다 |
+| 근거 인용 | 법은 law-mcp의 `citation` 그대로, 개정 예정(`upcoming_changes`)이 있으면 함께 안내. 우리 데이터는 업체 ID·RFQ ID 표시 |
+| `law_check` | 근거는 `get_article` 조문 전문. `search_regulation` 결과는 후보로만 본다 |
 
 ### 설정
 
