@@ -15,6 +15,8 @@ Routing은 도구 결과를 손대지 않고 넘기고(ToolCall.result), 근거 
 """
 
 import json
+import math
+import re
 from collections.abc import Callable, Iterable
 from typing import Any
 from urllib.parse import urlsplit
@@ -23,7 +25,8 @@ from negopilot_shared import RouteResult, SubQueryOutcome, ToolCall
 
 from negopilot_agent.generation.answer import Evidence
 
-MAX_TEXT = 3000          # 근거 하나에 넣을 본문 최대 길이 (긴 조문은 자른다)
+MAX_TEXT = 3000          # 근거 하나에 넣을 본문 최대 길이 (긴 조문은 관련 항만 고른다)
+LAW_ARTICLE_BUDGET = 6000  # 사용자가 조문 자체를 물은 경우(law_article)는 더 많이 보여 준다
 MAX_LIST_ITEMS = 10      # 목록형 결과(RFQ, 검색 결과)에서 근거로 쓸 최대 개수
 
 LAW_NAMES = {
@@ -53,17 +56,58 @@ def law_refs_text(refs: Iterable[dict]) -> str:
 
 # ---------- 도구별 변환 ----------
 
-def from_get_article(r: dict) -> list[Draft]:
-    paragraphs = "\n".join(f"{p.get('no', '')} {p.get('text', '')}".strip() for p in r.get("paragraphs", []))
-    text = f"{r.get('citation')}\n{paragraphs}"
+def _bigrams(text: str) -> set[str]:
+    compact = re.sub(r"[^0-9A-Za-z가-힣]", "", text)
+    return {compact[i:i + 2] for i in range(len(compact) - 1)}
+
+
+def select_paragraphs(paragraphs: list[dict], focus: str, budget: int = MAX_TEXT) -> tuple[list[str], list[str]]:
+    """조문의 항을 예산 안에서 고른다. 고른 항(원래 순서)과 생략한 항 번호를 돌려준다.
+
+    앞에서부터 자르면 뒤쪽 항이 통째로 빠진다 (예: 제2조의 "주요 원재료" 정의는 16번째 항).
+    그래서 focus(검사 항목 문구, 하위 질문, 검색된 항)와 겹치는 글자 쌍이 많은 항부터 넣는다.
+    모든 항에 흔한 글자 쌍("하도", "급대" 등)은 덜 치도록 항 사이 희소도(idf)로 가중한다.
+    """
+    lines = [f"{p.get('no', '')} {p.get('text', '')}".strip() for p in paragraphs]
+    nos = [str(p.get("no", "")) for p in paragraphs]
+    if sum(len(line) + 1 for line in lines) <= budget:
+        return lines, []
+    grams = [_bigrams(line) for line in lines]
+    focus_grams = _bigrams(focus)
+    df: dict[str, int] = {}
+    for g in grams:
+        for b in g:
+            df[b] = df.get(b, 0) + 1
+    n = len(lines)
+    scores = [sum(math.log((n + 1) / (df[b] + 0.5)) for b in g & focus_grams) for g in grams]
+    order = sorted(range(n), key=lambda i: (-scores[i], i))
+    chosen: set[int] = set()
+    used = 0
+    for i in order:
+        size = len(lines[i]) + 1
+        if used + size <= budget:
+            chosen.add(i)
+            used += size
+    if not chosen:                                  # 한 항이 예산보다 길면 가장 관련 있는 항을 잘라서라도 넣는다
+        top = order[0]
+        return [lines[top][:budget] + " …(생략)"], [no for j, no in enumerate(nos) if j != top]
+    return [lines[i] for i in sorted(chosen)], [nos[i] for i in range(n) if i not in chosen]
+
+
+def from_get_article(r: dict, focus: str = "", budget: int = MAX_TEXT) -> list[Draft]:
+    kept, omitted = select_paragraphs(r.get("paragraphs", []), focus, budget)
+    text = f"{r.get('citation')}\n" + "\n".join(kept)
+    if omitted:
+        text += f"\n[이 질문과 관련이 적어 생략한 항: {', '.join(omitted)}]"
     upcoming = r.get("upcoming_changes") or []
     if upcoming:
         text += "\n[시행 예정 개정] " + "; ".join(
             f"{c.get('effective_date')} {c.get('change')}" for c in upcoming)
     return [{"source": "law", "kind": "article", "label": r.get("citation") or f"{r.get('law_name')} {r.get('article_no')}",
-             "text": clip(text), "source_url": r.get("source_url"),
+             "text": text, "source_url": r.get("source_url"),
              "meta": {"law_key": r.get("law_key"), "article_no": r.get("article_no"),
-                      "effective_date": r.get("effective_date"), "upcoming_changes": upcoming}}]
+                      "effective_date": r.get("effective_date"), "upcoming_changes": upcoming,
+                      "omitted_paragraphs": omitted}}]
 
 
 def from_search_regulation(hits: list[dict]) -> list[Draft]:
@@ -182,27 +226,67 @@ def _citable_article(call: ToolCall, draft: Draft) -> bool:
         return False
 
 
-def from_outcome(outcome: SubQueryOutcome) -> list[Draft]:
-    """하위 질문 하나의 결과를 근거로 펼친다."""
+def _findings_for(outcome: SubQueryOutcome, law: str | None, article_no: str | None) -> list[str]:
+    """이 조문을 law_refs로 건 검사 항목·flags 문구 (check_offer, rank_suppliers)."""
+    messages = []
+    for call in outcome.calls:
+        r = call.result if call.error is None and isinstance(call.result, dict) else {}
+        items = [*r.get("violations", []), *r.get("warnings", []), *r.get("info", [])] if call.tool == "check_offer" else []
+        if call.tool == "rank_suppliers":
+            items = [f for c in r.get("ranked", []) if isinstance(c, dict) for f in c.get("flags", [])]
+        for f in items:
+            if isinstance(f, dict) and any(ref.get("law") == law and ref.get("article_no") == article_no
+                                           for ref in f.get("law_refs", []) if isinstance(ref, dict)):
+                messages.append(str(f.get("message", "")))
+    return messages
+
+
+def _article_drafts(call: ToolCall, focus: str, budget: int = MAX_TEXT) -> list[Draft]:
+    if call.error or not isinstance(call.result, dict):
+        return []
+    try:
+        return from_get_article(call.result, focus, budget)
+    except (AttributeError, TypeError, KeyError):
+        return from_call(call)
+
+
+def from_outcome(outcome: SubQueryOutcome, question: str = "") -> list[Draft]:
+    """하위 질문 하나의 결과를 근거로 펼친다.
+
+    question: 이 하위 질문의 질문. 긴 조문에서 관련 항을 고르는 기준(focus)에 들어간다.
+    """
     if outcome.status != "ok":
         return []
     # law_check는 검색 문단과 조문 전문을 구분한다. 정상 전문도 실제 설명의 근거로 인용할 수 있다.
     searched = any(c.tool == "search_regulation" for c in outcome.calls)
+    hits = [h for c in outcome.calls if c.tool == "search_regulation" and c.error is None
+            and isinstance(c.result, list) for h in c.result if isinstance(h, dict)]
     drafts: list[Draft] = []
     for call in outcome.calls:
-        for d in from_call(call):
-            if call.tool == "get_article" and searched:
-                d = d | {"kind": "article_reference", "citable": _citable_article(call, d)}
-            drafts.append(d)
-    for ref in outcome.referenced_articles:        # 실패한 조회(error)는 from_call이 건너뛴다
-        drafts += [d | {"kind": "referenced_article"} for d in from_call(ref)]
+        if call.tool == "get_article":
+            no = call.result.get("article_no") if isinstance(call.result, dict) else None
+            if searched:   # law_check: 질문 + 같은 조문에서 검색된 항
+                focus = " ".join([question, *(str(h.get("text", "")) for h in hits if h.get("article_no") == no)])
+                drafts += [d | {"kind": "article_reference", "citable": _citable_article(call, d)}
+                           for d in _article_drafts(call, focus)]
+            else:          # law_article: 사용자가 조문 자체를 물었다
+                drafts += _article_drafts(call, question, LAW_ARTICLE_BUDGET)
+            continue
+        drafts += from_call(call)
+    for ref in outcome.referenced_articles:        # 실패한 조회(error)는 건너뛴다
+        args = ref.args or {}
+        focus = " ".join([question, *_findings_for(outcome, args.get("law"), args.get("article_no"))])
+        drafts += [d | {"kind": "referenced_article"} for d in _article_drafts(ref, focus)]
     return drafts
 
 
-def build_evidence(routing: RouteResult) -> list[Evidence]:
-    """RouteResult 전체를 근거 목록으로. id는 E1부터 순서대로 붙인다."""
+def build_evidence(routing: RouteResult, questions: dict[str, str] | None = None) -> list[Evidence]:
+    """RouteResult 전체를 근거 목록으로. id는 E1부터 순서대로 붙인다.
+
+    questions: 하위 질문 id → 질문 (DecompositionResult.sub_queries). 긴 조문에서 관련 항을 고를 때 쓴다.
+    """
     evidence: list[Evidence] = []
     for outcome in routing.outcomes:
-        for d in from_outcome(outcome):
+        for d in from_outcome(outcome, (questions or {}).get(outcome.id, "")):
             evidence.append(Evidence(id=f"E{len(evidence) + 1}", sub_query=outcome.id, **d))
     return evidence

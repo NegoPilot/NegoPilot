@@ -1,6 +1,11 @@
 // 계약 규칙: null은 0으로 바꾸지 않고 "정보 없음"으로 보여 준다. 백분율 값에 100을 곱하지 않는다.
 export const NO_DATA = '정보 없음'
 
+/** 인증 보유 여부. 값이 없으면 '정보 없음' */
+export function formatHeld(value: boolean | null | undefined): string {
+  return value == null ? NO_DATA : value ? '보유' : '미보유'
+}
+
 const integer = new Intl.NumberFormat('ko-KR')
 const oneDecimal = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 1 })
 
