@@ -70,10 +70,22 @@ def test_price_rules():
     assert codes(rules.price_findings(10_001, None, 0, None, 10_000)) == ["ABOVE_TARGET_PRICE"]
 
 
-def test_sme_rules():
+def test_sme_boundary_is_1200_eok_for_auto_parts():
     assert codes(rules.sme_findings(None)) == ["SME_STATUS_UNKNOWN"]
-    assert codes(rules.sme_findings(1000)) == ["SUBCONTRACT_ACT_APPLIES"]
-    assert codes(rules.sme_findings(1001)) == ["SME_STATUS_CHECK"]
+    assert codes(rules.sme_findings(1200)) == ["SUBCONTRACT_ACT_APPLIES"]
+    assert codes(rules.sme_findings(1201))[0] == "SME_STATUS_CHECK"
+
+
+def test_midsize_payment_rules_boundaries():
+    """제13조⑪: C30 2,000억 미만이면 대기업집단 또는 매출 2조 초과 원사업자, 3천억 미만이면 대기업집단만."""
+    may_apply = "MIDSIZE_PAYMENT_RULES_MAY_APPLY"
+    [_, below] = rules.sme_findings(1999)
+    assert below["code"] == may_apply and "2조 원" in below["message"]
+    [_, middle] = rules.sme_findings(2000)
+    assert middle["code"] == may_apply and "2조 원" not in middle["message"]
+    assert codes(rules.sme_findings(2999)) == ["SME_STATUS_CHECK", may_apply]
+    assert codes(rules.sme_findings(3000)) == ["SME_STATUS_CHECK"]
+    assert {"law": "subcontract_act", "article_no": "제13조", "paragraph": "⑪"} in below["law_refs"]
 
 
 def energy(ratio, amount=500_000_000, days=365, waived=False, small=False, linkage=False, as_of=AFTER_ENERGY):
@@ -110,17 +122,18 @@ def test_verdict_code():
 
 def test_law_versions_on():
     assert rules.law_versions_on(date(2026, 10, 22)) == {"subcontract_act": "2026-10-02",
-                                                         "subcontract_decree": "2026-08-11"}
+                                                         "subcontract_decree": "2026-08-11", "sme_decree": "2026-01-02"}
     assert rules.law_versions_on(date(2026, 10, 1)) == {"subcontract_act": "2026-08-11",
-                                                        "subcontract_decree": "2026-08-11"}
-    assert rules.law_versions_on(date(2024, 1, 1)) == {"subcontract_act": None, "subcontract_decree": None}
+                                                        "subcontract_decree": "2026-08-11", "sme_decree": "2026-01-02"}
+    assert rules.law_versions_on(date(2024, 1, 1)) == {"subcontract_act": None, "subcontract_decree": None,
+                                                       "sme_decree": None}
 
 
 def test_law_refs_include_paragraph_only_when_known():
     [payment] = rules.payment_findings(61)
     assert payment["law_refs"] == [{"law": "subcontract_act", "article_no": "제13조", "paragraph": "①"}]
-    [check] = rules.sme_findings(2000)
-    assert {"law": "subcontract_act", "article_no": "제13조"} in check["law_refs"]
+    [_, midsize] = rules.sme_findings(1500)
+    assert {"law": "subcontract_decree", "article_no": "제7조의5"} in midsize["law_refs"]
 
 
 # ---------- law-mcp 색인 대조 ----------
@@ -158,6 +171,13 @@ EXPECTED_TEXT = {
     ("LINKAGE_EXEMPT_DAYS", "subcontract_decree", "제3조", "③"): ["90일"],
     ("LINKAGE_EXEMPT_AMOUNT", "subcontract_act", "제3조", "④"): ["1억 원"],
     ("LINKAGE_EXEMPT_AMOUNT", "subcontract_decree", "제3조", "④"): ["1억원"],
+    # 별표 값(1,200억, 2,000억)은 색인에 없어 별표를 가리키는 조문까지만 대조한다
+    ("SME_REVENUE_EOK", "sme_decree", "제3조", "①"): ["별표 1"],
+    ("MIDSIZE_REVENUE_EOK", "subcontract_act", "제13조", "⑪"): ["중견기업", "대통령령으로 정하는 금액"],
+    ("MIDSIZE_REVENUE_EOK", "subcontract_decree", "제7조의5", None): ["제13조제11항", "별표 1의2"],
+    ("MIDSIZE_REVENUE_LARGE_GROUP_EOK", "subcontract_act", "제13조", "⑪"): ["3천억원", "상호출자제한기업집단"],
+    ("BUYER_REVENUE_EOK", "subcontract_act", "제13조", "⑪"): ["연간매출액이 대통령령으로 정하는 금액을 초과"],
+    ("BUYER_REVENUE_EOK", "subcontract_decree", "제7조의6", None): ["제13조제11항제2호", "2조원"],
 }
 
 
@@ -198,11 +218,14 @@ def test_energy_rule_starts_when_the_definition_appears():
     assert date.fromisoformat(first["effective_date"]) == rules.MAJOR_ENERGY_RATIO.effective_from
 
 
-def test_every_rule_has_a_paragraph_level_law_ref_unless_internal():
+def test_every_rule_cites_a_paragraph_when_the_article_has_paragraphs():
+    latest = {law: max(load_index(law)["versions"], key=lambda v: v["effective_date"]) for law in rules.LAW_VERSIONS}
     for rule in rules.RULES:
         assert rule.refs, rule.code
-        if not rule.internal:
-            assert all(ref.paragraph for ref in rule.refs), rule.code
+        for ref in rule.refs:
+            article = next(a for a in latest[ref.law]["articles"] if a["no"] == ref.article_no)
+            if not rule.internal and any(p["no"] for p in article["paragraphs"]):
+                assert ref.paragraph, (rule.code, ref)
 
 
 def test_rules_apply_today():
