@@ -15,8 +15,8 @@ from negopilot_agent.api.settings import ApiSettings
 
 API_KEY = "test-only-live-lookup-key"
 HEADERS = {"X-Internal-Api-Key": API_KEY}
-CATALOG = "/internal/v2/business/catalog"
-SEARCH = "/internal/v2/suppliers"
+CATALOG = "/internal/business/catalog"
+SEARCH = "/internal/suppliers"
 
 CATALOG_RESOURCE = {
     "processes": {"다이캐스팅": ["A380", "ADC12"], "프레스": ["SPCC"], "사출": [], "단조": [], "CNC가공": []},

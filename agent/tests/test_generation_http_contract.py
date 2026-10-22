@@ -33,7 +33,7 @@ from negopilot_agent.routing import McpToolCaller
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "shared" / "fixtures"
 CONTRACT = ROOT / "docs" / "contracts" / "agent-generation.openapi.json"
-PATH = "/internal/v2/query-executions"
+PATH = "/internal/query-executions"
 API_KEY = "generation-contract-test-key"
 PRIVATE = "private-generation-test-detail"
 HEADERS = {"X-Internal-Api-Key": API_KEY}

@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from .business_supplier_service import BusinessSupplierService, BusinessUnavailable
 from .models import ErrorResponse
+from .paths import INTERNAL_ROOT
 from .settings import ApiSettings
 from .supplier_chat_models import SUPPLIER_ID_PATTERN, StrictModel, SupplierSearch
 from .supplier_chat_service import SupplierNotFound
@@ -18,10 +19,8 @@ from .supplier_lookup_models import (
     LiveCatalogResponse, LiveSupplierDetailResponse, LiveSupplierId, LiveSupplierSearchResponse,
 )
 
-LOOKUP_V2_PREFIX = "/internal/v2"
 
-
-def invalid_supplier_detail_path(path: str, prefix: str = LOOKUP_V2_PREFIX + "/suppliers/") -> bool:
+def invalid_supplier_detail_path(path: str, prefix: str = INTERNAL_ROOT + "/suppliers/") -> bool:
     return path.startswith(prefix) and re.fullmatch(SUPPLIER_ID_PATTERN, path[len(prefix):]) is None
 
 
@@ -54,7 +53,7 @@ def add_supplier_lookup_routes(
     service: BusinessSupplierService | None = None,
 ) -> None:
     router = APIRouter(
-        prefix=LOOKUP_V2_PREFIX,
+        prefix=INTERNAL_ROOT,
         dependencies=[Depends(authenticate)],
         responses={status: {"model": ErrorResponse} for status in (400, 401, 404, 500, 503, 504)},
     )

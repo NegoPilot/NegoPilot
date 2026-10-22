@@ -320,7 +320,7 @@
         ]
       }
     },
-    "/internal/v2/business/catalog": {
+    "/internal/business/catalog": {
       "get": {
         "operationId": "InternalLiveCatalog",
         "responses": {
@@ -403,7 +403,7 @@
         "description": "Python HTTP adapter. Always reads business-mcp, independent of AGENT_EXECUTION_MODE. No model calls."
       }
     },
-    "/internal/v2/suppliers": {
+    "/internal/suppliers": {
       "get": {
         "operationId": "InternalLiveSearchSuppliers",
         "responses": {
@@ -556,7 +556,7 @@
         "description": "Python HTTP adapter. Always reads business-mcp, independent of AGENT_EXECUTION_MODE. No model calls."
       }
     },
-    "/internal/v2/suppliers/{supplier_id}": {
+    "/internal/suppliers/{supplier_id}": {
       "get": {
         "operationId": "InternalLiveGetSupplier",
         "responses": {

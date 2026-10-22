@@ -104,9 +104,9 @@ async def test_health_matches_fixed_openapi_without_external_dependencies(mode):
 
 @pytest.mark.parametrize("mode", ["stub", "live"])
 @pytest.mark.parametrize(("path", "params"), [
-    ("/internal/v2/business/catalog", None),
-    ("/internal/v2/suppliers", {"process": "다이캐스팅", "iso14001_required": "true"}),
-    ("/internal/v2/suppliers/SUP-0001", None),
+    ("/internal/business/catalog", None),
+    ("/internal/suppliers", {"process": "다이캐스팅", "iso14001_required": "true"}),
+    ("/internal/suppliers/SUP-0001", None),
 ])
 async def test_v2_live_lookups_match_fixed_contract(mode, path, params):
     app = create_app(
@@ -114,7 +114,7 @@ async def test_v2_live_lookups_match_fixed_contract(mode, path, params):
         supplier_lookup_service=BusinessSupplierService(session=FakeBusiness().session),
     )
     response = await request(app, "GET", path, params=params)
-    schema_path = "/internal/v2/suppliers/{supplier_id}" if path.endswith("SUP-0001") else path
+    schema_path = "/internal/suppliers/{supplier_id}" if path.endswith("SUP-0001") else path
     data = assert_wire(response, LOOKUP_V2, schema_path, "GET")
     assert (data["schema_version"], data["mode"]) == ("0.3", "live")
 
@@ -124,6 +124,6 @@ async def test_v2_live_lookup_errors_match_fixed_contract():
         settings=ApiSettings(mode="live", internal_api_key=API_KEY, request_timeout_seconds=1),
         supplier_lookup_service=BusinessSupplierService(session=FakeBusiness(failure=RuntimeError("x")).session),
     )
-    response = await request(app, "GET", "/internal/v2/business/catalog")
-    assert_error_wire(response, LOOKUP_V2, "/internal/v2/business/catalog", "GET", 503,
+    response = await request(app, "GET", "/internal/business/catalog")
+    assert_error_wire(response, LOOKUP_V2, "/internal/business/catalog", "GET", 503,
                       "UPSTREAM_UNAVAILABLE", retryable=True)
