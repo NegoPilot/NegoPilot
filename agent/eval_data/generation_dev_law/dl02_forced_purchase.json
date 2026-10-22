@@ -1,0 +1,227 @@
+{
+ "note": "'정당한 사유 외에는' 예외 (표시 규칙이 잡지 않는 표현)",
+ "query": "협력사에 우리가 지정한 업체 장비를 사서 쓰라고 해도 돼?",
+ "decomposition": {
+  "schema_version": "0.1",
+  "status": "ok",
+  "original_query": "협력사에 우리가 지정한 업체 장비를 사서 쓰라고 해도 돼?",
+  "sub_queries": [
+   {
+    "id": "q1",
+    "question": "원사업자가 수급사업자에게 지정한 물품·장비의 매입 또는 사용을 강요하는 행위의 법적 제한",
+    "original_text": "협력사에 우리가 지정한 업체 장비를 사서 쓰라고 해도 돼?",
+    "intent": "law_check",
+    "grounding": "required",
+    "confidence": 0.9,
+    "entities": {
+     "rfq_id": null,
+     "supplier": null,
+     "oem_id": null,
+     "process": null,
+     "material": null,
+     "region": null,
+     "iatf_required": null,
+     "min_monthly_capacity": null,
+     "top_n": null,
+     "unit_price": null,
+     "payment_days": null,
+     "price_linkage": null,
+     "raw_material_ratio": null,
+     "energy_ratio": null,
+     "contract_days": null,
+     "linkage_waived_by_agreement": null,
+     "buyer_is_small_business": null,
+     "law": null,
+     "article_no": null,
+     "as_of": null,
+     "price_change_pct": null
+    },
+    "inputs": [],
+    "depends_on": []
+   }
+  ],
+  "clarification": null,
+  "assumptions": []
+ },
+ "routing": {
+  "schema_version": "0.1",
+  "status": "routed",
+  "outcomes": [
+   {
+    "id": "q1",
+    "intent": "law_check",
+    "status": "ok",
+    "calls": [
+     {
+      "server": "law-mcp",
+      "tool": "search_regulation",
+      "args": {
+       "query": "원사업자가 수급사업자에게 지정한 물품·장비의 매입 또는 사용을 강요하는 행위의 법적 제한"
+      },
+      "result": [
+       {
+        "law_key": "subcontract_act",
+        "law_name": "하도급거래 공정화에 관한 법률",
+        "type": "조문",
+        "article_no": "제5조",
+        "title": "물품 등의 구매강제 금지",
+        "paragraph": null,
+        "text": "원사업자는 수급사업자에게 제조등의 위탁을 하는 경우에 그 목적물등에 대한 품질의 유지ㆍ개선 등 정당한 사유가 있는 경우 외에는 그가 지정하는 물품ㆍ장비 또는 역무의 공급 등을 수급사업자에게 매입 또는 사용(이용을 포함한다. 이하 같다)하도록 강요하여서는 아니 된다.",
+        "citation": "「하도급거래 공정화에 관한 법률」 제5조(물품 등의 구매강제 금지) [시행 2026-10-02]",
+        "effective_date": "2026-10-02",
+        "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
+        "score": 76.75
+       },
+       {
+        "law_key": "subcontract_act",
+        "law_name": "하도급거래 공정화에 관한 법률",
+        "type": "조문",
+        "article_no": "제12조",
+        "title": "물품구매대금 등의 부당결제 청구의 금지",
+        "paragraph": null,
+        "text": "원사업자는 수급사업자에게 목적물등의 제조ㆍ수리ㆍ시공 또는 용역수행에 필요한 물품 등을 자기로부터 사게 하거나 자기의 장비 등을 사용하게 한 경우 정당한 사유 없이 다음 각 호의 어느 하나에 해당하는 행위를 하여서는 아니 된다.\n\n  1. 해당 목적물등에 대한 하도급대금의 지급기일 전에 구매대금이나 사용대가의 전부 또는 일부를 지급하게 하는 행위\n  2. 자기가 구입ㆍ사용하거나 제3자에게 공급하는 조건보다 현저하게 불리한 조건으로 구매대금이나 사용대가를 지급하게 하는 행위",
+        "citation": "「하도급거래 공정화에 관한 법률」 제12조(물품구매대금 등의 부당결제 청구의 금지) [시행 2026-10-02]",
+        "effective_date": "2026-10-02",
+        "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
+        "score": 43.24
+       },
+       {
+        "law_key": "subcontract_act",
+        "law_name": "하도급거래 공정화에 관한 법률",
+        "type": "조문",
+        "article_no": "제18조",
+        "title": "부당한 경영간섭의 금지",
+        "paragraph": "②",
+        "text": "다음 각 호의 어느 하나에 해당하는 원사업자의 행위는 부당한 경영간섭으로 본다. <신설 2018.1.16>\n\n  1. 정당한 사유 없이 수급사업자가 기술자료를 해외에 수출하는 행위를 제한하거나 기술자료의 수출을 이유로 거래를 제한하는 행위\n  2. 정당한 사유 없이 수급사업자로 하여금 자기 또는 자기가 지정하는 사업자와 거래하도록 구속하는 행위\n  3. 정당한 사유 없이 수급사업자에게 원가자료 등 공정거래위원회가 고시하는 경영상의 정보를 요구하는 행위",
+        "citation": "「하도급거래 공정화에 관한 법률」 제18조②(부당한 경영간섭의 금지) [시행 2026-10-02]",
+        "effective_date": "2026-10-02",
+        "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
+        "score": 40.64
+       },
+       {
+        "law_key": "subcontract_act",
+        "law_name": "하도급거래 공정화에 관한 법률",
+        "type": "조문",
+        "article_no": "제11조",
+        "title": "감액금지",
+        "paragraph": "②",
+        "text": "다음 각 호의 어느 하나에 해당하는 원사업자의 행위는 정당한 사유에 의한 행위로 보지 아니한다. <개정 2011.3.29, 2013.5.28>\n\n  1. 위탁할 때 하도급대금을 감액할 조건 등을 명시하지 아니하고 위탁 후 협조요청 또는 거래 상대방으로부터의 발주취소, 경제상황의 변동 등 불합리한 이유를 들어 하도급대금을 감액하는 행위\n  2. 수급사업자와 단가 인하에 관한 합의가 성립된 경우 그 합의 성립 전에 위탁한 부분에 대하여도 합의 내용을 소급하여 적용하는 방법으로 하도급대금을 감액하는 행위\n  3. 하도급대금을 현금으로 지급하거나 지급기일 전에 지급하는 것을 이유로 하도급대금을 지나치게 감액하는 행위\n  4. 원사업자에 대한 손해발생에 실질적 영향을 미치지 아니하는 수급사업자의 과오를 이유로 하도급대금을 감액하는 행위\n  5. 목적물등의 제조ㆍ수리ㆍ시공 또는 용역수행에 필요한 물품 등을 자기로부터 사게 하거나 자기의 장비 등을 사용하게 한 경우에 적정한 구매대금 또는 적정한 사용대가 이상의 금액을 하도급대금에서 공제하는 행위\n  6. 하도급대금 지급 시점의 물가나 자재가격 등이 납품등의 시점에 비하여 떨어진 것을 이유로 하도급대금을 감액하는 행위\n  7. 경영적자 또는 판매가격 인하 등 불합리한 이유로 부당하게 하도급대금을 감액하는 행위\n  8. 「고용보험 및 산업재해보상보험의 보험료징수 등에 관한 법률」, 「산업안전보건법」 등에 따라 원사업자가 부담하여야 하는 고용보험료, 산업안전보건관리비, 그 밖의 경비 등을 수급사업자에게 부담시키는 행위\n  9. 그 밖에 제1호부터 제8호까지의 규정에 준하는 것으로서 대통령령으로 정하는 행위",
+        "citation": "「하도급거래 공정화에 관한 법률」 제11조②(감액금지) [시행 2026-10-02]",
+        "effective_date": "2026-10-02",
+        "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
+        "score": 37.83
+       },
+       {
+        "law_key": "subcontract_act",
+        "law_name": "하도급거래 공정화에 관한 법률",
+        "type": "조문",
+        "article_no": "제3조의4",
+        "title": "부당한 특약의 금지",
+        "paragraph": "②",
+        "text": "다음 각 호의 어느 하나에 해당하는 약정은 부당한 특약으로 본다.\n\n  1. 원사업자가 제3조제1항의 서면에 기재되지 아니한 사항을 요구함에 따라 발생된 비용을 수급사업자에게 부담시키는 약정\n  2. 원사업자가 부담하여야 할 민원처리, 산업재해 등과 관련된 비용을 수급사업자에게 부담시키는 약정\n  3. 원사업자가 입찰내역에 없는 사항을 요구함에 따라 발생된 비용을 수급사업자에게 부담시키는 약정\n  4. 그 밖에 이 법에서 보호하는 수급사업자의 이익을 제한하거나 원사업자에게 부과된 의무를 수급사업자에게 전가하는 등 대통령령으로 정하는 약정",
+        "citation": "「하도급거래 공정화에 관한 법률」 제3조의4②(부당한 특약의 금지) [시행 2026-10-02]",
+        "effective_date": "2026-10-02",
+        "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
+        "score": 36.96
+       }
+      ],
+      "error": null
+     },
+     {
+      "server": "law-mcp",
+      "tool": "get_article",
+      "args": {
+       "law": "subcontract_act",
+       "article_no": "제5조"
+      },
+      "result": {
+       "law_key": "subcontract_act",
+       "law_name": "하도급거래 공정화에 관한 법률",
+       "article_no": "제5조",
+       "title": "물품 등의 구매강제 금지",
+       "chapter": null,
+       "deleted": false,
+       "paragraphs": [
+        {
+         "no": null,
+         "text": "원사업자는 수급사업자에게 제조등의 위탁을 하는 경우에 그 목적물등에 대한 품질의 유지ㆍ개선 등 정당한 사유가 있는 경우 외에는 그가 지정하는 물품ㆍ장비 또는 역무의 공급 등을 수급사업자에게 매입 또는 사용(이용을 포함한다. 이하 같다)하도록 강요하여서는 아니 된다."
+        }
+       ],
+       "citation": "「하도급거래 공정화에 관한 법률」 제5조(물품 등의 구매강제 금지) [시행 2026-10-02]",
+       "effective_date": "2026-10-02",
+       "as_of": "2026-10-22",
+       "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
+       "upcoming_changes": []
+      },
+      "error": null
+     },
+     {
+      "server": "law-mcp",
+      "tool": "get_article",
+      "args": {
+       "law": "subcontract_act",
+       "article_no": "제12조"
+      },
+      "result": {
+       "law_key": "subcontract_act",
+       "law_name": "하도급거래 공정화에 관한 법률",
+       "article_no": "제12조",
+       "title": "물품구매대금 등의 부당결제 청구의 금지",
+       "chapter": null,
+       "deleted": false,
+       "paragraphs": [
+        {
+         "no": null,
+         "text": "원사업자는 수급사업자에게 목적물등의 제조ㆍ수리ㆍ시공 또는 용역수행에 필요한 물품 등을 자기로부터 사게 하거나 자기의 장비 등을 사용하게 한 경우 정당한 사유 없이 다음 각 호의 어느 하나에 해당하는 행위를 하여서는 아니 된다.\n\n  1. 해당 목적물등에 대한 하도급대금의 지급기일 전에 구매대금이나 사용대가의 전부 또는 일부를 지급하게 하는 행위\n  2. 자기가 구입ㆍ사용하거나 제3자에게 공급하는 조건보다 현저하게 불리한 조건으로 구매대금이나 사용대가를 지급하게 하는 행위"
+        }
+       ],
+       "citation": "「하도급거래 공정화에 관한 법률」 제12조(물품구매대금 등의 부당결제 청구의 금지) [시행 2026-10-02]",
+       "effective_date": "2026-10-02",
+       "as_of": "2026-10-22",
+       "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
+       "upcoming_changes": []
+      },
+      "error": null
+     },
+     {
+      "server": "law-mcp",
+      "tool": "get_article",
+      "args": {
+       "law": "subcontract_act",
+       "article_no": "제18조"
+      },
+      "result": {
+       "law_key": "subcontract_act",
+       "law_name": "하도급거래 공정화에 관한 법률",
+       "article_no": "제18조",
+       "title": "부당한 경영간섭의 금지",
+       "chapter": null,
+       "deleted": false,
+       "paragraphs": [
+        {
+         "no": "①",
+         "text": "원사업자는 하도급거래량을 조절하는 방법 등을 이용하여 수급사업자의 경영에 간섭하여서는 아니 된다. <개정 2018.1.16>"
+        },
+        {
+         "no": "②",
+         "text": "다음 각 호의 어느 하나에 해당하는 원사업자의 행위는 부당한 경영간섭으로 본다. <신설 2018.1.16>\n\n  1. 정당한 사유 없이 수급사업자가 기술자료를 해외에 수출하는 행위를 제한하거나 기술자료의 수출을 이유로 거래를 제한하는 행위\n  2. 정당한 사유 없이 수급사업자로 하여금 자기 또는 자기가 지정하는 사업자와 거래하도록 구속하는 행위\n  3. 정당한 사유 없이 수급사업자에게 원가자료 등 공정거래위원회가 고시하는 경영상의 정보를 요구하는 행위"
+        }
+       ],
+       "citation": "「하도급거래 공정화에 관한 법률」 제18조(부당한 경영간섭의 금지) [시행 2026-10-02]",
+       "effective_date": "2026-10-02",
+       "as_of": "2026-10-22",
+       "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
+       "upcoming_changes": []
+      },
+      "error": null
+     }
+    ],
+    "referenced_articles": [],
+    "missing": [],
+    "message": null
+   }
+  ],
+  "halted": false,
+  "halt_reason": null
+ }
+}

@@ -229,6 +229,7 @@ uv run python scripts/bench_latency.py --set validation             # 전체 그
 Generation 평가는 `shared/fixtures/routing` 11개를 입력으로 쓰고, 정답은 [`eval_data/generation_gold.json`](eval_data/generation_gold.json)에 있습니다 (기대 답변 종류, 근거에 꼭 있어야 할 문구, 답변에 담길 정답 포인트).
 `--set validation`은 [`eval_data/generation_validation/`](eval_data/generation_validation/) 15개(질문, 정답 분해 결과, 실제 MCP Routing 결과를 한 파일에)를 입력으로, [`eval_data/generation_validation_gold.json`](eval_data/generation_validation_gold.json)을 정답으로 씁니다. 분해 검증 세트와 같이 점수만 보고, 오답을 보고 프롬프트를 고치지 않습니다.
 `--offline`은 모델 없이 근거 포함률과 프롬프트 크기만 재고, 기본 모드는 답변 종류, 첫 시도 근거 검사 통과율, 재생성·가림 비율, 정답 포인트 커버율과 근거 없는 주장 수(gpt-4.1-mini 채점), 생성 시간을 잽니다.
+`--set dev_law`는 법령의 예외·단서·간주 규정을 묻는 개발용 질문 3개입니다. 생성 프롬프트를 고칠 때 검증 세트 대신 봅니다. `--repeat`을 2 이상 주면 회차별 정답 포인트와 회차 간 표준편차, 평균의 표준오차를 함께 출력합니다. 같은 코드도 회차마다 2~6pp 흔들리므로, 변경 전후 비교는 같은 날 같은 입력으로 6회 이상 돌리고 차이가 표준오차보다 충분히 클 때만 개선으로 봅니다.
 
 평가는 fixture의 질문을 넣고 상태, 하위 질문 개수, intent, 엔티티, 의존 관계를 기대 결과와 비교합니다.
 `--set dev`(기본, `shared/fixtures/decomposition` 11개)는 프롬프트를 고칠 때 보는 개발용이고, `--set validation`(`shared/fixtures/validation` 53개)은 점수만 확인하는 검증용입니다. 검증 세트의 오답을 보고 프롬프트를 고치지 않습니다.

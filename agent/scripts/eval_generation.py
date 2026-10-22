@@ -53,6 +53,8 @@ FIXTURES = ROOT.parent / "shared" / "fixtures"
 SETS = {   # 이름 → (정답 파일, 입력 폴더)
     "dev": (ROOT / "eval_data" / "generation_gold.json", FIXTURES / "routing"),
     "validation": (ROOT / "eval_data" / "generation_validation_gold.json", ROOT / "eval_data" / "generation_validation"),
+    # 법령 예외·단서 질문만 모은 개발용 세트. 생성 프롬프트를 고칠 때 본다
+    "dev_law": (ROOT / "eval_data" / "generation_dev_law_gold.json", ROOT / "eval_data" / "generation_dev_law"),
 }
 CHARS_PER_TOKEN = 1.7   # 한국어 위주 텍스트의 대략값. 비교용이라 정확할 필요는 없다
 
@@ -185,6 +187,22 @@ def cross_summary(rows: list[dict]) -> list[str]:
             f"| 포인트 판정 일치율 (두 채점) | {pct(agree, total)} |"]
 
 
+def spread_lines(runs: list[list[dict]]) -> list[str]:
+    """회차별 정답 포인트 커버와 흩어짐. 변경 전후 차이가 이 폭보다 작으면 소음으로 본다."""
+    per_run = []
+    for run in runs:
+        judged = [r for r in run if "points_covered" in r]
+        if judged and sum(r["points"] for r in judged):
+            per_run.append(100 * sum(r["points_covered"] for r in judged) / sum(r["points"] for r in judged))
+    if len(per_run) < 2:
+        return []
+    stdev = statistics.stdev(per_run)
+    # 평균의 표준오차. 회차를 늘리면 줄어든다 (n회 → 1/√n)
+    sem = stdev / len(per_run) ** 0.5
+    return [f"| 정답 포인트 커버 회차별 | {', '.join(f'{v:.0f}%' for v in per_run)} |",
+            f"| 회차 간 표준편차 / 평균의 표준오차 | {stdev:.1f}pp / {sem:.1f}pp |"]
+
+
 def summarize(runs: list[list[dict]]) -> str:
     rows = [r for run in runs for r in run]
     first = runs[0]
@@ -205,6 +223,8 @@ def summarize(runs: list[list[dict]]) -> str:
         if judged:
             lines.append(f"| 정답 포인트 커버 | {pct(sum(r['points_covered'] for r in judged), sum(r['points'] for r in judged))} |")
             lines.append(f"| 근거 없는 주장 (답변당 평균) | {statistics.mean(len(r['unsupported_claims']) for r in judged):.2f}개 |")
+            if len(runs) > 1:
+                lines += spread_lines(runs)
             crossed = [r for r in judged if "cross" in r]
             if crossed:
                 lines += cross_summary(crossed)
