@@ -8,7 +8,7 @@ import anthropic
 import httpx2
 import openai
 
-from negopilot_shared import DecompositionResult, RouteResult
+from negopilot_shared import DecompositionResult, RouteResult, public_error_code
 from negopilot_agent.routing import McpToolCaller, Router
 from negopilot_agent.routing.router import ToolCaller
 
@@ -44,8 +44,10 @@ class SafeToolCaller:
     async def __call__(self, server: str, tool: str, args: dict[str, Any]) -> Any:
         try:
             return await self.caller(server, tool, args)
-        except Exception:
-            raise ToolExecutionError(SAFE_TOOL_ERROR) from None
+        except Exception as exc:
+            # 원문은 가리고, 공개 목록에 있는 오류 코드만 남긴다 (docs/contracts/check-offer.md 3절)
+            code = public_error_code(str(exc))
+            raise ToolExecutionError(f"[{code}] {SAFE_TOOL_ERROR}" if code else SAFE_TOOL_ERROR) from None
 
     def session(self):
         """감싼 caller의 연결 재사용을 그대로 쓴다 (McpToolCaller.session)."""

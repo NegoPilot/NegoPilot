@@ -11,11 +11,19 @@ from negopilot_shared.decomposition import (
     SubQuery,
 )
 from negopilot_shared.intents import IntentSpec, load_intents
-from negopilot_shared.routing import ROUTING_SCHEMA_VERSION, RouteResult, SubQueryOutcome, ToolCall
+from negopilot_shared.routing import (
+    PUBLIC_ERROR_CODES,
+    ROUTING_SCHEMA_VERSION,
+    RouteResult,
+    SubQueryOutcome,
+    ToolCall,
+    public_error_code,
+)
 
 __all__ = [
     "CLARIFY_CONFIDENCE",
     "MAX_SUB_QUERIES",
+    "PUBLIC_ERROR_CODES",
     "ROUTING_SCHEMA_VERSION",
     "SCHEMA_VERSION",
     "Clarification",
@@ -28,4 +36,5 @@ __all__ = [
     "SubQueryOutcome",
     "ToolCall",
     "load_intents",
+    "public_error_code",
 ]

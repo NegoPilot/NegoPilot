@@ -329,3 +329,21 @@ async def test_offer_check_with_explicit_id_skips_name_lookup():
     routing = await Router(caller).route(decomposition("offer_check", {"supplier": "SUP-0041"} | OFFER))
     assert routing.outcome("q1").status == "ok"
     assert caller.calls == [("business-mcp", "check_offer", {"supplier": "SUP-0041"} | OFFER)]
+
+
+@pytest.mark.parametrize("message, notice", [
+    ("[RFQ_NOT_FOUND] RFQ 'RFQ-2026-099'가 없다. 사용 가능: RFQ-2026-001", "RFQ 번호를 찾지 못했습니다"),
+    ("[VALUE_OUT_OF_RANGE] raw_material_ratio 는 0~1 사이 비율로 입력한다", "허용 범위를 벗어났습니다"),
+    ("[DB_UNAVAILABLE] 협력사 DB에 연결할 수 없다. 원인: 127.0.0.1:5433", "자료를 가져오지 못했습니다"),
+    ("connection refused 127.0.0.1:5433", "자료를 가져오지 못했습니다"),
+])
+async def test_tool_error_code_becomes_guidance_without_leaking_the_message(message, notice):
+    """공개 오류 코드만 안내 문구로 바꾸고, 오류 원문은 HTTP 경로(SafeToolCaller)에서 계속 가린다 (#129)."""
+    caller = Caller(check_offer=Exception(message))
+    routing, answer, backend = await run_answer(decomposition("offer_check", {"supplier": "SUP-0041"} | OFFER), caller)
+    assert routing.outcome("q1").status == "error"
+    assert answer.kind == "no_result" and not backend.calls
+    assert any(notice in n for n in answer.notices)
+    shown = answer.text + " ".join(answer.notices)
+    assert "RFQ-2026-099" not in shown and "5433" not in shown and "raw_material_ratio" not in shown
+    assert "error_code" not in routing.model_dump_json()
