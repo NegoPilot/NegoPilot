@@ -253,6 +253,28 @@ async def test_masking_keeps_grounded_number_end_to_end():
     assert "유예는 [확인 필요]입니다." in answer.text
 
 
+async def test_invalid_json_retry_keeps_previous_draft_and_masks_it():
+    backend = FakeBackend(draft("지급 기한은 93일입니다."), "{\"answer\": \"잘린 출력")
+    answer, _ = await run("07_number_needs_grounding", backend=backend)
+    assert answer.kind == "answer"
+    assert answer.verification.masked and answer.verification.attempts == 1
+    assert "93일" not in answer.text and "지급 기한은 [확인 필요]입니다." in answer.text
+    assert len(backend.prompts) == 2
+
+
+async def test_invalid_json_on_every_attempt_is_still_a_failure():
+    answer, _ = await run("07_number_needs_grounding", backend=FakeBackend("not json"))
+    assert answer.kind == "failed"
+
+
+async def test_invalid_json_then_valid_retry_is_used():
+    _, r = load("07_number_needs_grounding")
+    hit = next(e for e in build_evidence(r) if e.citable)
+    backend = FakeBackend("not json", draft(f"지급 기한 조항입니다. [{hit.id}]"))
+    answer, _ = await run("07_number_needs_grounding", backend=backend)
+    assert answer.kind == "answer" and answer.verification.ok and answer.verification.attempts == 2
+
+
 async def test_general_knowledge_cannot_state_articles_or_numbers():
     backend = FakeBackend(draft("RFQ 회신은 보통 14일 안에 하며 하도급법 제3조가 적용됩니다."))
     answer, _ = await run("06_general_knowledge", backend=backend)

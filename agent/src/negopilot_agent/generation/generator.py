@@ -276,9 +276,9 @@ class AnswerGenerator:
             try:
                 draft = GenerationDraft.model_validate_json(text)
             except ValidationError as err:
+                # 앞 시도의 초안과 검사 결과는 남긴다. 재시도가 형식 오류여도 앞 초안을 가려서 답할 수 있다
                 log.warning("생성 결과 형식 오류 (시도 %d): %s", attempt, err.error_count())
                 extra = "\n\n직전 출력이 JSON 형식을 어겼다. {\"answer\": ..., \"used_evidence\": [...]} 형식으로 다시 출력해라."
-                draft = None
                 continue
             report = verify.check(draft.answer, evidence, allowed)
             report.attempts = attempt
