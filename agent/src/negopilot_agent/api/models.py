@@ -1,11 +1,9 @@
-"""The v0.1 HTTP envelope. Existing core schemas remain unchanged."""
+"""Request and error envelopes shared by the internal HTTP routes."""
 
 from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-from negopilot_shared import DecompositionResult, RouteResult
 
 NonBlankText = Annotated[str, Field(strict=True, min_length=1, max_length=4000)]
 
@@ -49,13 +47,3 @@ class ErrorResponse(BaseModel):
     request_id: UUID | None
     error: ErrorDetail
 
-
-class QueryExecutionResponse(BaseModel):
-    schema_version: Literal["0.1"] = "0.1"
-    request_id: UUID
-    execution_status: Literal["COMPLETED", "NEEDS_INPUT", "FAILED"]
-    generation_status: Literal["NOT_IMPLEMENTED"] = "NOT_IMPLEMENTED"
-    mode: Literal["live", "stub"]
-    decomposition: DecompositionResult
-    routing: RouteResult
-    error: ErrorDetail | None = None

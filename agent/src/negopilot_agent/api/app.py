@@ -1,13 +1,9 @@
 """ASGI entry point: uvicorn negopilot_agent.api.app:app."""
 
-import asyncio
 import hmac
 from uuid import UUID
 
-import anthropic
-import httpx2
-import openai
-from fastapi import Depends, FastAPI, Request
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
@@ -16,14 +12,12 @@ from negopilot_agent.routing.router import ToolCaller
 from negopilot_agent.decomposition.backends import Backend
 
 from .business_supplier_service import BusinessSupplierService
-from .execution import Decomposer, ModelUnavailable, QueryExecutor
 from .generation_api import add_generation_routes
 from .admin_law_api import add_admin_law_routes
 from .admin_law_refresh import add_refresh_routes
 from .generation_execution import ContextDecomposer
-from .models import ErrorDetail, ErrorResponse, QueryExecutionRequest, QueryExecutionResponse
+from .models import ErrorDetail, ErrorResponse
 from .settings import ApiSettings
-from .stubs import UnsupportedStubQuery
 from .supplier_chat_api import add_supplier_chat_routes, invalid_supplier_detail_path
 from .supplier_chat_service import SupplierChatService
 from .supplier_lookup_api import LOOKUP_V2_PREFIX, add_supplier_lookup_routes
@@ -51,8 +45,7 @@ class AuthenticationFailed(Exception):
         self.request_id = request_id
 
 
-def create_app(settings: ApiSettings | None = None, decomposer: Decomposer | None = None,
-               caller: ToolCaller | None = None,
+def create_app(settings: ApiSettings | None = None,
                supplier_chat_service: SupplierChatService | None = None,
                supplier_lookup_service: BusinessSupplierService | None = None,
                generation_decomposer: ContextDecomposer | None = None,
@@ -61,7 +54,6 @@ def create_app(settings: ApiSettings | None = None, decomposer: Decomposer | Non
                admin_law_caller: ToolCaller | None = None,
                law_refresh_control=None) -> FastAPI:
     settings = settings or ApiSettings.from_env()
-    executor = QueryExecutor(settings, decomposer=decomposer, caller=caller)
     application = FastAPI(title="NegoPilot internal execution API", version="0.1")
 
     async def authenticate(request: Request) -> None:
@@ -106,25 +98,6 @@ def create_app(settings: ApiSettings | None = None, decomposer: Decomposer | Non
     @application.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
-
-    @application.post(
-        "/internal/v1/query-executions", response_model=QueryExecutionResponse,
-        dependencies=[Depends(authenticate)],
-        responses={status: {"model": ErrorResponse} for status in (400, 401, 500, 503, 504)},
-    )
-    async def execute(body: QueryExecutionRequest) -> JSONResponse:
-        try:
-            async with asyncio.timeout(settings.request_timeout_seconds):
-                result = await executor.execute(body)
-                return JSONResponse(content=result.model_dump(mode="json", by_alias=True))
-        except UnsupportedStubQuery:
-            return error_response(400, body.request_id, "VALIDATION_ERROR", "Unsupported stub query. See agent/README.md.")
-        except (TimeoutError, httpx2.TimeoutException, anthropic.APITimeoutError, openai.APITimeoutError):
-            return error_response(504, body.request_id, "UPSTREAM_TIMEOUT", "Execution timed out.", True)
-        except (ModelUnavailable, httpx2.HTTPError, httpx2.InvalidURL, anthropic.APIError, openai.OpenAIError):
-            return error_response(503, body.request_id, "UPSTREAM_UNAVAILABLE", "Model service is unavailable.", True)
-        except Exception:
-            return error_response(500, body.request_id, "INTERNAL_ERROR", "Unexpected server error.")
 
     add_supplier_chat_routes(application, settings, authenticate, error_response, extract_request_id,
                              service=supplier_chat_service)

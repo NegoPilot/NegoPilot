@@ -1,9 +1,8 @@
-"""Validate actual ASGI responses against the checked-in PR #35 contracts.
+"""Validate actual ASGI responses against the checked-in contracts.
 
-These tests deliberately never use app.openapi(). Routing recordings are replayed
-at the executor boundary; the real Router is covered by test_api.py. All response
-serialization and HTTP exception handling still run through the actual FastAPI
-application. Requires jsonschema in the development dependency group.
+These tests deliberately never use app.openapi(). All response serialization and
+HTTP exception handling run through the actual FastAPI application. Requires
+jsonschema in the development dependency group.
 """
 
 import asyncio
@@ -18,9 +17,6 @@ import httpx2 as httpx
 from jsonschema import Draft202012Validator, FormatChecker
 import pytest
 
-from negopilot_shared import DecompositionResult, RouteResult
-
-from negopilot_agent.api import execution
 from negopilot_agent.api.app import create_app
 from negopilot_agent.api.business_supplier_service import BusinessSupplierService
 from negopilot_agent.api.settings import ApiSettings
@@ -29,11 +25,9 @@ from tests.test_supplier_lookup_live import FakeBusiness
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_DIR = ROOT / "docs" / "contracts"
-FIXTURE_DIR = ROOT / "shared" / "fixtures"
 V1 = "agent-http.openapi.json"
 V2 = "supplier-chat.openapi.json"
 LOOKUP_V2 = "supplier-lookup.openapi.json"
-QUERY = "/internal/v1/query-executions"
 CATALOG = "/internal/v1/business/catalog"
 SEARCH = "/internal/v1/suppliers"
 DETAIL_SCHEMA = SEARCH + "/{supplier_id}"
@@ -46,20 +40,6 @@ SUPPLIERS = {item["supplier_id"]: item for item in SUPPLIER_FIXTURE["suppliers"]
 QUESTIONS = SUPPLIER_FIXTURE["supported_queries"]
 ALIAS = "이 회사의 재무 상태와 납기 지표를 알려줘"
 
-# Explicit expectations prevent the HTTP status mapping from being its own oracle.
-RECORDED_CASES = [
-    ("01_law_article.json", "COMPLETED", None),
-    ("02_parallel_suppliers.json", "COMPLETED", None),
-    ("03_rank_then_law.json", "COMPLETED", None),
-    ("04_business_wording.json", "COMPLETED", None),
-    ("05_offer_check.json", "COMPLETED", None),
-    ("06_general_knowledge.json", "COMPLETED", None),
-    ("07_number_needs_grounding.json", "COMPLETED", None),
-    ("08_assumption_instead_of_clarify.json", "COMPLETED", None),
-    ("09_clarify.json", "NEEDS_INPUT", None),
-    ("10_out_of_scope.json", "COMPLETED", None),
-    ("11_failed.json", "FAILED", "DECOMPOSITION_FAILED"),
-]
 V2_ROUTES = [
     ("GET", CATALOG, CATALOG),
     ("GET", SEARCH, SEARCH),
@@ -80,7 +60,6 @@ def forbid_external_calls(monkeypatch):
         monkeypatch.setattr(socket.socket, name, forbidden)
     monkeypatch.setattr(socket, "create_connection", forbidden)
     monkeypatch.setattr(socket, "getaddrinfo", forbidden)
-    monkeypatch.setattr(execution, "make_live_decomposer", forbidden)
     yield
     # Application error handlers must not turn an attempted connection into a
     # passing test merely because that case happens to expect HTTP 500.
@@ -125,10 +104,10 @@ def assert_error_wire(response, contract, path, method, status, code, request_id
     return data
 
 
-def app_for(*, mode="stub", service=None, decomposer=None, caller=None):
+def app_for(*, mode="stub", service=None):
     return create_app(
         settings=ApiSettings(mode=mode, internal_api_key=API_KEY, request_timeout_seconds=1),
-        decomposer=decomposer, caller=caller, supplier_chat_service=service,
+        supplier_chat_service=service,
     )
 
 
@@ -137,42 +116,6 @@ async def request(app, method, path, *, headers=None, **kwargs):
         transport=httpx.ASGITransport(app=app, raise_app_exceptions=False), base_url="http://asgi.test",
     ) as client:
         return await client.request(method, path, headers=HEADERS if headers is None else headers, **kwargs)
-
-
-class StaticDecomposer:
-    def __init__(self, result=None, error=None):
-        self.result = result
-        self.error = error
-
-    async def decompose(self, query, history=None):
-        if self.error is not None:
-            raise self.error
-        return self.result.model_copy(deep=True)
-
-
-async def unused_tool(*args, **kwargs):
-    pytest.fail("A fixture response must not invoke any tool")
-
-
-def recorded_app(monkeypatch, fixture_name, *, reference_error=False):
-    recorded = json.loads((FIXTURE_DIR / "routing" / fixture_name).read_text(encoding="utf-8"))
-    source = json.loads((FIXTURE_DIR / recorded["decomposition"]).read_text(encoding="utf-8"))
-    decomposition = DecompositionResult.model_validate(source["expected"])
-    routed = deepcopy(recorded["routing"])
-    if reference_error:
-        routed["outcomes"][0]["referenced_articles"][0].update(
-            result=None, error="Reference lookup unavailable",
-        )
-
-    class RecordedRouter:
-        async def route(self, actual_decomposition):
-            assert actual_decomposition == decomposition
-            return RouteResult.model_validate(deepcopy(routed))
-
-    monkeypatch.setattr(execution, "Router", lambda caller: RecordedRouter())
-    app = app_for(mode="live", decomposer=StaticDecomposer(decomposition), caller=unused_tool)
-    payload = {"request_id": str(uuid4()), "query": source["query"], "history": []}
-    return app, payload, routed
 
 
 def chat_payload(*, query=None, selected=None, **overrides):
@@ -193,97 +136,6 @@ def route_arguments(method, path):
 async def test_health_matches_fixed_openapi_without_external_dependencies(mode):
     response = await request(app_for(mode=mode), "GET", "/health", headers={})
     assert assert_wire(response, V1, "/health", "GET") == {"status": "ok"}
-
-
-@pytest.mark.parametrize(("fixture_name", "expected_status", "error_code"), RECORDED_CASES)
-async def test_recorded_routing_is_serialized_against_fixed_v1_openapi(
-    monkeypatch, fixture_name, expected_status, error_code,
-):
-    app, payload, recorded = recorded_app(monkeypatch, fixture_name)
-    response = await request(app, "POST", QUERY, json=payload)
-    data = assert_wire(response, V1, QUERY)
-    assert data["request_id"] == payload["request_id"]
-    assert data["execution_status"] == expected_status
-    assert data["routing"]["schema_version"] == recorded["schema_version"]
-    assert [item["status"] for item in data["routing"]["outcomes"]] == [
-        item["status"] for item in recorded["outcomes"]
-    ]
-    assert [len(item["referenced_articles"]) for item in data["routing"]["outcomes"]] == [
-        len(item["referenced_articles"]) for item in recorded["outcomes"]
-    ]
-    if error_code is None:
-        assert data["error"] is None
-    else:
-        assert data["error"]["code"] == error_code
-        assert data["error"]["retryable"] is False
-
-
-@pytest.mark.parametrize(("fixture_name", "expected_status", "error_code"), [
-    RECORDED_CASES[0], RECORDED_CASES[8], RECORDED_CASES[10],
-])
-async def test_builtin_stub_responses_match_fixed_v1_openapi(fixture_name, expected_status, error_code):
-    source = json.loads((FIXTURE_DIR / "decomposition" / fixture_name).read_text(encoding="utf-8"))
-    payload = {"request_id": str(uuid4()), "query": source["query"]}
-    data = assert_wire(await request(app_for(), "POST", QUERY, json=payload), V1, QUERY)
-    assert data["mode"] == "stub"
-    assert data["execution_status"] == expected_status
-    assert data["request_id"] == payload["request_id"]
-    assert (data["error"]["code"] if data["error"] else None) == error_code
-
-
-async def test_reference_lookup_error_remains_a_completed_v1_response(monkeypatch):
-    app, payload, _ = recorded_app(monkeypatch, "05_offer_check.json", reference_error=True)
-    data = assert_wire(await request(app, "POST", QUERY, json=payload), V1, QUERY)
-    assert data["execution_status"] == "COMPLETED" and data["error"] is None
-    outcome = data["routing"]["outcomes"][0]
-    assert outcome["status"] == "ok"
-    assert outcome["referenced_articles"][0]["error"] is not None
-
-
-@pytest.mark.parametrize("mutation", ["routing_version", "references", "retired_status", "wrong_execution"])
-async def test_fixed_v1_schema_rejects_legacy_or_contradictory_response(monkeypatch, mutation):
-    app, payload, _ = recorded_app(monkeypatch, "06_general_knowledge.json")
-    data = assert_wire(await request(app, "POST", QUERY, json=payload), V1, QUERY)
-    invalid = deepcopy(data)
-    if mutation == "routing_version":
-        del invalid["routing"]["schema_version"]
-    elif mutation == "references":
-        del invalid["routing"]["outcomes"][0]["referenced_articles"]
-    elif mutation == "retired_status":
-        invalid["routing"]["outcomes"][0]["status"] = "no_tool"
-    else:
-        invalid["execution_status"] = "NEEDS_INPUT"
-    assert not response_validator(V1, QUERY, "POST", 200).is_valid(invalid)
-
-
-@pytest.mark.parametrize(("status", "code", "retryable", "failure"), [
-    (503, "UPSTREAM_UNAVAILABLE", True, execution.ModelUnavailable(PRIVATE_MARKER)),
-    (504, "UPSTREAM_TIMEOUT", True, TimeoutError(PRIVATE_MARKER)),
-    (500, "INTERNAL_ERROR", False, RuntimeError(PRIVATE_MARKER)),
-])
-async def test_v1_execution_errors_match_fixed_openapi(status, code, retryable, failure):
-    app = app_for(mode="live", decomposer=StaticDecomposer(error=failure), caller=unused_tool)
-    payload = {"request_id": str(uuid4()), "query": "test failure"}
-    response = await request(app, "POST", QUERY, json=payload)
-    assert_error_wire(response, V1, QUERY, "POST", status, code, payload["request_id"], retryable)
-
-
-@pytest.mark.parametrize("headers", [{}, {"X-Internal-Api-Key": "wrong-test-key"}])
-async def test_v1_authentication_errors_match_fixed_openapi(headers):
-    payload = {"request_id": str(uuid4()), "query": QUESTIONS[0]}
-    response = await request(app_for(), "POST", QUERY, headers=headers, json=payload)
-    assert_error_wire(response, V1, QUERY, "POST", 401, "UNAUTHORIZED", payload["request_id"])
-
-
-@pytest.mark.parametrize("override", [
-    {"query": " "}, {"query": "x" * 4001}, {"history": [{"role": "user", "content": "test"}] * 21},
-    {"unknown": PRIVATE_MARKER}, {"request_id": "invalid"},
-])
-async def test_v1_validation_errors_match_fixed_openapi(override):
-    payload = {"request_id": str(uuid4()), "query": "하도급법 제4조 보여줘"} | override
-    response = await request(app_for(), "POST", QUERY, json=payload)
-    request_id = None if override.get("request_id") == "invalid" else payload["request_id"]
-    assert_error_wire(response, V1, QUERY, "POST", 400, "VALIDATION_ERROR", request_id)
 
 
 async def test_catalog_matches_fixed_openapi_and_shared_supplier_fixture():
@@ -413,7 +265,7 @@ async def test_chat_validation_errors_match_fixed_v2_openapi(override):
     assert_error_wire(response, V2, CHAT, "POST", 400, "VALIDATION_ERROR", request_id)
 
 
-@pytest.mark.parametrize(("contract", "path"), [(V1, QUERY), (V2, CHAT)])
+@pytest.mark.parametrize(("contract", "path"), [(V2, CHAT)])
 async def test_malformed_json_matches_fixed_error_contract(contract, path):
     response = await request(app_for(), "POST", path, content='{"private-openapi-test-detail":',
                              headers=HEADERS | {"Content-Type": "application/json"})
