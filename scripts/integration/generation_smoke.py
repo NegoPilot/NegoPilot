@@ -27,7 +27,7 @@ import time
 from typing import Any
 import uuid
 
-from http_smoke import ROOT, Process, Smoke, child_environment, request, require, unused_port
+from smoke_common import ROOT, Process, Smoke, child_environment, request, require, unused_port
 
 INTERNAL = "/internal/v2/query-executions"
 PUBLIC = "/api/v2/agent/queries"
@@ -326,26 +326,6 @@ class GenerationSmoke(Smoke):
     def __init__(self, jar: Path):
         super().__init__(jar)
         self.used_ports.update({5173, 8080, 9200})
-        self.cleanup_started = False
-
-    def close(self):
-        if self.cleanup_started:
-            return
-        self.cleanup_started = True
-        # One failed child cleanup must not skip the other owned groups or the
-        # relay. Retain every cleanup failure in the final result.
-        for process in reversed(self.processes):
-            try:
-                process.close()
-            except Exception as error:
-                self.results.append({"name": "cleanup." + process.label, "status": "FAIL",
-                                     "detail": f"{type(error).__name__}: {str(error).replace(self.key, '[REDACTED]')}"})
-        if self.relay is not None:
-            try:
-                self.relay.close()
-            except Exception as error:
-                self.results.append({"name": "cleanup.relay", "status": "FAIL",
-                                     "detail": f"{type(error).__name__}: {str(error).replace(self.key, '[REDACTED]')}"})
 
     def start_fixture_python(self) -> int:
         port = unused_port(self.used_ports)
