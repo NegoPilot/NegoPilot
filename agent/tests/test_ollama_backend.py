@@ -118,7 +118,7 @@ async def execute(*, timeout=30):
     app = create_app(settings=ApiSettings(mode="live", internal_api_key="test-key", request_timeout_seconds=timeout),
                      generation_caller=GenerationStubToolCaller())
     async with ORIGINAL_CLIENT(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
-        return await client.post("/internal/v2/query-executions", headers={"X-Internal-Api-Key": "test-key"},
+        return await client.post("/internal/query-executions", headers={"X-Internal-Api-Key": "test-key"},
                                  json={"request_id": str(uuid4()), "query": FIXTURE["query"]})
 
 

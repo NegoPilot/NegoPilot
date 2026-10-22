@@ -1,4 +1,4 @@
-"""v2 live supplier lookup through business-mcp. A fake MCP session replaces the server and DB."""
+"""Live supplier lookup through business-mcp. A fake MCP session replaces the server and DB."""
 
 import socket
 import json
@@ -15,8 +15,8 @@ from negopilot_agent.api.settings import ApiSettings
 
 API_KEY = "test-only-live-lookup-key"
 HEADERS = {"X-Internal-Api-Key": API_KEY}
-CATALOG = "/internal/v2/business/catalog"
-SEARCH = "/internal/v2/suppliers"
+CATALOG = "/internal/business/catalog"
+SEARCH = "/internal/suppliers"
 
 CATALOG_RESOURCE = {
     "processes": {"다이캐스팅": ["A380", "ADC12"], "프레스": ["SPCC"], "사출": [], "단조": [], "CNC가공": []},
@@ -325,7 +325,7 @@ async def test_business_mcp_failure_is_retryable_unavailable(path, params):
 
 
 @pytest.mark.parametrize("mode", ["stub", "live"])
-async def test_v2_reads_business_mcp_in_either_execution_mode(mode):
+async def test_lookup_reads_business_mcp_in_either_execution_mode(mode):
     business = FakeBusiness()
     data = live_data(await get(live_app(business, mode), SEARCH + "/SUP-0001"))
     assert data["supplier_id"] == "SUP-0001"
@@ -386,7 +386,7 @@ async def test_search_accepts_string_length_boundary_after_trimming():
     ("foo%2Fbar", HEADERS, 400, "VALIDATION_ERROR"),
     ("foo/bar", {}, 401, "UNAUTHORIZED"),
 ])
-async def test_v2_slash_supplier_path_is_rejected_after_authentication(suffix, headers, status, code):
+async def test_slash_supplier_path_is_rejected_after_authentication(suffix, headers, status, code):
     business = FakeBusiness()
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=live_app(business)),
                                  base_url="http://test") as client:

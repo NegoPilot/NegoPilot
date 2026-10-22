@@ -13,7 +13,7 @@ Agent 요청과 실행 응답 및 `/health`의 정적 스키마는 [OpenAPI v0.3
 | 경로 | 역할 |
 | --- | --- |
 | POST /api/agent/queries | Spring의 상태 없는 생성 답변 API |
-| POST /internal/v2/query-executions | Python의 전체 Agent 실행 |
+| POST /internal/query-executions | Python의 전체 Agent 실행 |
 | POST /api/conversations | 기본 실행은 PostgreSQL 대화 생성. 상세는 이력 v0.4 계약 |
 | GET /api/conversations/{conversation_id} | 대화 문맥과 저장 메시지 조회. 상세는 이력 v0.4 계약 |
 | POST /api/conversations/{conversation_id}/messages | 저장 문맥과 이력으로 생성 답변 요청 |

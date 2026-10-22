@@ -33,7 +33,7 @@ import tools.jackson.databind.node.ObjectNode;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class AdminLawGatewayHttpTest {
-    private static final String ROOT = "/internal/v1/admin/laws";
+    private static final String ROOT = "/internal/admin/laws";
     private static final String KEY = "private-test-law-key";
     private static final String COMMIT = "a".repeat(40);
     private static final String VERSION = "2026-01-01_" + COMMIT;

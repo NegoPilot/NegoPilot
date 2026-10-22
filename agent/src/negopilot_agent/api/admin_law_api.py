@@ -9,6 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from negopilot_agent.routing.mcp_client import McpToolCaller
 
+from .paths import ADMIN_LAWS
+
 
 class LawReadModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -134,19 +136,19 @@ def add_admin_law_routes(app: FastAPI, settings, authenticate, error_response, c
 
     deps = [Depends(authenticate)]
 
-    @app.get("/internal/v1/admin/laws", dependencies=deps)
+    @app.get(ADMIN_LAWS, dependencies=deps)
     async def catalog(request: Request):
         return await run(request, "admin_law_catalog", {}, LawCatalog)
 
-    @app.get("/internal/v1/admin/laws/{law_key}/versions", dependencies=deps)
+    @app.get(ADMIN_LAWS + "/{law_key}/versions", dependencies=deps)
     async def versions(law_key: str, request: Request):
         return await run(request, "admin_law_versions", {"law_key": law_key}, LawVersions)
 
-    @app.get("/internal/v1/admin/laws/{law_key}/versions/{version_id}/articles", dependencies=deps)
+    @app.get(ADMIN_LAWS + "/{law_key}/versions/{version_id}/articles", dependencies=deps)
     async def articles(law_key: str, version_id: str, request: Request):
         return await run(request, "admin_law_articles", {"law_key": law_key, "version_id": version_id}, ArticlePage, True)
 
-    @app.get("/internal/v1/admin/laws/{law_key}/versions/{version_id}/articles/{article_no}", dependencies=deps)
+    @app.get(ADMIN_LAWS + "/{law_key}/versions/{version_id}/articles/{article_no}", dependencies=deps)
     async def article(law_key: str, version_id: str, article_no: str, request: Request):
         return await run(request, "admin_law_article", {"law_key": law_key, "version_id": version_id,
                                                        "article_no": article_no}, ArticleDetail)

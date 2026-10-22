@@ -31,7 +31,7 @@ import uuid
 
 from smoke_common import ROOT, Process, Smoke, SpringSession, child_environment, request, require, unused_port
 
-INTERNAL = "/internal/v2/query-executions"
+INTERNAL = "/internal/query-executions"
 PUBLIC = "/api/agent/queries"
 CONVERSATIONS = "/api/conversations"
 CONTRACT = ROOT / "docs/contracts/agent-generation.openapi.json"

@@ -1,4 +1,4 @@
-"""Live supplier lookup backed by business-mcp (PostgreSQL) for the v2 lookup routes."""
+"""Live supplier lookup backed by business-mcp (PostgreSQL) for the internal lookup routes."""
 
 import json
 import os

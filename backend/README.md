@@ -15,7 +15,7 @@ Java 21과 Spring Boot 4.1.1을 사용한다. 기본 실행은 PostgreSQL에 회
 | 협력사 조회 | [supplier-lookup.md](../docs/contracts/supplier-lookup.md) | `/api/business/catalog` 및 `/api/suppliers` |
 | 협력사 관리 | [admin-suppliers.md](../docs/contracts/admin-suppliers.md) | `/api/admin/suppliers` |
 | 데이터 현황과 법령 버전 및 최신화 | [admin-laws.md](../docs/contracts/admin-laws.md) | `/api/admin/data/summary` 및 `/api/admin/laws` |
-| Agent 실행 응답 | [agent-generation.md](../docs/contracts/agent-generation.md) | `/internal/v2/query-executions` |
+| Agent 실행 응답 | [agent-generation.md](../docs/contracts/agent-generation.md) | `/internal/query-executions` |
 
 일반 업무 API는 ACTIVE 회원만 사용한다. 관리자 API는 ACTIVE ADMIN만 사용한다. 관리자도 다른 회원의 채팅은 읽을 수 없다. 회원 제거는 비활성화와 세션 폐기로 처리한다. 개인 대화 삭제는 메시지와 저장 응답 및 근거까지 물리 삭제한다.
 

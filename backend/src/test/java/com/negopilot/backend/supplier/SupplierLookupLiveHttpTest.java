@@ -99,8 +99,8 @@ class SupplierLookupLiveHttpTest {
         var detail = get("/api/suppliers/SUP-0001");
         assertThat(detail.statusCode()).as(detail.body()).isEqualTo(200);
         assertThat(body(detail).path("data").path("provenance").path("profile").stringValue()).isEqualTo("DART");
-        assertThat(PATHS).containsExactly("/internal/v2/business/catalog", "/internal/v2/suppliers",
-                "/internal/v2/suppliers/SUP-0001");
+        assertThat(PATHS).containsExactly("/internal/business/catalog", "/internal/suppliers",
+                "/internal/suppliers/SUP-0001");
     }
 
     @ParameterizedTest
@@ -167,7 +167,7 @@ class SupplierLookupLiveHttpTest {
         var response = get("/api/suppliers/SUP-10000");
         assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
         assertThat(body(response).at("/data/supplier_id").stringValue()).isEqualTo("SUP-10000");
-        assertThat(PATHS).containsExactly("/internal/v2/suppliers/SUP-10000");
+        assertThat(PATHS).containsExactly("/internal/suppliers/SUP-10000");
     }
 
     @ParameterizedTest
@@ -246,8 +246,8 @@ class SupplierLookupLiveHttpTest {
                         .put("retryable", true);
             } else {
                 body = switch (path) {
-                    case "/internal/v2/business/catalog" -> catalog();
-                    case "/internal/v2/suppliers" -> search();
+                    case "/internal/business/catalog" -> catalog();
+                    case "/internal/suppliers" -> search();
                     default -> detail();
                 };
                 CORRUPT.get().accept(body);

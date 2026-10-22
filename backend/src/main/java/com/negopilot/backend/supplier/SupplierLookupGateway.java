@@ -1,10 +1,11 @@
 package com.negopilot.backend.supplier;
 
+import com.negopilot.backend.common.http.InternalPaths;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 
-/** Live business-mcp lookup through the Python /internal/v2 routes. */
+/** Live business-mcp lookup through the Python internal routes. */
 @Service
 final class SupplierLookupGateway {
     private final SupplierGatewayClient client;
@@ -16,16 +17,16 @@ final class SupplierLookupGateway {
     }
 
     JsonNode catalog(UUID requestId) {
-        return client.get("/internal/v2/business/catalog", requestId, validator::validateCatalog);
+        return client.get(InternalPaths.BUSINESS_CATALOG, requestId, validator::validateCatalog);
     }
 
     JsonNode search(JsonNode filters, UUID requestId) {
-        return client.search("/internal/v2/suppliers", filters, requestId,
+        return client.search(InternalPaths.SUPPLIERS, filters, requestId,
                 body -> validator.validateSearch(body, filters));
     }
 
     JsonNode detail(String supplierId, UUID requestId) {
-        return client.detail("/internal/v2/suppliers/", supplierId, requestId,
+        return client.detail(InternalPaths.SUPPLIERS + "/", supplierId, requestId,
                 body -> validator.validateDetail(body, supplierId));
     }
 }

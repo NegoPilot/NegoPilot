@@ -28,7 +28,7 @@ def client(law_server):
 
 
 HEADERS = {"X-Internal-Api-Key": "test-only-key"}
-ROOT = "/internal/v1/admin/laws"
+ROOT = "/internal/admin/laws"
 
 
 def test_reads_loaded_catalog_exact_versions_and_articles(client, law_server):

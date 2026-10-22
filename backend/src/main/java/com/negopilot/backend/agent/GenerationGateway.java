@@ -3,6 +3,7 @@ package com.negopilot.backend.agent;
 import com.negopilot.backend.common.api.ApiException;
 import com.negopilot.backend.common.api.RequestIds;
 import com.negopilot.backend.common.http.AgentHttpTransport;
+import com.negopilot.backend.common.http.InternalPaths;
 
 import java.util.Set;
 import java.util.UUID;
@@ -22,7 +23,7 @@ public final class GenerationGateway {
     }
 
     public JsonNode execute(UUID requestId, ObjectNode body) {
-        return transport.exchange(HttpMethod.POST, transport.uri("/internal/v2/query-executions"),
+        return transport.exchange(HttpMethod.POST, transport.uri(InternalPaths.QUERY_EXECUTIONS),
                 body, requestId, Set.of(200, 400, 500, 503, 504), (status, result) -> {
                     if (status == 200) {
                         try {

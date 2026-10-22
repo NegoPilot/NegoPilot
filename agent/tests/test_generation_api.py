@@ -29,7 +29,7 @@ from negopilot_agent.routing import Router
 
 
 FIXTURES = Path(__file__).resolve().parents[2] / "shared" / "fixtures"
-ENDPOINT = "/internal/v2/query-executions"
+ENDPOINT = "/internal/query-executions"
 API_KEY = "generation-test-key"
 HEADERS = {"X-Internal-Api-Key": API_KEY}
 SECRET = "PRIVATE-UPSTREAM-DETAIL-key=secret https://internal.invalid/private"

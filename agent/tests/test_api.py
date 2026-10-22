@@ -10,12 +10,18 @@ from negopilot_agent.api.settings import ApiSettings
 
 API_KEY = "test-only-internal-key"
 HEADERS = {"X-Internal-Api-Key": API_KEY}
-REMOVED_V1_ROUTES = [
+REMOVED_VERSIONED_ROUTES = [
     ("POST", "/internal/v1/query-executions"),
     ("GET", "/internal/v1/business/catalog"),
     ("GET", "/internal/v1/suppliers"),
     ("GET", "/internal/v1/suppliers/SUP-0034"),
     ("POST", "/internal/v1/chat/responses"),
+    ("GET", "/internal/v1/admin/laws"),
+    ("GET", "/internal/v1/admin/laws/refresh-jobs"),
+    ("POST", "/internal/v2/query-executions"),
+    ("GET", "/internal/v2/business/catalog"),
+    ("GET", "/internal/v2/suppliers"),
+    ("GET", "/internal/v2/suppliers/SUP-0034"),
 ]
 
 
@@ -46,7 +52,7 @@ async def test_health_is_available_without_key_or_upstream(mode):
 
 
 async def test_malformed_json_does_not_echo_request_or_stack(caplog):
-    response = await send(create_app(settings=settings()), "POST", "/internal/v2/query-executions",
+    response = await send(create_app(settings=settings()), "POST", "/internal/query-executions",
                           content='{"query": "private-body-marker"',
                           headers=HEADERS | {"Content-Type": "application/json"})
     assert response.status_code == 400
@@ -56,16 +62,16 @@ async def test_malformed_json_does_not_echo_request_or_stack(caplog):
 
 
 @pytest.mark.parametrize("mode", ["live", "stub"])
-@pytest.mark.parametrize(("method", "path"), REMOVED_V1_ROUTES)
-async def test_removed_v1_business_routes_are_not_registered(mode, method, path):
+@pytest.mark.parametrize(("method", "path"), REMOVED_VERSIONED_ROUTES)
+async def test_versioned_internal_routes_are_not_registered(mode, method, path):
     response = await send(create_app(settings=settings(mode=mode)), method, path, headers=HEADERS)
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
-def test_only_admin_law_routes_remain_under_internal_v1():
+def test_internal_routes_carry_no_version():
     # The OpenAPI path list also covers routes registered through included routers.
-    paths = set(create_app(settings=settings()).openapi()["paths"])
-    v1 = {path for path in paths if path.startswith("/internal/v1/")}
-    assert v1 and all(path.startswith("/internal/v1/admin/laws") for path in v1)
-    assert {"/internal/v2/query-executions", "/internal/v2/suppliers"} <= paths
+    paths = set(create_app(settings=settings()).openapi()["paths"]) - {"/health"}
+    assert paths and all(path.startswith("/internal/") for path in paths)
+    assert not any(path.startswith(("/internal/v1/", "/internal/v2/")) for path in paths)
+    assert {"/internal/query-executions", "/internal/suppliers", "/internal/admin/laws"} <= paths

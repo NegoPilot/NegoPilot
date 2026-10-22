@@ -89,7 +89,7 @@
         }
       ]
     },
-    "/internal/v2/query-executions": {
+    "/internal/query-executions": {
       "post": {
         "operationId": "generateInternalAnswer",
         "security": [

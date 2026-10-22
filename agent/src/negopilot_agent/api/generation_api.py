@@ -16,6 +16,7 @@ from .execution import ModelUnavailable
 from .generation_execution import ContextDecomposer, GenerationExecutor
 from .generation_models import GenerationExecutionRequest, GenerationExecutionResponse
 from .models import ErrorResponse
+from .paths import QUERY_EXECUTIONS
 from .settings import ApiSettings
 from .stubs import UnsupportedStubQuery
 
@@ -26,7 +27,7 @@ def add_generation_routes(application: FastAPI, settings: ApiSettings, authentic
     executor = GenerationExecutor(settings, decomposer=decomposer, caller=caller, backend=backend)
 
     @application.post(
-        "/internal/v2/query-executions", response_model=GenerationExecutionResponse,
+        QUERY_EXECUTIONS, response_model=GenerationExecutionResponse,
         dependencies=[Depends(authenticate)],
         responses={status: {"model": ErrorResponse} for status in (400, 401, 500, 503, 504)},
     )

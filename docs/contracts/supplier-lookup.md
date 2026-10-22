@@ -4,13 +4,13 @@
 
 ## 범위와 책임
 
-연결 흐름은 Vue → Spring → Python FastAPI → business-mcp 순서다. 조회 경로는 AGENT_EXECUTION_MODE와 관계없이 항상 business-mcp를 읽으며 모델을 호출하지 않는다. 대화 경로는 이 계약에 포함하지 않는다. 과거 fixture 기반 v1 조회 경로(`/api/suppliers`, `/internal/v1/suppliers` 등)는 #130과 #141에서 제거됐다.
+연결 흐름은 Vue → Spring → Python FastAPI → business-mcp 순서다. 조회 경로는 AGENT_EXECUTION_MODE와 관계없이 항상 business-mcp를 읽으며 모델을 호출하지 않는다. 대화 경로는 이 계약에 포함하지 않는다. 과거 fixture 기반 v1 조회 경로(`/api/v1/suppliers`, `/internal/v1/suppliers` 등)는 #130과 #141에서 제거됐다.
 
 | Spring 공개 경로 | Python 내부 경로 | 응답 data |
 | --- | --- | --- |
-| GET /api/business/catalog | GET /internal/v2/business/catalog | processes와 regions |
-| GET /api/suppliers | GET /internal/v2/suppliers | items와 returned_count 및 limit |
-| GET /api/suppliers/{supplier_id} | GET /internal/v2/suppliers/{supplier_id} | SupplierDetail |
+| GET /api/business/catalog | GET /internal/business/catalog | processes와 regions |
+| GET /api/suppliers | GET /internal/suppliers | items와 returned_count 및 limit |
+| GET /api/suppliers/{supplier_id} | GET /internal/suppliers/{supplier_id} | SupplierDetail |
 
 조회 성공 응답은 `{schema_version:"0.3",mode:"live",data:{...}}`다. 오류 응답은 `{request_id,error:{code,message,retryable}}`다.
 
