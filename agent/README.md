@@ -182,11 +182,11 @@ uv run python scripts/bench_latency.py --set validation             # 전체 그
 측정은 `negopilot_agent.timing.collect()` 안에서만 기록되고, v2 HTTP API는 요청마다 같은 요약을 `negopilot_agent.api.generation_execution` 로거(INFO)에 남깁니다.
 
 Generation 평가는 `shared/fixtures/routing` 11개를 입력으로 쓰고, 정답은 [`eval_data/generation_gold.json`](eval_data/generation_gold.json)에 있습니다 (기대 답변 종류, 근거에 꼭 있어야 할 문구, 답변에 담길 정답 포인트).
-`--set validation`은 [`eval_data/generation_validation/`](eval_data/generation_validation/) 12개(질문, 정답 분해 결과, 실제 MCP Routing 결과를 한 파일에)를 입력으로, [`eval_data/generation_validation_gold.json`](eval_data/generation_validation_gold.json)을 정답으로 씁니다. 분해 검증 세트와 같이 점수만 보고, 오답을 보고 프롬프트를 고치지 않습니다.
+`--set validation`은 [`eval_data/generation_validation/`](eval_data/generation_validation/) 15개(질문, 정답 분해 결과, 실제 MCP Routing 결과를 한 파일에)를 입력으로, [`eval_data/generation_validation_gold.json`](eval_data/generation_validation_gold.json)을 정답으로 씁니다. 분해 검증 세트와 같이 점수만 보고, 오답을 보고 프롬프트를 고치지 않습니다.
 `--offline`은 모델 없이 근거 포함률과 프롬프트 크기만 재고, 기본 모드는 답변 종류, 첫 시도 근거 검사 통과율, 재생성·가림 비율, 정답 포인트 커버율과 근거 없는 주장 수(gpt-4.1-mini 채점), 생성 시간을 잽니다.
 
 평가는 fixture의 질문을 넣고 상태, 하위 질문 개수, intent, 엔티티, 의존 관계를 기대 결과와 비교합니다.
-`--set dev`(기본, `shared/fixtures/decomposition` 11개)는 프롬프트를 고칠 때 보는 개발용이고, `--set validation`(`shared/fixtures/validation` 50개)은 점수만 확인하는 검증용입니다. 검증 세트의 오답을 보고 프롬프트를 고치지 않습니다.
+`--set dev`(기본, `shared/fixtures/decomposition` 11개)는 프롬프트를 고칠 때 보는 개발용이고, `--set validation`(`shared/fixtures/validation` 53개)은 점수만 확인하는 검증용입니다. 검증 세트의 오답을 보고 프롬프트를 고치지 않습니다.
 temperature 0이어도 결과가 흔들리므로 변경 전후를 비교할 때는 `--repeat 3` 이상을 씁니다.
 원본 결과는 `eval_results/`(git 제외)에 저장되고, 공유할 결과는 [`eval_reports/`](eval_reports/)에 정리합니다.
 프롬프트·모델·effort를 바꾸면 다시 돌려 전후를 비교하세요.
@@ -199,6 +199,7 @@ temperature 0이어도 결과가 흔들리므로 변경 전후를 비교할 때�
 | 2026-10-21 | gpt-4.1-mini (#72 프롬프트 보강) | 검증용 79% → **94~97%**, 개발용 21개 67% → 90% (3회 평균) | PR 본문 |
 | 2026-10-21 | gpt-4.1-mini (#98 간결한 출력 형식) | 정확도 유지, 분해 시간 2.58초 → 1.66초, 출력 토큰 518 → 344 | PR 본문 |
 | 2026-10-21 | gpt-4.1-mini (#114 검증 세트 50개로 확대) | 검증용 50개 92% | PR 본문 |
+| 2026-10-22 | gpt-4.1-mini (#151 check_offer v2 사례 3개 추가) | 검증용 53개 94% (1회), 새 사례 3/3 | [2026-10-22_check-offer-v2-pipeline.md](eval_reports/2026-10-22_check-offer-v2-pipeline.md) |
 
 프롬프트 예시는 개발용·검증용 fixture와 겹치지 않게 따로 두었습니다 (테스트로 확인).
 
