@@ -23,7 +23,7 @@ from tests.test_supplier_lookup_live import FakeBusiness
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_DIR = ROOT / "docs" / "contracts"
 GENERATION = "agent-generation.openapi.json"
-LOOKUP_V2 = "supplier-lookup.openapi.json"
+LOOKUP = "supplier-lookup.openapi.json"
 API_KEY = "test-only-openapi-key"
 HEADERS = {"X-Internal-Api-Key": API_KEY}
 PRIVATE_MARKER = "private-openapi-test-detail"
@@ -115,7 +115,7 @@ async def test_v2_live_lookups_match_fixed_contract(mode, path, params):
     )
     response = await request(app, "GET", path, params=params)
     schema_path = "/internal/suppliers/{supplier_id}" if path.endswith("SUP-0001") else path
-    data = assert_wire(response, LOOKUP_V2, schema_path, "GET")
+    data = assert_wire(response, LOOKUP, schema_path, "GET")
     assert (data["schema_version"], data["mode"]) == ("0.3", "live")
 
 
@@ -125,5 +125,5 @@ async def test_v2_live_lookup_errors_match_fixed_contract():
         supplier_lookup_service=BusinessSupplierService(session=FakeBusiness(failure=RuntimeError("x")).session),
     )
     response = await request(app, "GET", "/internal/business/catalog")
-    assert_error_wire(response, LOOKUP_V2, "/internal/business/catalog", "GET", 503,
+    assert_error_wire(response, LOOKUP, "/internal/business/catalog", "GET", 503,
                       "UPSTREAM_UNAVAILABLE", retryable=True)
