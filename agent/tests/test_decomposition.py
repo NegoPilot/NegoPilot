@@ -457,3 +457,42 @@ def test_unclear_select_is_left_for_validation():
     for value in ("first", "top", "top(0)", "best3"):
         text = json.dumps({"sub_queries": [{"inputs": [{"slot": "supplier", "from": "q1", "select": value}]}]})
         assert normalize_select(text) == text
+
+
+# ---------- 질문에 없는 ID (#143) ----------
+
+def offer_output(supplier: str, rfq_id: str = "RFQ-2026-001", assumptions: list[str] | None = None) -> str:
+    data = json.loads(json.dumps(fixture("05")["expected"]))
+    data["sub_queries"][0]["entities"].update(supplier=supplier, rfq_id=rfq_id)
+    data["assumptions"] = assumptions or []
+    return json.dumps(data, ensure_ascii=False)
+
+
+async def test_invented_supplier_id_and_its_assumption_are_dropped():
+    """'우리 협력사'를 SUP-0001로 가정해 채운 값은 지운다. 그러면 Routing이 missing_args로 되묻는다."""
+    fake = FakeClaude(message_json(offer_output("SUP-0001", assumptions=["우리 협력사는 SUP-0001로 가정"])))
+    result = await fake.decomposer().decompose("우리 협력사에 RFQ-2026-001 단가 12,000원, 결제 75일, 연동 없이 괜찮아?")
+    assert len(fake.requests) == 1
+    assert result.sub_queries[0].entities.supplier is None
+    assert result.sub_queries[0].entities.rfq_id == "RFQ-2026-001"
+    assert result.assumptions == []
+
+
+async def test_invented_rfq_id_is_dropped():
+    fake = FakeClaude(message_json(offer_output("SUP-0003", rfq_id="RFQ-2026-009")))
+    result = await fake.decomposer().decompose("SUP-0003에 최근 RFQ로 단가 12,000원, 결제 75일, 연동 없이 괜찮아?")
+    assert (result.sub_queries[0].entities.supplier, result.sub_queries[0].entities.rfq_id) == ("SUP-0003", None)
+
+
+@pytest.mark.parametrize("query, history, context", [
+    ("SUP-3에 RFQ-2026-001 단가 12,000원, 결제 75일, 연동 없이 괜찮아?", None, None),        # 표기만 다른 같은 ID
+    ("2번 업체로 RFQ-2026-001 단가 12,000원, 결제 75일, 연동 없이 괜찮아?",
+     [{"role": "assistant", "content": "어느 업체인가요?\n1. 가상금속 (SUP-0097)\n2. 가상정밀 (SUP-0003)"}], None),
+    ("이 회사에 RFQ-2026-001 단가 12,000원, 결제 75일, 연동 없이 괜찮아?", None, {"selected_supplier_ids": ["SUP-0003"]}),
+], ids=["same_id_other_notation", "from_history_options", "from_selected_context"])
+async def test_ids_the_user_gave_are_kept(query, history, context):
+    fake = FakeClaude(message_json(offer_output("SUP-0003", assumptions=["SUP-0003 기준"])))
+    result = await fake.decomposer().decompose(query, history, **({"context": context} if context else {}))
+    assert result.sub_queries[0].entities.supplier == "SUP-0003"
+    assert result.assumptions == ["SUP-0003 기준"]
+
