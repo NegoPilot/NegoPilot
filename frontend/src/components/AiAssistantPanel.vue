@@ -414,7 +414,11 @@ function supplierSummary(res: GenerationResponse) {
         :disabled="sending || loading || !loaded"
         @keydown="onKeydown"
       />
-      <button class="send" type="submit" :disabled="!canSend">전송 ↑</button>
+      <button class="send" type="submit" aria-label="전송" title="전송" :disabled="!canSend">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" />
+        </svg>
+      </button>
     </form>
     </div>
   </aside>
@@ -751,16 +755,26 @@ function supplierSummary(res: GenerationResponse) {
   outline: 2px solid var(--primary);
   outline-offset: 1px;
 }
+/* 보낼 수 있을 때만 색을 채워 눌러도 되는 상태임을 보여 준다 */
 .send {
+  flex: none;
+  width: 28px;
+  height: 28px;
   border: 0;
-  background: none;
-  color: var(--primary);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.send:hover:not(:disabled) {
+  background: var(--primary-hover);
 }
 .send:disabled {
+  background: var(--border);
   color: var(--text-3);
   cursor: not-allowed;
 }
