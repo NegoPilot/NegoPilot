@@ -2,6 +2,8 @@
 
 Java 21과 Spring Boot 4.1.1을 사용한다. 기본 실행은 PostgreSQL에 회원과 로그인 세션 및 개인 채팅 이력을 저장한다. Python Agent의 분해와 Routing 및 Generation 응답 계약은 v0.3을 유지한다. 대화 목록과 저장 스냅샷은 v0.4다.
 
+기능별 파일 위치와 요청 흐름은 [백엔드 구조](../docs/BACKEND_STRUCTURE.md)에서 확인한다.
+
 ## API 명세
 
 | 영역 | 명세 | 주요 경로 |
