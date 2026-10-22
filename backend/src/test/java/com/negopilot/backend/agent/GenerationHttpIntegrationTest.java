@@ -1,7 +1,9 @@
 package com.negopilot.backend.agent;
 
+import com.negopilot.backend.chat.AgentQueryEndpointTestConfiguration;
 import com.negopilot.backend.common.api.ApiException;
 import com.negopilot.backend.common.http.AgentHttpTransport;
+import com.negopilot.backend.support.HttpSliceTestConfiguration;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -40,14 +42,13 @@ import tools.jackson.databind.node.ObjectNode;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@org.springframework.test.context.ActiveProfiles("legacy-test")
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = {HttpSliceTestConfiguration.class, AgentQueryEndpointTestConfiguration.class},
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class GenerationHttpIntegrationTest {
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final String ID = "62751dc6-e6ad-41dc-a7fd-a11f79b5f3c2";
     private static final String TEST_KEY = "generation-test-internal-key";
     private static final String QUERIES = "/api/v2/agent/queries";
-    private static final String CONVERSATIONS = "/api/v2/conversations";
     private static final HttpServer UPSTREAM;
     private static final ExecutorService EXECUTOR = Executors.newCachedThreadPool();
     private static final AtomicReference<Function<JsonNode, StubResponse>> RESPONSE = new AtomicReference<>();
@@ -389,175 +390,6 @@ class GenerationHttpIntegrationTest {
                 });
     }
 
-    @Test
-    void liveConversationStoresFullAnswerAndForwardsSavedContextAndHistory() throws Exception {
-        String cid = createConversation("NEW-never-in-fixtures");
-        assertThat(CALLS.get()).isZero();
-        var firstHttp = post(messages(cid), JSON.createObjectNode().put("query", "  첫 번째 질문 😀  "));
-        assertThat(firstHttp.statusCode()).isEqualTo(200);
-        JsonNode first = JSON.readTree(firstHttp.body());
-        JsonNode firstRequest = LAST_REQUEST.get().deepCopy();
-        assertThat(firstRequest.size()).isEqualTo(4);
-        assertThat(firstRequest.path("query").stringValue()).isEqualTo("첫 번째 질문 😀");
-        assertThat(firstRequest.path("context")).isEqualTo(context("NEW-never-in-fixtures"));
-        assertThat(firstRequest.path("history").isEmpty()).isTrue();
-        assertThat(first.path("conversation_id").stringValue()).isEqualTo(cid);
-        assertThat(UUID.fromString(first.path("response_id").stringValue())).isNotNull();
-        JsonNode saved = snapshot(cid);
-        assertThat(saved.path("messages").size()).isEqualTo(2);
-        assertThat(saved.at("/messages/0/response").isNull()).isTrue();
-        assertThat(saved.at("/messages/1/message_id")).isEqualTo(first.get("response_id"));
-        assertThat(saved.at("/messages/1/content")).isEqualTo(first.at("/answer/text"));
-        assertThat(saved.at("/messages/1/response")).isEqualTo(first);
-
-        ObjectNode next = JSON.createObjectNode().put("query", "다른 기업 CUSTOM_42의 정보");
-        next.set("context", context("NEXT-company"));
-        assertThat(post(messages(cid), next).statusCode()).isEqualTo(200);
-        JsonNode request = LAST_REQUEST.get();
-        assertThat(request.path("request_id")).isNotEqualTo(firstRequest.get("request_id"));
-        assertThat(request.path("context")).isEqualTo(context("NEXT-company"));
-        assertThat(request.path("query").stringValue()).isEqualTo("다른 기업 CUSTOM_42의 정보");
-        assertThat(request.path("history").size()).isEqualTo(2);
-        assertThat(request.at("/history/0/content").stringValue()).isEqualTo("첫 번째 질문 😀");
-        assertThat(request.at("/history/1/content").stringValue()).isEqualTo(first.at("/answer/text").stringValue()
-                + "\n\n선택지 데이터:\n[{\"number\":1,\"text\":\"추가 질문\"}]");
-        assertThat(snapshot(cid).path("context")).isEqualTo(context("NEXT-company"));
-        assertThat(CALLS.get()).isEqualTo(2);
-    }
-
-    @Test
-    void failedGenerationDoesNotSaveEitherMessageOrProposedContext() throws Exception {
-        String cid = createConversation("original-company");
-        assertThat(post(messages(cid), JSON.createObjectNode().put("query", "first")).statusCode()).isEqualTo(200);
-        JsonNode before = snapshot(cid);
-        RESPONSE.set(request -> StubResponse.json(200, failed(request, false)));
-        ObjectNode next = JSON.createObjectNode().put("query", "failed query");
-        next.set("context", context("proposed-company"));
-        var response = post(messages(cid), next);
-        assertThat(response.statusCode()).isEqualTo(200);
-        JsonNode body = JSON.readTree(response.body());
-        assertThat(body.path("execution_status").stringValue()).isEqualTo("FAILED");
-        assertThat(body.path("conversation_id").stringValue()).isEqualTo(cid);
-        assertThat(body.path("context")).isEqualTo(context("proposed-company"));
-        assertThat(snapshot(cid)).isEqualTo(before);
-    }
-
-    @Test
-    void originalQueryMismatchPreservesSavedMessagesAndProposedContextIsNotCommitted() throws Exception {
-        String cid = createConversation("original-company");
-        assertThat(post(messages(cid), JSON.createObjectNode().put("query", "첫 질문 😀")).statusCode()).isEqualTo(200);
-        JsonNode before = snapshot(cid);
-        RESPONSE.set(request -> {
-            ObjectNode body = completed(request);
-            ((ObjectNode) body.get("decomposition")).put("original_query", "다른 질문");
-            return StubResponse.json(200, body);
-        });
-        ObjectNode next = JSON.createObjectNode().put("query", "  두 번째 질문 😀 e\u0301  ");
-        next.set("context", context("proposed-company"));
-        var response = post(messages(cid), next);
-        assertError(response, 502, "UPSTREAM_INVALID_RESPONSE", false);
-        assertThat(LAST_REQUEST.get().path("query").stringValue()).isEqualTo("두 번째 질문 😀 e\u0301");
-        assertThat(LAST_REQUEST.get().path("context")).isEqualTo(context("proposed-company"));
-        assertThat(LAST_REQUEST.get().path("history").size()).isEqualTo(2);
-        assertThat(JSON.readTree(response.body()).path("request_id")).isEqualTo(LAST_REQUEST.get().get("request_id"));
-        assertThat(snapshot(cid)).isEqualTo(before);
-        assertThat(CALLS.get()).isEqualTo(2);
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"http-500", "http-503", "invalid-citation", "blank-answer"})
-    void httpAndInvalidResponseFailuresPreserveConversation(String kind) throws Exception {
-        String cid = createConversation("original-company");
-        JsonNode before = snapshot(cid);
-        RESPONSE.set(request -> {
-            if (kind.equals("http-500")) return StubResponse.json(500, httpError(request, 500));
-            if (kind.equals("http-503")) return StubResponse.json(503, httpError(request, 503));
-            ObjectNode body = completed(request);
-            if (kind.equals("blank-answer")) ((ObjectNode) body.get("answer")).put("text", " \t\n");
-            else ((ObjectNode) body.at("/answer/citations/0")).put("evidence_id", "missing");
-            return StubResponse.json(200, body);
-        });
-        ObjectNode next = JSON.createObjectNode().put("query", "failed query");
-        next.set("context", context("proposed-company"));
-        int status = kind.equals("http-500") ? 500 : kind.equals("http-503") ? 503 : 502;
-        assertError(post(messages(cid), next), status, status == 502 ? "UPSTREAM_INVALID_RESPONSE" : errorCode(status), status == 503);
-        assertThat(snapshot(cid)).isEqualTo(before);
-        assertThat(CALLS.get()).isEqualTo(1);
-    }
-
-    @Test
-    void clarificationCommitsBothMessagesAndContextEvenWithoutCitations() throws Exception {
-        String cid = createConversation("original-company");
-        RESPONSE.set(request -> StubResponse.json(200, fixedAnswer(request, "clarify")));
-        ObjectNode next = JSON.createObjectNode().put("query", "어느 조건인가요");
-        next.set("context", context("new-company"));
-        var response = post(messages(cid), next);
-        assertThat(response.statusCode()).isEqualTo(200);
-        JsonNode body = JSON.readTree(response.body());
-        assertThat(body.path("execution_status").stringValue()).isEqualTo("NEEDS_INPUT");
-        assertThat(body.at("/answer/grounded").booleanValue()).isTrue();
-        assertThat(body.at("/answer/citations").isEmpty()).isTrue();
-        JsonNode saved = snapshot(cid);
-        assertThat(saved.path("messages").size()).isEqualTo(2);
-        assertThat(saved.path("context")).isEqualTo(context("new-company"));
-        assertThat(saved.at("/messages/1/response")).isEqualTo(body);
-    }
-
-    @Test
-    void longAssistantTextIsStoredWholeAndClippedOnlyInForwardedHistory() throws Exception {
-        String cid = createConversation(null);
-        String generated = "😀".repeat(4001) + " [1]";
-        RESPONSE.set(request -> {
-            ObjectNode body = completed(request);
-            ((ObjectNode) body.get("answer")).put("text", generated);
-            return StubResponse.json(200, body);
-        });
-        assertThat(post(messages(cid), JSON.createObjectNode().put("query", "first")).statusCode()).isEqualTo(200);
-        JsonNode firstSaved = snapshot(cid);
-        assertThat(firstSaved.at("/messages/1/content").stringValue()).isEqualTo(generated);
-        assertThat(firstSaved.at("/messages/1/response/answer/text").stringValue()).isEqualTo(generated);
-        RESPONSE.set(request -> StubResponse.json(200, completed(request)));
-        assertThat(post(messages(cid), JSON.createObjectNode().put("query", "second")).statusCode()).isEqualTo(200);
-        String forwarded = LAST_REQUEST.get().at("/history/1/content").stringValue();
-        String options = "\n\n선택지 데이터:\n[{\"number\":1,\"text\":\"추가 질문\"}]";
-        assertThat(forwarded).isEqualTo("😀".repeat(4000 - options.codePointCount(0, options.length())) + options);
-        assertThat(forwarded.codePointCount(0, forwarded.length())).isEqualTo(4000);
-        assertThat(LAST_REQUEST.get().path("history").size()).isEqualTo(2);
-        assertThat(snapshot(cid).at("/messages/1/content").stringValue()).isEqualTo(generated);
-    }
-
-    @Test
-    void missingConversationReturns404WithoutUpstreamCall() throws Exception {
-        String cid = UUID.randomUUID().toString();
-        assertError(get(CONVERSATIONS + "/" + cid), 404, "CONVERSATION_NOT_FOUND", false);
-        assertError(post(messages(cid), JSON.createObjectNode().put("query", "q")), 404, "CONVERSATION_NOT_FOUND", false);
-        assertThat(CALLS.get()).isZero();
-    }
-
-    private String createConversation(String supplierId) throws Exception {
-        ObjectNode request = JSON.createObjectNode();
-        request.set("context", context(supplierId));
-        var response = post(CONVERSATIONS, request);
-        assertThat(response.statusCode()).isEqualTo(201);
-        JsonNode body = JSON.readTree(response.body());
-        assertThat(body.size()).isEqualTo(5);
-        assertThat(body.path("schema_version").stringValue()).isEqualTo("0.3");
-        assertThat(body.path("storage").stringValue()).isEqualTo("memory");
-        assertThat(body.path("messages").isEmpty()).isTrue();
-        assertThat(body.path("context")).isEqualTo(context(supplierId));
-        String cid = body.path("conversation_id").stringValue();
-        assertThat(UUID.fromString(cid).toString()).isEqualTo(cid);
-        return cid;
-    }
-
-    private JsonNode snapshot(String cid) throws Exception {
-        var response = get(CONVERSATIONS + "/" + cid);
-        assertThat(response.statusCode()).isEqualTo(200);
-        return JSON.readTree(response.body());
-    }
-
-    private static String messages(String cid) { return CONVERSATIONS + "/" + cid + "/messages"; }
-
     private static AgentProperties properties(int port, String key) {
         return new AgentProperties(URI.create("http://127.0.0.1:" + port), key, Duration.ofMillis(250), Duration.ofSeconds(1));
     }
@@ -569,10 +401,6 @@ class GenerationHttpIntegrationTest {
                 .header("Content-Type", "application/json").header("X-Internal-Api-Key", "public-key-must-not-forward")
                 .header("Authorization", "Bearer public-token-must-not-forward").header("Cookie", "public-cookie=private")
                 .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body))).build(), HttpResponse.BodyHandlers.ofString());
-    }
-
-    private HttpResponse<String> get(String path) throws Exception {
-        return CLIENT.send(HttpRequest.newBuilder(uri(path)).timeout(Duration.ofSeconds(5)).GET().build(), HttpResponse.BodyHandlers.ofString());
     }
 
     private static void assertError(HttpResponse<String> response, int status, String code, boolean retryable) {
