@@ -1,0 +1,32 @@
+# law-mcp 검색 방식 비교 평가를 한 번 돌리고 끝나는 Compose 파일. 서버나 다른 서비스는 띄우지 않는다.
+#
+#   docker compose -f compose.retrieval-eval.yaml run --rm --build law-retrieval-eval
+#   RETRIEVERS=bm25,hybrid-bge-m3 MIN_HIT_AT_5=0.85 docker compose -f compose.retrieval-eval.yaml run --rm law-retrieval-eval
+#
+# RETRIEVERS: 쉼표로 구분한 방식 이름. bm25(현재 서버), bm25-noexp, bge-m3, bge-m3-exp, hybrid-bge-m3,
+#             openai-small, openai-small-exp, hybrid-openai-small
+# MIN_HIT_AT_5: 비우면 표만 찍는다. 값을 주면 고른 방식 중 하나라도
+#               "원문 질문 (전체) / 전체 법령" Hit@5 가 기준보다 낮을 때 종료 코드 1로 끝난다.
+# 결과 JSON 은 mcp-servers/law-mcp/eval/results/local/ 에 남는다 (git 에는 올라가지 않는다).
+name: negopilot-retrieval-eval
+
+services:
+  law-retrieval-eval:
+    build:
+      context: .
+      dockerfile: deploy/local/law-eval.Dockerfile
+    environment:
+      RETRIEVERS: ${RETRIEVERS:-bm25,bm25-noexp,bge-m3,hybrid-bge-m3}
+      MIN_HIT_AT_5: ${MIN_HIT_AT_5:-}
+      RESULTS_OUT: /app/law-mcp/eval/results/local/retrieval_eval.json
+      # openai-small 을 고르고 임베딩 캐시가 없을 때만 필요하다
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      # 호스트에서 계산해 둔 임베딩을 그대로 쓴다. 색인 문장이 같으면 다시 계산하지 않는다
+      - ./mcp-servers/law-mcp/eval/.cache:/app/law-mcp/eval/.cache
+      - ./mcp-servers/law-mcp/eval/results/local:/app/law-mcp/eval/results/local
+      - hf-cache:/var/cache/huggingface
+    restart: "no"
+
+volumes:
+  hf-cache:
