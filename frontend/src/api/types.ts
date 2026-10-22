@@ -135,6 +135,8 @@ export interface Answer {
   text: string
   citations: Citation[]
   options: string[]
+  /** 후속 질문. 과거 응답에는 없을 수 있으며 개수 제한은 없다. */
+  suggested_questions?: string[]
   /** false면 화면에 "근거 자료 없음" */
   grounded: boolean
   notices: string[]

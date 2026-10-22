@@ -5,9 +5,30 @@
 - Answer: 사용자에게 보여 줄 최종 답변 (Backend가 SSE로 화면에 넘긴다)
 """
 
-from typing import Any, Literal
+import re
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+SuggestedQuestion = Annotated[str, Field(min_length=1, max_length=120)]
+
+
+def normalize_suggested_questions(value: Any) -> list[str]:
+    """추천 목록 오류는 정상 답변의 검증이나 재시도에 영향을 주지 않는다."""
+    if not isinstance(value, list):
+        return []
+    questions: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        question = re.sub(r"^[\s\ufeff]+|[\s\ufeff]+$", "", item)
+        if not question or len(question) > 120 or "\0" in question or question in seen:
+            continue
+        seen.add(question)
+        questions.append(question)
+    return questions
 
 
 class Evidence(BaseModel):
@@ -28,6 +49,13 @@ class GenerationDraft(BaseModel):
 
     answer: str = Field(description="사용자에게 보여 줄 답변. 근거를 쓴 문장 끝에 [E1], [E2]처럼 근거 id를 붙인다")
     used_evidence: list[str] = Field(default_factory=list, description="본문에서 인용한 근거 id 목록")
+    suggested_questions: list[SuggestedQuestion] = Field(
+        default_factory=list, description="사용자가 이어서 물을 수 있는 관련 질문. 불필요한 질문은 만들지 않는다")
+
+    @field_validator("suggested_questions", mode="before")
+    @classmethod
+    def valid_suggestions_or_empty(cls, value: Any) -> list[str]:
+        return normalize_suggested_questions(value)
 
 
 class Citation(BaseModel):
@@ -65,6 +93,7 @@ class Answer(BaseModel):
     text: str                                         # 화면에 그대로 보여 줄 본문 ([1] 형식 인용 포함)
     citations: list[Citation] = Field(default_factory=list)
     options: list[str] = Field(default_factory=list)  # clarify일 때 선택지
+    suggested_questions: list[SuggestedQuestion] = Field(default_factory=list)
     grounded: bool = True                             # False면 화면에 "근거 자료 없음" 배지
     notices: list[str] = Field(default_factory=list)  # 가정, 미지원 기능, 일부 실패 같은 안내
     evidence: list[Evidence] = Field(default_factory=list)          # 평가·디버깅용 (화면에는 안 씀)

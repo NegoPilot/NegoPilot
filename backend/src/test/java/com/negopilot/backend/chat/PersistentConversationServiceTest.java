@@ -114,6 +114,38 @@ class PersistentConversationServiceTest {
         assertThat(stored.get("response").get("schema_version").stringValue()).isEqualTo("0.3");
     }
 
+    @Test void persistsSuggestionsButOnlySendsSubmittedTextInModelHistory() {
+        UUID id = create();
+        JsonNode questions = mapper.readTree("""
+                ["재무 현황을 알려줘", "납기 실적을 알려줘", "관련 법령을 찾아줘", "검사에 필요한 조건은 뭐야?"]
+                """);
+        List<ObjectNode> requests = new ArrayList<>();
+        reset(gateway);
+        when(gateway.execute(any(), any())).thenAnswer(invocation -> {
+            ObjectNode request = invocation.getArgument(1);
+            requests.add(request.deepCopy());
+            ObjectNode result = answer(invocation.getArgument(0), request, "COMPLETED", "원래 답변");
+            if (requests.size() == 1) result.withObject("answer").set("suggested_questions", questions.deepCopy());
+            return result;
+        });
+        JsonNode first = send(id, "협력사 현황을 알려줘");
+        service = newService();
+        JsonNode restored = service.get(owner, id, UUID.randomUUID());
+        assertThat(restored.at("/messages/1/response/answer/suggested_questions")).isEqualTo(questions);
+        JsonNode saved = service.response(owner, id, UUID.fromString(first.get("response_id").stringValue()), UUID.randomUUID());
+        assertThat(saved.get("response")).isEqualTo(first);
+
+        send(id, "납기 실적 중 최근 자료를 알려줘");
+        assertThat(requests.get(1).get("query").stringValue()).isEqualTo("납기 실적 중 최근 자료를 알려줘");
+        assertThat(requests.get(1).at("/history/1/content").stringValue()).isEqualTo("원래 답변");
+        assertThat(requests.get(1).get("history").toString()).doesNotContain("재무 현황", "검사에 필요한 조건", "suggested_questions");
+
+        send(id, "이전 답변을 이어서 설명해줘");
+        assertThat(requests.get(2).at("/history/2/role").stringValue()).isEqualTo("user");
+        assertThat(requests.get(2).at("/history/2/content").stringValue()).isEqualTo("납기 실적 중 최근 자료를 알려줘");
+        assertThat(service.get(owner, id, UUID.randomUUID()).at("/messages/3/response/answer").has("suggested_questions")).isFalse();
+    }
+
     @Test void evenAdminsCannotReadOrMutateOtherUsersConversations() {
         UUID id = create();
         JsonNode response = send(id, "질문");

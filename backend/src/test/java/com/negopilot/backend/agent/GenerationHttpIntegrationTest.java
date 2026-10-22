@@ -140,6 +140,26 @@ class GenerationHttpIntegrationTest {
         assertThat(CALLS.get()).isEqualTo(1);
     }
 
+    @Test
+    void forwardsSuggestedQuestionsWithoutChangingTheAnswerOrMakingAnotherCall() throws Exception {
+        JsonNode questions = JSON.readTree("""
+                ["재무 현황을 알려줘", "납기 실적을 알려줘", "관련 법령을 찾아줘", "검사에 필요한 조건은 뭐야?"]
+                """);
+        RESPONSE.set(request -> {
+            ObjectNode body = completed(request);
+            body.withObject("answer").set("suggested_questions", questions.deepCopy());
+            body.withObject("answer").withObject("verification").put("masked", false);
+            return StubResponse.json(200, body);
+        });
+        var response = post(QUERIES, query("협력사 현황을 알려줘"));
+        assertThat(response.statusCode()).isEqualTo(200);
+        JsonNode body = JSON.readTree(response.body());
+        assertThat(body.at("/answer/suggested_questions")).isEqualTo(questions);
+        assertThat(body.at("/answer/text")).isEqualTo(completed(LAST_REQUEST.get()).at("/answer/text"));
+        assertThat(body.at("/answer/citations")).isEqualTo(completed(LAST_REQUEST.get()).at("/answer/citations"));
+        assertThat(CALLS.get()).isEqualTo(1);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"different", "trimmed", "unicode-normalized"})
     void rejectsOriginalQueryMismatchIncludingWhitespaceAndUnicodeChanges(String kind) throws Exception {

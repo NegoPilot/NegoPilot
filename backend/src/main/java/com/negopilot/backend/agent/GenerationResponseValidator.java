@@ -54,12 +54,14 @@ public final class GenerationResponseValidator {
     }
 
     private static String answer(JsonNode answer, Set<String> subQueryIds) {
-        object(answer, "kind", "text", "citations", "options", "grounded", "notices", "evidence", "verification");
+        objectWithOptional(answer, "suggested_questions", "kind", "text", "citations", "options",
+                "grounded", "notices", "evidence", "verification");
         String kind = oneOf(answer.get("kind"), Set.of("answer", "clarify", "refusal", "no_result", "failed"));
         String answerText = text(answer.get("text"));
         require(answerText.codePoints().anyMatch(cp ->
                 !Character.isWhitespace(cp) && !Character.isSpaceChar(cp) && cp != 0x85));
         strings(answer.get("options"));
+        if (answer.has("suggested_questions")) suggestedQuestions(answer.get("suggested_questions"));
         require(answer.get("grounded").isBoolean());
         strings(answer.get("notices"));
         array(answer.get("evidence"));
@@ -102,6 +104,29 @@ public final class GenerationResponseValidator {
             require(verification.get("masked").isBoolean());
         }
         return kind;
+    }
+
+    private static void suggestedQuestions(JsonNode node) {
+        array(node);
+        Set<String> seen = new HashSet<>();
+        for (JsonNode item : node) {
+            String question = text(item);
+            require(!question.isEmpty() && question.codePointCount(0, question.length()) <= 120);
+            require(!whitespace(question.codePointAt(0)) && !whitespace(question.codePointBefore(question.length())));
+            require(seen.add(question));
+        }
+    }
+
+    private static boolean whitespace(int codePoint) {
+        // Match Python's suggestion normalization plus the browser's BOM trimming.
+        return Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint)
+                || codePoint == 0x85 || codePoint == 0xfeff;
+    }
+
+    private static void objectWithOptional(JsonNode node, String optional, String... fields) {
+        require(node != null && node.isObject());
+        require(node.size() == fields.length + (node.has(optional) ? 1 : 0));
+        for (String field : fields) require(node.has(field));
     }
 
     private static void context(JsonNode context) {

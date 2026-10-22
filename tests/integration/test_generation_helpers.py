@@ -1,7 +1,9 @@
 """Offline helper regressions. No application process or model is started."""
 import copy
 import importlib.util
+import json
 from pathlib import Path
+import re
 import sys
 import tempfile
 import unittest
@@ -59,6 +61,48 @@ def snapshot(messages, count, *, next_cursor=None):
 
 
 class GenerationHelpersTest(unittest.TestCase):
+    def test_optional_suggestions_preserve_old_responses_and_have_no_count_limit(self):
+        body = execution_response()
+        smoke.validate_generation(body)
+        for count in (0, 1, 4, 12):
+            with self.subTest(count=count):
+                body["answer"]["suggested_questions"] = [f"후속 질문 {index}" for index in range(count)]
+                smoke.validate_generation(body)
+        body["answer"]["suggested_questions"] = ["🙂" * 120]
+        smoke.validate_generation(body)
+
+    def test_suggestions_reject_invalid_items_without_weakening_answer_contract(self):
+        for suggestions in (None, "질문", [1], [""], [" "], [" 질문"], ["질문", "질문"], ["🙂" * 121]):
+            with self.subTest(suggestions=suggestions):
+                body = execution_response()
+                body["answer"]["suggested_questions"] = suggestions
+                with self.assertRaises(AssertionError):
+                    smoke.validate_generation(body)
+
+    def test_history_excludes_unchosen_suggested_questions(self):
+        response = execution_response()
+        response["answer"]["suggested_questions"] = ["보내지 않은 추천 질문"]
+        messages = [{"role": "assistant", "content": "답변 본문", "response": response}]
+        self.assertEqual(smoke.history(messages), [{"role": "assistant", "content": "답변 본문"}])
+
+    def test_suggestion_helper_and_openapi_share_python_and_bom_whitespace_boundaries(self):
+        contract = json.loads(smoke.CONTRACT.read_text())
+        pattern = contract["components"]["schemas"]["Answer"]["properties"]["suggested_questions"]["items"]["pattern"]
+        whitespace = "\t\n\v\f\r\x1c\x1d\x1e\x1f \x85\xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+        for boundary in whitespace:
+            for question in (boundary, boundary + "후속 질문", "후속 질문" + boundary):
+                with self.subTest(codepoint=ord(boundary), question=question):
+                    body = execution_response()
+                    body["answer"]["suggested_questions"] = [question]
+                    with self.assertRaises(AssertionError):
+                        smoke.validate_generation(body)
+                    self.assertIsNone(re.search(pattern, question))
+            question = "후속" + boundary + "질문"
+            body = execution_response()
+            body["answer"]["suggested_questions"] = [question]
+            smoke.validate_generation(body)
+            self.assertIsNotNone(re.search(pattern, question))
+
     def test_history_uses_latest_twenty_and_counts_unicode_code_points(self):
         text = "🙂" * 4100
         messages = [{"role": "user" if i % 2 == 0 else "assistant", "content": str(i)} for i in range(22)]

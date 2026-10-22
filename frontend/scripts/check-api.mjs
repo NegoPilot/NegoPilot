@@ -36,6 +36,33 @@ assert.equal(contract.parseGenerationResponse(response, id), response)
 assert.equal(contract.parseSavedResponse({ query: '질문', response }, id, rid).response, response)
 assert.equal(contract.parseMessagePage({ schema_version: '0.4', storage: 'database', conversation_id: id, messages, next_cursor: '1' }, id).next_cursor, '1')
 assert.equal(contract.parseConversationList({ schema_version: '0.4', storage: 'database', items: [summary], next_cursor: 'opaque_cursor' }).items.length, 1)
+// Optional recommendations survive raw response and DB history parsing without a count cap.
+for (const questions of [[], ['납기 실적도 알려줘'], ['재무 상태를 알려줘', '납기 실적도 알려줘', '품질 지표도 알려줘', '최근 견적도 알려줘'], ['😀'.repeat(120)]]) {
+  const recommended = structuredClone(response)
+  recommended.answer.suggested_questions = questions
+  assert.equal(contract.parseGenerationResponse(recommended), recommended)
+  assert.deepEqual(recommended.answer.suggested_questions, questions)
+  const saved = structuredClone(snapshot)
+  saved.messages[1].response = recommended
+  assert.equal(contract.parseSnapshot(saved).messages[1].response, recommended)
+  assert.equal(contract.parseSavedResponse({ query: '질문', response: recommended }, id, rid).response, recommended)
+}
+for (const questions of [null, undefined, '질문', {}, [null], [42], [''], [' '], ['앞 공백 '], ['\t질문'], ['가'.repeat(121)], ['😀'.repeat(121)], ['같은 질문', '같은 질문']]) {
+  const invalid = structuredClone(response)
+  invalid.answer.suggested_questions = questions
+  assert.throws(() => contract.parseGenerationResponse(invalid))
+}
+// Match Python whitespace plus BOM at the edges without rewriting internal content.
+for (const whitespace of ['\ufeff', '\u0085', '\u001c', '\u001d', '\u001e', '\u001f']) {
+  for (const question of [whitespace, `${whitespace}질문`, `질문${whitespace}`]) {
+    const invalid = structuredClone(response)
+    invalid.answer.suggested_questions = [question]
+    assert.throws(() => contract.parseGenerationResponse(invalid))
+  }
+  const internal = structuredClone(response)
+  internal.answer.suggested_questions = [`후속${whitespace}질문`]
+  assert.equal(contract.parseGenerationResponse(internal), internal)
+}
 for (const change of [
   value => { value.schema_version = '0.3'; value.storage = 'memory' },
   value => { value.messages[1].seq = 1 },
@@ -142,4 +169,4 @@ try {
   abort.abort()
   await assert.rejects(cancelled, error => error.code === 'REQUEST_CANCELLED')
 } finally { globalThis.fetch = originalFetch }
-console.log('API regression checks passed: DB history, raw response, flat MCP fields, units, field provenance, FAILED, CSRF, cookies, 204, timeout and cancellation.')
+console.log('API regression checks passed: DB history, raw response, optional suggested questions without a count cap, flat MCP fields, units, field provenance, FAILED, CSRF, cookies, 204, timeout and cancellation.')

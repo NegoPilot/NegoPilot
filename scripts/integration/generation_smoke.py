@@ -39,11 +39,18 @@ DEFAULT_REPORT = Path("/tmp/negopilot-generation-smoke-results.json")
 DIAGNOSTIC = "private-generation-tool-diagnostic"
 LONG_TEXT = "🙂" * 4105 + " 긴 테스트 본문입니다."
 LONG_BLANK_PREFIX_TEXT = " " * 4000 + "🙂" * 4105 + " 공백 접두부 뒤의 테스트 본문입니다."
+SUGGESTED_QUESTIONS = [
+    "협력사 검색 조건을 알려줘",
+    "협력사 재무 정보를 어떻게 확인해?",
+    "납기 실적을 비교할 때 무엇을 봐야 해?",
+    "대금 지급 조건의 법적 기준을 찾아줘",
+]
 SNAPSHOT_WINDOW = 50
+OFFER_QUERY = "SUP-0003에 RFQ-2026-001 단가 12,000원, 결제 75일, 연동 없이 제안해도 돼?"
 STORED_FIELDS = {"seq", "message_id", "role", "content", "created_at", "response"}
 CASES = [
     ("GEN_LAW", "answer", "COMPLETED"),
-    ("GEN_OFFER", "answer", "COMPLETED"),
+    (OFFER_QUERY, "answer", "COMPLETED"),
     ("GEN_CLARIFY", "clarify", "NEEDS_INPUT"),
     ("GEN_REFUSAL", "refusal", "COMPLETED"),
     ("GEN_NO_RESULT", "no_result", "COMPLETED"),
@@ -51,6 +58,8 @@ CASES = [
     ("GEN_GENERATION_FAILED", "failed", "FAILED"),
     ("GEN_PARTIAL", "answer", "COMPLETED"),
     ("GEN_MASKED", "answer", "COMPLETED"),
+    ("GEN_SUGGESTIONS", "answer", "COMPLETED"),
+    ("GEN_ONE_SUGGESTION", "answer", "COMPLETED"),
 ]
 
 
@@ -96,9 +105,15 @@ def validate_generation(body: dict[str, Any], *, context_expected: Any = None,
     if context_expected is not None:
         require(body["context"] == context_expected, "Resolved context changed")
     answer = body["answer"]
-    require(isinstance(answer, dict) and set(answer) == {
-        "kind", "text", "citations", "options", "grounded", "notices", "evidence", "verification"},
+    answer_fields = {"kind", "text", "citations", "options", "grounded", "notices", "evidence", "verification"}
+    require(isinstance(answer, dict) and set(answer) in (answer_fields, answer_fields | {"suggested_questions"}),
         "Incomplete Answer serialization")
+    suggestions = answer.get("suggested_questions", [])
+    require(isinstance(suggestions, list) and all(
+        isinstance(question, str) and question == re.sub(r"^[\s\ufeff]+|[\s\ufeff]+$", "", question)
+        and 1 <= len(question) <= 120
+        for question in suggestions), "Invalid suggested questions")
+    require(len(suggestions) == len(set(suggestions)), "Duplicate suggested questions")
     kind = answer["kind"]
     require(kind in {"answer", "clarify", "refusal", "no_result", "failed"}, "Invalid Answer kind")
     if expected_kind is not None:
@@ -257,7 +272,7 @@ def fixture_app():
     from negopilot_agent.decomposition import QueryDecomposer
 
     fixtures = ROOT / "shared/fixtures"
-    mappings = {"GEN_LAW": "01_law_article", "GEN_OFFER": "05_offer_check",
+    mappings = {"GEN_LAW": "01_law_article", OFFER_QUERY: "05_offer_check",
                 "GEN_CLARIFY": "09_clarify", "GEN_REFUSAL": "10_out_of_scope",
                 "GEN_DECOMPOSITION_FAILED": "11_failed"}
     records = []
@@ -306,7 +321,12 @@ def fixture_app():
                 match = re.search(r'<e id="(E\d+)"[^\n]*citable="yes"', user)
                 used = [match.group(1)] if match else []
                 text = "가짜 모델이 작성한 통합 검사 답변입니다." + (f" [{used[0]}]" if used else "")
-            return json.dumps({"answer": text, "used_evidence": used}, ensure_ascii=False)
+            draft = {"answer": text, "used_evidence": used}
+            if query == "GEN_SUGGESTIONS":
+                draft["suggested_questions"] = SUGGESTED_QUESTIONS
+            elif query == "GEN_ONE_SUGGESTION":
+                draft["suggested_questions"] = [SUGGESTED_QUESTIONS[0]]
+            return json.dumps(draft, ensure_ascii=False)
 
     async def caller(server, tool, args):
         if tool == "list_rfqs":
@@ -430,7 +450,7 @@ class GenerationSmoke(Smoke):
             require(public == direct, "Python and Spring executions differ")
             require(public["execution_status"] == execution_status, "Fixed expected status failed")
             self.forwarded(public, query, selected, [])
-            if query in {"GEN_LAW", "GEN_OFFER", "GEN_PARTIAL"}:
+            if query in {"GEN_LAW", OFFER_QUERY, "GEN_PARTIAL"}:
                 require(bool(public["answer"]["citations"]) and bool(public["answer"]["evidence"]), "Missing generated citation")
             if query == "GEN_PARTIAL":
                 require([o["status"] for o in public["routing"]["outcomes"]] == ["error", "ok"]
@@ -470,6 +490,23 @@ class GenerationSmoke(Smoke):
             self.assert_saved(snap, previous)
             selected = resolved
         self.primary = cid
+
+    def suggestions_storage_and_history(self):
+        selected = context(None)
+        cid = self.create(selected)["conversation_id"]
+        body = self.accepted(self.message(cid, "GEN_SUGGESTIONS"), kind="answer")
+        require(body["answer"]["suggested_questions"] == SUGGESTED_QUESTIONS,
+                "More than three suggested questions must survive the real graph and Spring")
+        saved = self.snapshot(cid)
+        require(saved["messages"][-1]["response"] == body, "Suggested questions were not saved intact")
+        previous = saved["messages"]
+        query = SUGGESTED_QUESTIONS[0] + " 간단히 설명해줘"
+        followup = self.accepted(self.message(cid, query), kind="answer")
+        self.forwarded(followup, query, selected, previous)
+        saved = self.snapshot(cid)
+        require(saved["messages"][-2]["content"] == query, "Edited suggestion was not stored as user text")
+        require(saved["messages"][1]["response"] == body, "Prior suggestion metadata changed")
+        self.assert_saved(saved, saved["messages"])
 
     def rollback(self):
         cid = self.primary
@@ -563,7 +600,7 @@ class GenerationSmoke(Smoke):
         again = self.accepted(self.message(cid, "GEN_LAW", key=key), kind="answer")
         require(again == first and len(self.relay.records) == forwarded,
                 "Retry with the same key called Python again or changed the saved response")
-        self.error(self.message(cid, "GEN_OFFER", key=key, record=False), 409, "IDEMPOTENCY_CONFLICT", exact_id=False)
+        self.error(self.message(cid, OFFER_QUERY, key=key, record=False), 409, "IDEMPOTENCY_CONFLICT", exact_id=False)
         snap = self.snapshot(cid)
         require(snap["message_count"] == 2, "Retry stored duplicate messages")
         self.assert_saved(snap, snap["messages"])
@@ -612,6 +649,7 @@ class GenerationSmoke(Smoke):
         self.session = self.sign_in(self.spring)
         for name, fn in [("graph_answer_kinds_and_partial_results", self.execution_cases),
                          ("context_history_and_successful_storage", self.context_and_storage),
+                         ("suggestions_storage_and_unchosen_history_exclusion", self.suggestions_storage_and_history),
                          ("failed_and_invalid_response_rollback", self.rollback),
                          ("long_history_20_window_and_full_storage", self.long_history_retention),
                          ("blank_prefix_history_preserves_full_stored_answer", self.blank_prefix_history),

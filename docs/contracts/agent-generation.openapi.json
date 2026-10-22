@@ -1092,6 +1092,17 @@
             "title": "Options",
             "type": "array"
           },
+          "suggested_questions": {
+            "description": "Optional follow-up questions for a normal answer. Missing means no suggestions. No item-count limit. Buttons fill the draft and do not submit it.",
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "pattern": "^[^\\s\\u001c-\\u001f\\u0085\\ufeff](?:[\\s\\S]*[^\\s\\u001c-\\u001f\\u0085\\ufeff])?(?![\\s\\S])"
+            }
+          },
           "grounded": {
             "default": true,
             "title": "Grounded",
