@@ -12,6 +12,8 @@ import argparse
 import json
 import os
 import re
+import threading
+import time
 from datetime import date
 from decimal import Decimal
 
@@ -19,11 +21,15 @@ import psycopg
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool, PoolTimeout
 
 import rules
 from rules import finding, linkage_findings, payment_findings
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://agent:agent@localhost:5432/supplier_db")
+DB_POOL_MAX = int(os.getenv("BUSINESS_DB_POOL_MAX", "10"))   # 상위 n곳 fan-out(최대 10회)이 한꺼번에 와도 이 수를 넘지 않는다
+DB_WAIT_SECONDS = 5.0           # 풀에서 연결을 기다리는 최대 시간. 넘으면 DB_UNAVAILABLE
+MATERIALS_TTL_SECONDS = 60.0    # 공정별 소재 목록 캐시. 관리자가 생산능력을 바꾸면 이 시간 안에 반영된다
 DEBT_RATIO_WARN = 2.0           # 부채비율 200% 초과 시 경고
 GRADE_SCORE = {"A": 1.0, "B": 0.67, "C": 0.33, "D": 0.0}
 # 협상안 검사 기준과 법 규칙은 rules.py에 있다. 근거 조문은 law-mcp(law_key, 조문 번호)로 확인·인용한다.
@@ -69,11 +75,27 @@ mcp = FastMCP("BusinessServer", instructions=(
 
 # ---------- DB ----------
 
+_pool: ConnectionPool | None = None
+_pool_lock = threading.Lock()
+
+
+def db_pool() -> ConnectionPool:
+    """처음 쿼리할 때 연결 풀을 연다. import만 하는 테스트나 DB 없이 뜬 서버는 연결하지 않는다."""
+    global _pool
+    with _pool_lock:
+        if _pool is None:
+            # DB가 꺼져 있어도 서버는 뜨고, 풀이 뒤에서 다시 연결한다. 그동안의 쿼리는 DB_UNAVAILABLE
+            _pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=DB_POOL_MAX, timeout=DB_WAIT_SECONDS,
+                                   kwargs={"row_factory": dict_row}, name="business-mcp", open=False)
+            _pool.open(wait=False)
+        return _pool
+
+
 def query(sql: str, params=()) -> list[dict]:
     try:
-        with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
+        with db_pool().connection() as conn:
             rows = conn.execute(sql, params).fetchall()
-    except psycopg.OperationalError as exc:
+    except (psycopg.OperationalError, PoolTimeout) as exc:
         raise ToolError("[DB_UNAVAILABLE] 협력사 DB에 연결할 수 없다. PostgreSQL이 켜져 있는지, seed.py를 실행했는지 확인한다 "
                         f"(SETUP.md 참고). 원인: {str(exc).splitlines()[0]}") from exc
     return [{k: plain(v) for k, v in r.items()} for r in rows]
@@ -104,28 +126,59 @@ def resolve_process(process: str) -> str:
     raise ToolError(f"알 수 없는 공정 '{process}'. 사용 가능: {', '.join(PROCESSES)}")
 
 
-def materials_by_process() -> dict[str, list[str]]:
-    out = {p: [] for p in PROCESSES}
-    for r in query("SELECT DISTINCT c.process, c.material FROM capabilities c JOIN suppliers s USING (supplier_id) "
-                   "WHERE s.status = 'ACTIVE' ORDER BY c.process, c.material"):
-        out[r["process"]].append(r["material"])
-    return out
+_materials_cache: tuple[float, dict[str, list[str]]] | None = None   # (읽은 시각, 공정별 소재)
+
+
+def load_materials(fresh: bool = False) -> tuple[dict[str, list[str]], bool]:
+    """활성 협력사가 실제로 다루는 공정별 소재와, 이번에 DB에서 새로 읽었는지.
+
+    MATERIALS_TTL_SECONDS 동안은 DB를 다시 읽지 않는다. fresh=True면 캐시를 무시하고 다시 읽는다.
+    """
+    global _materials_cache
+    cached = _materials_cache
+    if fresh or cached is None or time.monotonic() - cached[0] >= MATERIALS_TTL_SECONDS:
+        out = {p: [] for p in PROCESSES}
+        for r in query("SELECT DISTINCT c.process, c.material FROM capabilities c JOIN suppliers s USING (supplier_id) "
+                       "WHERE s.status = 'ACTIVE' ORDER BY c.process, c.material"):
+            out[r["process"]].append(r["material"])
+        _materials_cache = (time.monotonic(), out)
+        return {process: list(codes) for process, codes in out.items()}, True
+    return {process: list(codes) for process, codes in cached[1].items()}, False
+
+
+def materials_by_process(fresh: bool = False) -> dict[str, list[str]]:
+    return load_materials(fresh)[0]
 
 
 def resolve_materials(material: str, process: str | None) -> list[str]:
-    """소재 코드나 계열 이름을 실제 지원 코드로 바꾼다. 공정이 없으면 전체 공정을 확인한다."""
-    by_process = materials_by_process()
-    available = (by_process[process] if process is not None
-                 else sorted({code for codes in by_process.values() for code in codes}))
+    """소재 코드나 계열 이름을 실제 지원 코드로 바꾼다. 공정이 없으면 전체 공정을 확인한다.
+
+    캐시에 없는 소재는 DB를 한 번 더 읽어 확인한다. 관리자가 방금 추가한 소재도 바로 검색된다.
+    """
+    by_process, loaded = load_materials()
+    matched = match_materials(material, process, by_process)
+    if not matched and not loaded:
+        by_process, _ = load_materials(fresh=True)
+        matched = match_materials(material, process, by_process)
+    if matched:
+        return matched
+    available = available_materials(process, by_process)
+    scope = f"{process} 공정" if process is not None else "전체 공정"
+    raise ToolError(f"{scope}에 소재 '{material}'가 없다. 사용 가능: {', '.join(available) or '없음'}")
+
+
+def available_materials(process: str | None, by_process: dict[str, list[str]]) -> list[str]:
+    return (by_process[process] if process is not None
+            else sorted({code for codes in by_process.values() for code in codes}))
+
+
+def match_materials(material: str, process: str | None, by_process: dict[str, list[str]]) -> list[str]:
+    available = available_materials(process, by_process)
     code = material.strip().upper().replace(" ", "")
     exact = [stored for stored in available if stored.upper().replace(" ", "") == code]
     if exact:
         return exact
-    matched = [m for m in MATERIAL_ALIASES.get(squash(material), []) if m in available]
-    if matched:
-        return matched
-    scope = f"{process} 공정" if process is not None else "전체 공정"
-    raise ToolError(f"{scope}에 소재 '{material}'가 없다. 사용 가능: {', '.join(available) or '없음'}")
+    return [m for m in MATERIAL_ALIASES.get(squash(material), []) if m in available]
 
 
 def resolve_region(region: str) -> str:
@@ -136,29 +189,56 @@ def resolve_region(region: str) -> str:
     raise ToolError(f"알 수 없는 지역 '{region}'. 시·도 이름(예: 경남, 경상남도, 울산광역시)으로 입력한다")
 
 
-def resolve_supplier_id(supplier: str) -> str:
-    """SUP-0001, 0001, 1 같은 ID나 회사명(일부)을 supplier_id 하나로 바꾼다."""
+SUPPLIER_ID = re.compile(r"(?:SUP-?)?(\d{1,19})", flags=re.IGNORECASE)
+SUPPLIER_CANDIDATES_SHOWN = 10   # 후보가 여러 곳일 때 오류 메시지에 보여 줄 수
+
+
+def match_suppliers(supplier: str, limit: int) -> tuple[list[dict], int, str]:
+    """협력사 이름·ID 해석 규칙. find_suppliers, get_supplier, check_offer가 모두 이 함수를 쓴다.
+
+    - SUP-0001, sup1, 0001, 1 같은 ID는 SUP-0001로 바꿔 그 ID만 찾는다 (match_type id)
+    - 회사명은 회사 표기((주), 주식회사, ㈜)와 공백을 빼고 대소문자 없이 비교한다.
+      정확히 같은 이름이 있으면 그것만(exact), 없으면 이름 일부로 찾는다(partial)
+    - 이름의 %, _, !는 검색 명령이 아닌 문자 그대로 비교한다
+    반환: (limit개까지의 후보 {supplier_id, name, region, total}, limit 전 후보 수, match_type)
+    """
     text = supplier.strip()
-    m = re.fullmatch(r"(?:SUP-?)?(\d{1,19})", text, flags=re.IGNORECASE)
-    if m:
-        sid = f"SUP-{int(m.group(1)):04d}"
-        if query("SELECT 1 FROM suppliers WHERE supplier_id = %s AND status = 'ACTIVE'", (sid,)):
-            return sid
-        raise ToolError(f"[SUPPLIER_NOT_FOUND] {sid} 협력사가 없다. search_suppliers나 회사명으로 찾는다")
-    name = re.sub(COMPANY_SUFFIX, "", text)
-    if not name:
+    if not text:
         raise ToolError("supplier 가 비어 있다")
-    literal_name = name.replace("!", "!!").replace("%", "!%").replace("_", "!_")
-    rows = query("SELECT supplier_id, name FROM suppliers "
-                 "WHERE status = 'ACTIVE' AND regexp_replace(name, %s, '', 'g') ILIKE %s ESCAPE '!' ORDER BY supplier_id",
-                 (COMPANY_SUFFIX, f"%{literal_name}%"))
-    exact = [r for r in rows if re.sub(COMPANY_SUFFIX, "", r["name"]) == name]
-    if len(exact) == 1 or len(rows) == 1:
-        return (exact or rows)[0]["supplier_id"]
-    if not rows:
+    identifier = SUPPLIER_ID.fullmatch(text)
+    if identifier:
+        sid = f"SUP-{int(identifier.group(1)):04d}"
+        rows = query("SELECT supplier_id, name, region, count(*) OVER () AS total FROM suppliers "
+                     "WHERE supplier_id = %s AND status = 'ACTIVE' ORDER BY supplier_id LIMIT %s", (sid, limit))
+        match_type = "id"
+    else:
+        name = re.sub(COMPANY_SUFFIX, "", text)
+        if not name:
+            raise ToolError("supplier 가 비어 있다")
+        literal_name = name.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+        sql = ("SELECT supplier_id, name, region, count(*) OVER () AS total FROM suppliers "
+               "WHERE status = 'ACTIVE' AND regexp_replace(name, %s, '', 'g') ILIKE %s ESCAPE '!' "
+               "ORDER BY supplier_id LIMIT %s")
+        rows = query(sql, (COMPANY_SUFFIX, literal_name, limit))
+        match_type = "exact"
+        if not rows:
+            rows = query(sql, (COMPANY_SUFFIX, f"%{literal_name}%", limit))
+            match_type = "partial"
+    return rows, int(rows[0]["total"]) if rows else 0, match_type
+
+
+def resolve_supplier_id(supplier: str) -> str:
+    """협력사를 하나로 확정한다. 없거나 여러 곳이면 find_suppliers와 같은 후보를 근거로 오류를 낸다."""
+    rows, total, match_type = match_suppliers(supplier, SUPPLIER_CANDIDATES_SHOWN)
+    if total == 1:
+        return rows[0]["supplier_id"]
+    if total == 0 and match_type == "id":
+        sid = f"SUP-{int(SUPPLIER_ID.fullmatch(supplier.strip()).group(1)):04d}"
+        raise ToolError(f"[SUPPLIER_NOT_FOUND] {sid} 협력사가 없다. search_suppliers나 회사명으로 찾는다")
+    if total == 0:
         raise ToolError(f"[SUPPLIER_NOT_FOUND] '{supplier}'에 해당하는 협력사가 없다. supplier_id(SUP-0001)나 회사명 일부로 입력한다")
-    names = ", ".join(f"{r['supplier_id']} {r['name']}" for r in rows[:10])
-    raise ToolError(f"[SUPPLIER_AMBIGUOUS] '{supplier}'에 해당하는 협력사가 {len(rows)}곳이다. 하나를 골라 supplier_id로 다시 호출한다: {names}")
+    names = ", ".join(f"{r['supplier_id']} {r['name']}" for r in rows)
+    raise ToolError(f"[SUPPLIER_AMBIGUOUS] '{supplier}'에 해당하는 협력사가 {total}곳이다. 하나를 골라 supplier_id로 다시 호출한다: {names}")
 
 
 def get_rfq(rfq_id: str) -> dict:
@@ -270,32 +350,10 @@ def find_suppliers(supplier: str, limit: int = 10) -> dict:
     결과: {matches: [{supplier_id, name, region}], total, match_type: id|exact|partial}.
           total은 limit 전의 후보 수다. 0건은 빈 matches로 반환하며 DB 오류는 예외로 전달한다.
     """
-    text = supplier.strip()
-    if not text:
-        raise ToolError("supplier 가 비어 있다")
-    bounded_limit = max(1, min(limit, 100))
-    identifier = re.fullmatch(r"(?:SUP-?)?(\d{1,19})", text, flags=re.IGNORECASE)
-    if identifier:
-        sid = f"SUP-{int(identifier.group(1)):04d}"
-        rows = query("SELECT supplier_id, name, region, count(*) OVER () AS total FROM suppliers "
-                     "WHERE supplier_id = %s AND status = 'ACTIVE' ORDER BY supplier_id LIMIT %s", (sid, bounded_limit))
-        match_type = "id"
-    else:
-        name = re.sub(COMPANY_SUFFIX, "", text)
-        if not name:
-            raise ToolError("supplier 가 비어 있다")
-        literal_name = name.replace("!", "!!").replace("%", "!%").replace("_", "!_")
-        sql = ("SELECT supplier_id, name, region, count(*) OVER () AS total FROM suppliers "
-               "WHERE status = 'ACTIVE' AND regexp_replace(name, %s, '', 'g') ILIKE %s ESCAPE '!' "
-               "ORDER BY supplier_id LIMIT %s")
-        rows = query(sql, (COMPANY_SUFFIX, literal_name, bounded_limit))
-        match_type = "exact"
-        if not rows:
-            rows = query(sql, (COMPANY_SUFFIX, f"%{literal_name}%", bounded_limit))
-            match_type = "partial"
+    rows, total, match_type = match_suppliers(supplier, max(1, min(limit, 100)))
     return {
         "matches": [{key: row[key] for key in ("supplier_id", "name", "region")} for row in rows],
-        "total": int(rows[0]["total"]) if rows else 0,
+        "total": total,
         "match_type": match_type,
     }
 
@@ -512,7 +570,8 @@ def catalog() -> str:
     regions = query("SELECT region, count(*) AS suppliers FROM suppliers WHERE status = 'ACTIVE' GROUP BY region ORDER BY count(*) DESC, region")
     counts = query("SELECT source, count(*) AS suppliers FROM suppliers WHERE status = 'ACTIVE' GROUP BY source ORDER BY source")
     rfqs = query("SELECT rfq_id, part_name, process, material, required_cert, due_date FROM rfqs ORDER BY rfq_id")
-    return json.dumps({"processes": materials_by_process(),
+    # 목록 자체를 보여 주는 리소스라 캐시가 아닌 현재 DB 값을 쓴다
+    return json.dumps({"processes": materials_by_process(fresh=True),
                        "process_aliases": PROCESS_ALIASES, "material_aliases": MATERIAL_ALIASES,
                        "regions": regions, "suppliers_by_source": counts, "rfqs": rfqs},
                       ensure_ascii=False, indent=1)

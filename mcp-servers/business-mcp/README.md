@@ -105,6 +105,8 @@ uv run python -m pytest -q                 # MCP Client로 도구 호출 테스�
 ```
 
 - 접속 정보는 `DATABASE_URL` 환경변수로 바꿉니다. 기본값은 `postgresql://agent:agent@localhost:5432/supplier_db`입니다.
+- DB 연결은 풀(`psycopg_pool`)로 재사용합니다. 첫 쿼리 때 열고, 동시 연결은 `BUSINESS_DB_POOL_MAX`(기본 10)를 넘지 않습니다. 5초 안에 연결을 얻지 못하면 `[DB_UNAVAILABLE]` 오류를 냅니다.
+- 공정별 소재 목록은 60초 동안 캐시합니다. 캐시에 없는 소재는 DB를 한 번 더 읽어 확인하므로 관리자가 추가한 소재는 바로 검색됩니다. `business://catalog`는 항상 현재 DB 값을 읽습니다.
 - 테스트는 같은 DB 안에 고유한 `pytest_business_` 접두사의 임시 스키마를 만들어 seed와 관리 migration을 적용한 뒤 지웁니다. 공개 스키마와 저장소 CSV는 변경하지 않습니다. DB에 연결할 수 없으면 테스트를 건너뜁니다.
 
 DB 없이 검색 규칙과 SQL 인자, 상세 조회 호환성, 협상안 검사 법 규칙(`rules.py`)의 경계값만 확인하려면 아래 명령을 사용합니다. `query`를 대역으로 바꾸고 DB 연결을 차단합니다. 기존 `tests/conftest.py`의 자동 seed를 실행하지 않습니다.
