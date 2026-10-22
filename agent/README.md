@@ -207,11 +207,15 @@ temperature 0이어도 결과가 흔들리므로 변경 전후를 비교할 때�
 
 전체 서비스를 Docker로 실행하려면 [로컬 Docker 안내](../docs/LOCAL_DOCKER.md)를 따른다. 루트 `compose.yaml`은 두 단계 모두 OpenAI `gpt-4.1-mini`를 기본으로 쓰는 live 구성이다. 기본 OpenAI 실행에는 루트 `.env`에 모델 키를 넣어야 한다. `compose.test.yaml`을 추가한 별도 테스트 구성은 모델 키 없이 stub 채팅을 실행한다. 아래 uvicorn 명령은 Docker 시작기를 거치지 않는 독립 실행 방법이다.
 
-FastAPI 진입점은 `negopilot_agent.api.app:app`입니다. [쿼리 실행 HTTP 계약 v0.1](../docs/contracts/agent-http.md)과 [협력사 대화 HTTP 계약 v0.2](../docs/contracts/supplier-chat.md) 및 [Generation HTTP 계약 v0.3](../docs/contracts/agent-generation.md)의 Python 내부 경로를 제공합니다. 브라우저는 Spring의 공개 API를 호출하고 Spring이 내부 키를 붙여 Python에 요청합니다.
+FastAPI 진입점은 `negopilot_agent.api.app:app`입니다. [Generation HTTP 계약 v0.3](../docs/contracts/agent-generation.md)과 [협력사 live 조회 계약](../docs/contracts/supplier-lookup.md) 및 [관리자 법령 계약](../docs/contracts/admin-laws.md)의 Python 내부 경로를 제공합니다. 브라우저는 Spring의 공개 API를 호출하고 Spring이 내부 키를 붙여 Python에 요청합니다.
 
-기존 v0.1의 `/internal/v1/query-executions`는 `QueryDecomposer`와 `Router`를 실행해 구조화된 결과를 반환합니다. 기존 v0.2의 `/internal/v1/chat/responses`는 fixture를 조회해 템플릿 응답을 반환합니다. 이 두 기존 실행 경로는 `AnswerGenerator`와 전체 그래프를 호출하지 않으므로 `generation_status: NOT_IMPLEMENTED`를 유지합니다. 이 값은 코어 Generation의 구현 여부와 별개입니다.
+| Python 내부 경로 | 동작 |
+| --- | --- |
+| `POST /internal/v2/query-executions` | 실제 `build_graph`와 `AnswerGenerator`를 실행하고 `schema_version: "0.3"` 응답에 최종 `Answer`를 포함 |
+| `GET /internal/v2/business/catalog`, `/internal/v2/suppliers`, `/internal/v2/suppliers/{supplier_id}` | 실행 모드와 관계없이 business-mcp의 협력사 데이터 조회 |
+| `/internal/v1/admin/laws/**` | 관리자 법령 조회와 최신화 |
 
-새 `/internal/v2/query-executions`는 실제 `build_graph`와 `AnswerGenerator`를 실행하고 `schema_version: "0.3"` 응답에 최종 `Answer`를 포함합니다. 생성 답변을 사용할 클라이언트는 Spring의 `/api/v2/agent/queries` 또는 `/api/v2/conversations` 경로를 사용합니다. 기존 v0.1과 v0.2 경로 및 응답 형식은 호환성을 위해 유지합니다.
+과거 fixture 기반 v0.1 질의 실행(`/internal/v1/query-executions`)과 v0.2 협력사 조회·템플릿 대화(`/internal/v1/business`, `/internal/v1/suppliers`, `/internal/v1/chat/responses`)는 #141에서 제거했습니다. 생성 답변을 사용할 클라이언트는 Spring의 `/api/v2/agent/queries` 또는 `/api/v2/conversations` 경로를 사용합니다.
 
 ### stub 서버 시작
 
@@ -233,7 +237,7 @@ uv run uvicorn negopilot_agent.api.app:app --host 127.0.0.1 --port 9200
 ```bash
 export AGENT_INTERNAL_API_KEY='replace-with-a-local-test-key'
 curl --fail http://127.0.0.1:9200/health
-curl --fail-with-body http://127.0.0.1:9200/internal/v1/query-executions \
+curl --fail-with-body http://127.0.0.1:9200/internal/v2/query-executions \
   -H "X-Internal-Api-Key: ${AGENT_INTERNAL_API_KEY}" \
   -H 'Content-Type: application/json' \
   --data '{"request_id":"11111111-1111-4111-8111-111111111111","query":"하도급법 제4조 보여줘","history":[]}'
@@ -268,59 +272,20 @@ mvn -f backend/pom.xml -B -ntp spring-boot:run
 
 내부 키는 두 서버의 환경 변수에 둡니다. 프런트엔드에 넣지 않습니다. 처리 제한을 변경할 때는 Python의 제한 시간과 Spring의 응답 대기 시간을 함께 확인합니다. HTTP 요청을 자동으로 재시도하지 않습니다.
 
-### v0.1 쿼리 실행
+### 협력사 조회
 
-`POST /internal/v1/query-executions`의 `request_id`는 필수 UUID입니다. `query`는 공백만 있는 값을 제외한 1..4000자입니다. `history`는 생략할 수 있으며 최대 20개입니다. 각 항목은 `role`과 `content`만 받습니다. role은 `user` 또는 `assistant`입니다. 요청에 정의되지 않은 필드는 400 `VALIDATION_ERROR`로 거절합니다.
-
-stub 모드에서 지원하는 질문은 다음 세 개입니다. 실제 Router에 fixture 분해 결과와 가짜 ToolCaller를 연결합니다. 모델과 MCP 및 DB를 호출하지 않습니다. 반환하는 법령 내용은 테스트용 데이터입니다.
-
-| 질문 | 분해 fixture | `execution_status` |
-| --- | --- | --- |
-| 하도급법 제4조 보여줘 | `01_law_article.json` | `COMPLETED` |
-| 그 업체 괜찮아? | `09_clarify.json` | `NEEDS_INPUT` |
-| ㅁㄴㅇㄹ 그거 저번처럼 해줘 | `11_failed.json` | `FAILED` |
-
-다른 stub 질문은 400 `VALIDATION_ERROR`입니다. `COMPLETED`는 분해와 Routing 처리가 끝났다는 뜻입니다. 생성 답변이나 도구 성공을 일괄 보장하는 값은 아닙니다. 상세 결과는 공용 `RouteResult`의 상태와 `referenced_articles`를 포함해 반환합니다. 오류 설명은 HTTP 응답 사본에서 정제합니다. 참조 조문 조회 오류만으로 본래 성공한 outcome을 실패로 바꾸지 않습니다.
-
-### v0.2 협력사 조회와 템플릿 대화
-
-다음 경로는 `stub`에서만 사용할 수 있습니다. `live`에서는 503 `DEMO_MODE_REQUIRED`와 `retryable: false`를 반환합니다. 데이터 원본은 [supplier-chat.json](../docs/contracts/fixtures/supplier-chat.json)입니다. 모든 기업과 수치는 가상 데이터입니다. 협력사 DB를 읽는 live 조회는 `/internal/v2/business/catalog`, `/internal/v2/suppliers`, `/internal/v2/suppliers/{supplier_id}`이며 실행 모드와 관계없이 `BUSINESS_MCP_URL`의 business-mcp를 호출합니다. 규칙은 [협력사 live 조회 계약](../docs/contracts/supplier-lookup.md)을 따릅니다.
-
-| Python 내부 경로 | 동작 |
-| --- | --- |
-| `GET /internal/v1/business/catalog` | 공정별 소재와 지역 목록 |
-| `GET /internal/v1/suppliers` | 필터 조건에 맞는 기업 검색 |
-| `GET /internal/v1/suppliers/{supplier_id}` | 선택 기업 상세 조회 |
-| `POST /internal/v1/chat/responses` | 선택 기업의 템플릿 응답 |
-
-기업 검색은 `process`가 필수입니다. `material`과 `region`은 선택입니다. `iatf_required`와 `iso14001_required`의 기본값은 `false`이며 인증 여부 전체를 뜻합니다. `limit`은 1..100이며 기본값은 20입니다. 알 수 없는 query parameter와 중복 parameter는 거절합니다. 기업 ID는 대소문자를 구분하며 `^[A-Za-z0-9_-]{1,100}$` 형식입니다. 존재하지 않는 ID는 404 `SUPPLIER_NOT_FOUND`입니다.
+`/internal/v2/business/catalog`, `/internal/v2/suppliers`, `/internal/v2/suppliers/{supplier_id}`는 실행 모드와 관계없이 `BUSINESS_MCP_URL`의 business-mcp를 호출합니다. 모델은 호출하지 않습니다. 검색은 `process`가 필수이고 알 수 없는 parameter와 중복 parameter는 400 `VALIDATION_ERROR`입니다. 기업 ID는 `SUP-[0-9]{4,18}` 형식입니다. 상세 규칙은 [협력사 live 조회 계약](../docs/contracts/supplier-lookup.md)을 따릅니다.
 
 ```bash
-curl --fail-with-body --get http://127.0.0.1:9200/internal/v1/suppliers \
+curl --fail-with-body --get http://127.0.0.1:9200/internal/v2/suppliers \
   -H "X-Internal-Api-Key: ${AGENT_INTERNAL_API_KEY}" \
   --data-urlencode 'process=다이캐스팅' \
   --data-urlencode 'material=ADC12'
-curl --fail-with-body http://127.0.0.1:9200/internal/v1/chat/responses \
-  -H "X-Internal-Api-Key: ${AGENT_INTERNAL_API_KEY}" \
-  -H 'Content-Type: application/json' \
-  --data '{"request_id":"22222222-2222-4222-8222-222222222222","conversation_id":"33333333-3333-4333-8333-333333333333","query":"이 회사에 대해 알려줘","history":[],"context":{"selected_supplier_ids":["SUP-0034"]}}'
 ```
-
-Python 직접 호출에서는 `request_id`와 `conversation_id` 및 `query`와 `history` 및 `context`를 모두 보냅니다. 선택 기업은 최대 한 곳입니다. 지원하는 질문은 아래 세 개입니다.
-
-1. 이 회사에 대해 알려줘
-2. 이 회사의 재무 상태를 알려줘
-3. 납기와 품질은 어때?
-
-별칭 `이 회사의 재무 상태와 납기 지표를 알려줘`는 개요 응답으로 처리합니다. 기업 미선택 시 기업 선택 안내가 질문 분류보다 우선합니다. 지원하지 않는 질문은 `NEEDS_INPUT`과 지원 질문 목록으로 안내합니다. Python은 대화 이력을 저장하지 않으며 일반적인 후속 질문을 해석하지 않습니다.
-
-응답의 `presentation.renderer`는 `template`입니다. 완료 응답은 선택 기업의 카드 한 개와 이에 연결된 stub 근거 한 개를 포함합니다. 근거의 `executed: false`는 실제 MCP를 호출하지 않았다는 뜻입니다. `on_time_delivery_rate`와 `debt_ratio`는 fixture의 백분율을 그대로 사용합니다. 화면에서 100을 곱하지 않습니다. null과 빈 재무 목록은 정보 없음으로 표시합니다.
-
-대화 생성과 조회 및 저장은 Spring의 `/api/v1/conversations` 경로가 담당합니다. Spring은 메모리에 최대 100개 메시지를 유지하고 최신 20개를 Python에 전달합니다. 재시작하면 대화가 초기화됩니다. Python 직접 호출 예시는 Spring의 대화 생성이나 저장을 수행하지 않습니다.
 
 ### live 설정과 검증 범위
 
-`AGENT_EXECUTION_MODE=live`에서는 v0.1 경로가 기존 QueryDecomposer와 실제 McpToolCaller를 연결합니다. 위의 분해 및 Routing 환경 변수를 재사용합니다. 현재 기본 모델은 [DecomposerSettings](src/negopilot_agent/decomposition/decomposer.py)의 `DEFAULT_MODELS`에 정의돼 있습니다. `anthropic`은 `claude-opus-5-5`이며 `openai`는 `gpt-4.1-mini`입니다. [모델 백엔드](src/negopilot_agent/decomposition/backends.py)는 이 설정을 받아 호출합니다.
+`AGENT_EXECUTION_MODE=live`에서는 v2 경로가 QueryDecomposer와 실제 McpToolCaller를 연결합니다. 위의 분해 및 Routing 환경 변수를 재사용합니다. 현재 기본 모델은 [DecomposerSettings](src/negopilot_agent/decomposition/decomposer.py)의 `DEFAULT_MODELS`에 정의돼 있습니다. `anthropic`은 `claude-opus-5-5`이며 `openai`는 `gpt-4.1-mini`입니다. [모델 백엔드](src/negopilot_agent/decomposition/backends.py)는 이 설정을 받아 호출합니다.
 
 직접 uvicorn을 실행하면서 기본 모델을 사용하려면 `NEGOPILOT_DECOMPOSER_MODEL`을 설정하지 않아야 합니다. `agent/.env.example`의 `NEGOPILOT_DECOMPOSER_MODEL=`을 그대로 불러오면 빈 문자열이 선택됩니다. 이 경우 HTTP 경로는 503 `UPSTREAM_UNAVAILABLE`을 반환합니다. 기본 모델을 선택할 때는 환경 파일에서 해당 줄을 제거하거나 환경 파일을 불러온 뒤 아래 명령을 실행합니다.
 
@@ -330,16 +295,16 @@ unset NEGOPILOT_DECOMPOSER_MODEL
 
 Claude에는 유효한 인증이 필요합니다. OpenAI에는 Python 서버 환경의 `OPENAI_API_KEY`가 필요합니다. 이 키는 Spring이나 프런트엔드에 전달하지 않습니다. Routing에는 `BUSINESS_MCP_URL`과 `LAW_MCP_URL`에 지정한 서버가 필요합니다.
 
-HTTP 경로는 SDK의 전송 오류 재시도를 끕니다. OpenAI 클라이언트도 `AsyncOpenAI(max_retries=0)`으로 만들고 요청 종료 시 제한 시간 안에서 `await client.close()`를 수행합니다. SDK의 재시도와 비동기 자원 해제 방식은 [공식 Python SDK 문서](https://developers.openai.com/api/reference/python)를 참고합니다. 분해 코어의 출력 형식 오류 재시도는 기존 규칙을 유지합니다. Generation 환경 변수는 기존 v0.1 실행과 v0.2 템플릿 경로에 사용하지 않습니다. 새 v2 전체 그래프 경로에서는 Generation 설정도 사용합니다.
+HTTP 경로는 SDK의 전송 오류 재시도를 끕니다. OpenAI 클라이언트도 `AsyncOpenAI(max_retries=0)`으로 만들고 요청 종료 시 제한 시간 안에서 `await client.close()`를 수행합니다. SDK의 재시도와 비동기 자원 해제 방식은 [공식 Python SDK 문서](https://developers.openai.com/api/reference/python)를 참고합니다. 분해 코어의 출력 형식 오류 재시도는 기존 규칙을 유지합니다. v2 전체 그래프 경로는 Generation 설정도 사용합니다.
 
 비용 없는 단위 테스트는 저장소 루트에서 다음 명령으로 실행합니다. 테스트는 가짜 모델과 ToolCaller 및 ASGI 전송을 사용합니다.
 
 ```bash
 cd agent
-uv run --locked python -m pytest tests/test_api.py tests/test_supplier_chat.py tests/test_http_openapi_contract.py -q
+uv run --locked python -m pytest tests/test_api.py tests/test_supplier_lookup_live.py tests/test_http_openapi_contract.py -q
 ```
 
-위 명령은 기존 v0.1과 v0.2 HTTP 계약을 검사합니다. 실제 LLM 연결과 실제 MCP 서버 및 메일 발송과 DB seed를 검증하지 않습니다. v2 전체 그래프 검사는 아래 안내를 따릅니다. 로그인과 승인 및 영구 대화 저장은 이 HTTP 범위에 포함하지 않습니다.
+위 명령은 앱 공통 동작과 협력사 조회 및 고정 OpenAPI 명세를 검사합니다. 실제 LLM 연결과 실제 MCP 서버 및 메일 발송과 DB seed를 검증하지 않습니다. v2 전체 그래프 검사는 아래 안내를 따릅니다. 로그인과 승인 및 영구 대화 저장은 이 HTTP 범위에 포함하지 않습니다.
 
 실제 Spring과 Python을 임시 포트에서 함께 실행하는 검사는 [HTTP 통합 검증 안내](../scripts/integration/README.md)를 따릅니다. 이 검사도 stub 응답을 사용합니다.
 
@@ -387,7 +352,7 @@ curl --fail-with-body http://127.0.0.1:9200/internal/v2/query-executions \
 
 일부 Routing 오류가 있어도 코어가 답변을 만들면 완료로 처리합니다. 부분 실패는 `routing`과 `answer.notices`에 남깁니다. 고정 안내도 Generation이 처리한 결과이므로 `COMPLETED`가 항상 모델 호출이나 모든 도구의 성공을 뜻하지는 않습니다. `verification.masked: true`와 검증 오류 목록이 함께 있는 보정 결과도 보존합니다.
 
-대화 저장이 필요하면 Spring의 `/api/v2/conversations`를 사용합니다. Python의 v2 실행 자체는 상태를 저장하지 않습니다. Spring은 같은 대화의 요청을 직렬로 처리하고 최신 20개 메시지를 전달합니다. 저장된 긴 assistant 본문은 유지하며 모델에 전달할 때만 4000 code point로 제한합니다. HTTP 오류나 `execution_status: FAILED`에서는 기존 메시지와 문맥을 유지합니다. 메모리 저장은 재시작하면 초기화됩니다.
+대화 저장이 필요하면 Spring의 `/api/v2/conversations`를 사용합니다. Python의 v2 실행 자체는 상태를 저장하지 않습니다. Spring은 대화를 PostgreSQL에 저장하고 최신 20개 메시지를 전달합니다. 같은 대화에 생성 중인 요청이 있으면 `409 CONVERSATION_BUSY`로 거절합니다. 저장된 긴 assistant 본문은 유지하며 모델에 전달할 때만 4000 code point로 제한합니다. HTTP 오류나 `execution_status: FAILED`에서는 기존 메시지와 문맥을 유지합니다. 상세 규칙은 [이력 v0.4 계약](../docs/contracts/history.md)을 따릅니다.
 
 ### v2 live 모델 선택과 비용 없는 검사
 

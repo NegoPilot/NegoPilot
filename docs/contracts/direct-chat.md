@@ -89,6 +89,6 @@ stub은 자연어 모델을 대신하는 범용 규칙 엔진이 아니다. 아�
 | 이 회사의 재무 상태를 알려줘 → SUP-0041 | 기업이 없는 요청의 추가 질문과 원래 재무 질문 재개 |
 | RFQ가 뭐야? | 도구가 필요 없는 개념 질문 |
 
-추가 질문의 응답으로 `해솔정밀 (SUP-0041)`처럼 반환된 선택지를 그대로 보낼 수도 있다. Spring이 실제 선택지 번호를 이력에 보존한 경우 `2번`이나 `두 번째`로 선택할 수도 있다. 기업 선택 문맥이 있는 기존 가상 기업 질문과 v0.1 fixture 질문도 유지한다. 다른 임의 질문은 stub에서 `400 VALIDATION_ERROR`다. 실제 자유 입력은 live 모드에서 실행한다.
+추가 질문의 응답으로 `해솔정밀 (SUP-0041)`처럼 반환된 선택지를 그대로 보낼 수도 있다. Spring이 실제 선택지 번호를 이력에 보존한 경우 `2번`이나 `두 번째`로 선택할 수도 있다. 기업 선택 문맥이 있는 기존 가상 기업 질문과 분해 fixture의 세 질문(`shared/fixtures/decomposition`의 01, 09, 11)도 유지한다. 다른 임의 질문은 stub에서 `400 VALIDATION_ERROR`다. 실제 자유 입력은 live 모드에서 실행한다.
 
-기존 세 가상 기업은 [supplier-chat fixture](fixtures/supplier-chat.json)에 있다. 후보 구분 검증용 기업 한 곳은 [direct-chat fixture](fixtures/direct-chat.json)에 있다. 새 fixture는 v2에서만 사용하므로 기존 v0.2 조회 목록은 바뀌지 않는다. 법령 stub은 저장된 routing fixture를 사용하며 최신 법령 조회 결과로 표시하지 않는다.
+기존 세 가상 기업은 [supplier-chat fixture](fixtures/supplier-chat.json)에 있다. 후보 구분 검증용 기업 한 곳은 [direct-chat fixture](fixtures/direct-chat.json)에 있다. 법령 stub은 저장된 routing fixture를 사용하며 최신 법령 조회 결과로 표시하지 않는다.

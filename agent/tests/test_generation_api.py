@@ -867,8 +867,7 @@ def fake_openai_sdk(monkeypatch, *, failed_phase=None, error=None, slow=False, c
     return clients
 
 
-@pytest.mark.parametrize("version", ["v1", "v2"])
-async def test_openai_uses_actual_core_backends_selected_models_and_owned_clients(monkeypatch, version):
+async def test_openai_uses_actual_core_backends_selected_models_and_owned_clients(monkeypatch):
     from negopilot_agent.decomposition.backends import OpenAIBackend
     from negopilot_agent.generation.backends import GenerationOpenAIBackend
 
@@ -881,30 +880,27 @@ async def test_openai_uses_actual_core_backends_selected_models_and_owned_client
         return await generate(self, system, user)
 
     monkeypatch.setattr(OpenAIBackend, "generate", spy)
-    app = create_app(settings=settings(mode="live"), caller=RecordingCaller(), generation_caller=RecordingCaller())
+    app = create_app(settings=settings(mode="live"), generation_caller=RecordingCaller())
     assert clients == []
-    response = await post(app, request(), endpoint=f"/internal/{version}/query-executions")
+    response = await post(app, request())
     assert response.status_code == 200, response.text
     assert response.json()["mode"] == "live"
-    expected_types = [OpenAIBackend] if version == "v1" else [OpenAIBackend, GenerationOpenAIBackend]
+    expected_types = [OpenAIBackend, GenerationOpenAIBackend]
     assert actual_backends == expected_types
     assert len(clients) == len(expected_types)
     assert all(client.options == {"max_retries": 0} for client in clients)
     assert all(client.closed == 1 for client in clients)
     calls = [call for client in clients for call in client.calls]
-    assert [call["model"] for call in calls] == (
-        ["decomposition-test-model"] if version == "v1" else ["decomposition-test-model", "generation-test-model"]
-    )
+    assert [call["model"] for call in calls] == ["decomposition-test-model", "generation-test-model"]
     assert all(call["max_completion_tokens"] == 16000 for call in calls)
     assert all(call["response_format"]["json_schema"]["strict"] is True for call in calls)
-    if version == "v2":
-        assert_answer_contract(response.json())
-        assert response.json()["answer"]["text"].startswith("원문 모델 답변을 보존합니다.")
+    assert_answer_contract(response.json())
+    assert response.json()["answer"]["text"].startswith("원문 모델 답변을 보존합니다.")
 
 
-@pytest.mark.parametrize(("version", "phase"), [("v1", "decomposition"), ("v2", "decomposition"), ("v2", "generation")])
+@pytest.mark.parametrize("phase", ["decomposition", "generation"])
 @pytest.mark.parametrize("kind", ["timeout", "api", "openai"])
-async def test_openai_sdk_exceptions_have_safe_http_mapping(monkeypatch, version, phase, kind, caplog):
+async def test_openai_sdk_exceptions_have_safe_http_mapping(monkeypatch, phase, kind, caplog):
     outgoing = httpx.Request("POST", "https://openai.invalid/v1/chat/completions")
     errors = {
         "timeout": openai.APITimeoutError(request=outgoing),
@@ -912,9 +908,9 @@ async def test_openai_sdk_exceptions_have_safe_http_mapping(monkeypatch, version
         "openai": openai.OpenAIError(SECRET),
     }
     clients = fake_openai_sdk(monkeypatch, failed_phase=phase, error=errors[kind])
-    app = create_app(settings=settings(mode="live"), caller=RecordingCaller(), generation_caller=RecordingCaller())
+    app = create_app(settings=settings(mode="live"), generation_caller=RecordingCaller())
     body = request()
-    response = await post(app, body, endpoint=f"/internal/{version}/query-executions")
+    response = await post(app, body)
     status, code = (504, "UPSTREAM_TIMEOUT") if kind == "timeout" else (503, "UPSTREAM_UNAVAILABLE")
     assert_error(response, status, code, body["request_id"])
     assert clients and all(client.closed == 1 for client in clients)
@@ -922,15 +918,15 @@ async def test_openai_sdk_exceptions_have_safe_http_mapping(monkeypatch, version
     assert SECRET not in caplog.text
 
 
-@pytest.mark.parametrize(("version", "phase"), [("v1", "decomposition"), ("v2", "decomposition"), ("v2", "generation")])
-async def test_missing_openai_key_is_safe_unavailable_without_fallback(monkeypatch, version, phase, caplog):
+@pytest.mark.parametrize("phase", ["decomposition", "generation"])
+async def test_missing_openai_key_is_safe_unavailable_without_fallback(monkeypatch, phase, caplog):
     openai_settings(monkeypatch)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_ADMIN_KEY", raising=False)
     kwargs = {"generation_decomposer": FixedDecomposer()} if phase == "generation" else {}
-    app = create_app(settings=settings(mode="live"), caller=RecordingCaller(), generation_caller=RecordingCaller(), **kwargs)
+    app = create_app(settings=settings(mode="live"), generation_caller=RecordingCaller(), **kwargs)
     body = request()
-    response = await post(app, body, endpoint=f"/internal/{version}/query-executions")
+    response = await post(app, body)
     assert_error(response, 503, "UPSTREAM_UNAVAILABLE", body["request_id"])
     assert "OPENAI_API_KEY" not in response.text + caplog.text
 
@@ -946,21 +942,21 @@ async def test_openai_fixed_answers_never_create_generation_sdk_client(monkeypat
     assert clients[0].closed == 1
 
 
-@pytest.mark.parametrize(("version", "phase"), [("v1", "decomposition"), ("v2", "decomposition"), ("v2", "generation")])
-async def test_openai_slow_close_is_bounded_after_timeout(monkeypatch, version, phase):
+@pytest.mark.parametrize("phase", ["decomposition", "generation"])
+async def test_openai_slow_close_is_bounded_after_timeout(monkeypatch, phase):
     clients = fake_openai_sdk(monkeypatch, failed_phase=phase, slow=True, close_slow=True)
-    app = create_app(settings=settings(mode="live", timeout=0.01), caller=RecordingCaller(), generation_caller=RecordingCaller())
+    app = create_app(settings=settings(mode="live", timeout=0.01), generation_caller=RecordingCaller())
     body = request()
     started = monotonic()
-    response = await post(app, body, endpoint=f"/internal/{version}/query-executions")
+    response = await post(app, body)
     assert_error(response, 504, "UPSTREAM_TIMEOUT", body["request_id"])
     assert monotonic() - started < 1.0
     assert clients and all(client.closed == 1 and client.close_cancelled for client in clients)
 
 
-@pytest.mark.parametrize(("version", "phase"), [("v1", "decomposition"), ("v2", "decomposition"), ("v2", "generation")])
+@pytest.mark.parametrize("phase", ["decomposition", "generation"])
 @pytest.mark.parametrize("failure", ["timeout", "status_503"])
-async def test_actual_openai_sdk_mock_transport_disables_retries_and_closes(monkeypatch, version, phase, failure, caplog):
+async def test_actual_openai_sdk_mock_transport_disables_retries_and_closes(monkeypatch, phase, failure, caplog):
     openai_settings(monkeypatch)
     original_client = openai.AsyncOpenAI
     clients = []
@@ -987,9 +983,9 @@ async def test_actual_openai_sdk_mock_transport_disables_retries_and_closes(monk
 
     monkeypatch.setattr(openai, "AsyncOpenAI", LocalOpenAI)
     kwargs = {"generation_decomposer": FixedDecomposer()} if phase == "generation" else {}
-    app = create_app(settings=settings(mode="live"), caller=RecordingCaller(), generation_caller=RecordingCaller(), **kwargs)
+    app = create_app(settings=settings(mode="live"), generation_caller=RecordingCaller(), **kwargs)
     body = request()
-    response = await post(app, body, endpoint=f"/internal/{version}/query-executions")
+    response = await post(app, body)
     status, code = (504, "UPSTREAM_TIMEOUT") if failure == "timeout" else (503, "UPSTREAM_UNAVAILABLE")
     assert_error(response, status, code, body["request_id"])
     assert len(outgoing) == len(clients) == 1
@@ -1001,8 +997,8 @@ async def test_actual_openai_sdk_mock_transport_disables_retries_and_closes(monk
     assert SECRET not in caplog.text
 
 
-@pytest.mark.parametrize(("version", "phase"), [("v1", "decomposition"), ("v2", "decomposition"), ("v2", "generation")])
-async def test_openai_refusal_diagnostics_are_private_and_failure_semantics_remain(monkeypatch, version, phase, caplog):
+@pytest.mark.parametrize("phase", ["decomposition", "generation"])
+async def test_openai_refusal_diagnostics_are_private_and_failure_semantics_remain(monkeypatch, phase, caplog):
     from negopilot_agent.decomposition.backends import OpenAIBackend
 
     clients = fake_openai_sdk(monkeypatch, refused_phase=phase)
@@ -1015,10 +1011,10 @@ async def test_openai_refusal_diagnostics_are_private_and_failure_semantics_rema
         return result
 
     monkeypatch.setattr(OpenAIBackend, "generate", spy)
-    app = create_app(settings=settings(mode="live"), caller=RecordingCaller(), generation_caller=RecordingCaller())
+    app = create_app(settings=settings(mode="live"), generation_caller=RecordingCaller())
     body = request()
     with caplog.at_level(logging.WARNING):
-        response = await post(app, body, endpoint=f"/internal/{version}/query-executions")
+        response = await post(app, body)
     assert response.status_code == 200, response.text
     data = response.json()
     assert outputs[-1] is None
@@ -1026,11 +1022,8 @@ async def test_openai_refusal_diagnostics_are_private_and_failure_semantics_rema
     assert data["execution_status"] == "FAILED"
     assert data["error"]["code"] == ("GENERATION_FAILED" if phase == "generation" else "DECOMPOSITION_FAILED")
     assert data["error"]["retryable"] is False
-    if version == "v2":
-        assert data["generation_status"] == "FAILED"
-        assert data["answer"]["kind"] == "failed"
-    else:
-        assert data["generation_status"] == "NOT_IMPLEMENTED"
+    assert data["generation_status"] == "FAILED"
+    assert data["answer"]["kind"] == "failed"
     assert SECRET not in response.text + caplog.text
     assert API_KEY not in response.text + caplog.text
     assert clients and all(client.closed == 1 for client in clients)
