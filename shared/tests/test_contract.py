@@ -91,6 +91,22 @@ def test_select_error_shows_usable_example(select, example):
     assert "top(n)" not in message.replace(f"'{select}'", "")
 
 
+def test_offer_check_accepts_energy_ratio_and_as_of():
+    """check_offer v2: 에너지 비중과 계약 시점은 offer_check의 선택 엔티티다 (docs/contracts/check-offer.md)."""
+    data = broken("05", lambda d: d["sub_queries"][0]["entities"].update(energy_ratio=0.15, as_of="2026-12-01"))
+    entities = DecompositionResult.model_validate(data).sub_queries[0].entities
+    assert (entities.energy_ratio, entities.as_of) == (0.15, "2026-12-01")
+
+
+@pytest.mark.parametrize("data, message", [
+    (broken("05", lambda d: d["sub_queries"][0]["entities"].update(energy_ratio=15)), "energy_ratio"),
+    (broken("07", lambda d: d["sub_queries"][0]["entities"].update(energy_ratio=0.15)), "쓸 수 없는 엔티티"),
+], ids=["energy_ratio_is_a_fraction", "energy_ratio_only_for_offer_check"])
+def test_energy_ratio_rules(data, message):
+    with pytest.raises(ValidationError, match=message):
+        DecompositionResult.model_validate(data)
+
+
 def test_planned_intent_is_still_valid_output():
     """mail-mcp 전이라도 분해는 draft_email을 낼 수 있다. 미지원 처리는 Routing이 한다."""
     assert load_intents()["draft_email"].status == "planned"

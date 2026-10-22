@@ -321,14 +321,26 @@ async def test_user_given_as_of_is_kept():
 
 @pytest.mark.parametrize("as_of", [date.today().isoformat(), "2025-01-01"])
 async def test_as_of_on_disallowed_intent_is_dropped_without_retry(as_of):
-    """offer_check는 as_of를 받지 않는다. 날짜와 상관없이 지우고 재시도하지 않는다."""
-    data = fixture("05")
+    """supplier_detail은 as_of를 받지 않는다. 날짜와 상관없이 지우고 재시도하지 않는다."""
+    data = fixture("02")
     with_as_of = json.loads(json.dumps(data["expected"]))
     with_as_of["sub_queries"][0]["entities"]["as_of"] = as_of
     fake = FakeClaude(message_json(json.dumps(with_as_of, ensure_ascii=False)))
     result = await fake.decomposer().decompose(data["query"])
     assert len(fake.requests) == 1
     assert result == DecompositionResult.model_validate(data["expected"])
+
+
+@pytest.mark.parametrize("as_of, kept", [(date.today().isoformat(), None), ("2026-12-01", "2026-12-01")])
+async def test_offer_check_keeps_contract_date_only(as_of, kept):
+    """check_offer v2부터 offer_check는 계약 시점 as_of를 받는다. 사용자가 말한 날짜만 남고 오늘 날짜는 지운다."""
+    data = fixture("05")
+    with_as_of = json.loads(json.dumps(data["expected"]))
+    with_as_of["sub_queries"][0]["entities"]["as_of"] = as_of
+    fake = FakeClaude(message_json(json.dumps(with_as_of, ensure_ascii=False)))
+    result = await fake.decomposer().decompose(data["query"])
+    assert len(fake.requests) == 1
+    assert result.sub_queries[0].entities.as_of == kept
 
 
 def test_drop_redundant_as_of_leaves_other_output_alone():
