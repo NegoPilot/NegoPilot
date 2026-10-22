@@ -18,9 +18,7 @@ from .admin_law_refresh import add_refresh_routes
 from .generation_execution import ContextDecomposer
 from .models import ErrorDetail, ErrorResponse
 from .settings import ApiSettings
-from .supplier_chat_api import add_supplier_chat_routes, invalid_supplier_detail_path
-from .supplier_chat_service import SupplierChatService
-from .supplier_lookup_api import LOOKUP_V2_PREFIX, add_supplier_lookup_routes
+from .supplier_lookup_api import add_supplier_lookup_routes, invalid_supplier_detail_path
 
 
 def extract_request_id(body: object) -> UUID | None:
@@ -46,7 +44,6 @@ class AuthenticationFailed(Exception):
 
 
 def create_app(settings: ApiSettings | None = None,
-               supplier_chat_service: SupplierChatService | None = None,
                supplier_lookup_service: BusinessSupplierService | None = None,
                generation_decomposer: ContextDecomposer | None = None,
                generation_caller: ToolCaller | None = None,
@@ -78,15 +75,11 @@ def create_app(settings: ApiSettings | None = None,
     async def http_error(request: Request, exc: HTTPException) -> JSONResponse:
         # Encoded slashes become extra path segments before route matching.
         # Reject them without adding a catch-all supplier route.
-        v2_lookup = invalid_supplier_detail_path(request.url.path, LOOKUP_V2_PREFIX + "/suppliers/")
-        if exc.status_code == 404 and (v2_lookup or invalid_supplier_detail_path(request.url.path)):
+        if exc.status_code == 404 and invalid_supplier_detail_path(request.url.path):
             try:
                 await authenticate(request)
             except AuthenticationFailed as auth_error:
                 return await authentication_error(request, auth_error)
-            # v2 live lookups do not depend on the execution mode.
-            if not v2_lookup and settings.mode != "stub":
-                return error_response(503, None, "DEMO_MODE_REQUIRED", "This API requires stub mode.")
             return error_response(400, None, "VALIDATION_ERROR", "Invalid request.")
         # Includes malformed encodings. Never return parser details or submitted input.
         return error_response(exc.status_code, None, "VALIDATION_ERROR", "Invalid HTTP request.")
@@ -99,8 +92,6 @@ def create_app(settings: ApiSettings | None = None,
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    add_supplier_chat_routes(application, settings, authenticate, error_response, extract_request_id,
-                             service=supplier_chat_service)
     add_supplier_lookup_routes(application, settings, authenticate, error_response, service=supplier_lookup_service)
     add_generation_routes(application, settings, authenticate, error_response,
                           decomposer=generation_decomposer, caller=generation_caller,
