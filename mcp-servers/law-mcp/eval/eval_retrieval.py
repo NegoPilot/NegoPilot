@@ -6,6 +6,11 @@ server.py 가 쓰는 항 단위 색인을 그대로 가져와, 같은 질문 세
 실행 (law-mcp 폴더에서):
     uv run --with numpy python eval/eval_retrieval.py          # BM25만
     uv run --with numpy python eval/eval_retrieval.py --dense bge-m3 openai-small
+    uv run --with numpy python eval/eval_retrieval.py --decomposed eval/results/decomposed_gpt-4.1-mini.json
+
+--decomposed 는 eval/decompose_gold.py 가 저장한 실제 분해 결과다. 라우터처럼 law_check 하위 질문을
+question 으로, law 엔티티가 있으면 그 법령만 검색해 "원문 → 사람 분해 → 실제 분해" 를 비교하고
+eval/results/decomposition_eval.json 에 저장한다.
 
 임베딩은 --embed-python(기본 python3)으로 eval/embed.py 를 실행해 계산하고,
 eval/.cache/ 에 저장해 두어 색인 문장이 같으면 다시 계산하지 않는다.
@@ -101,10 +106,17 @@ def summarize(ranks: list[int | None]) -> dict:
     return row
 
 
+def hit(rank: int | None, k: int = 5) -> bool:
+    return rank is not None and rank <= k
+
+
 def bootstrap_diff(a: list[int | None], b: list[int | None], k: int = 5, n: int = 10000) -> tuple:
     """Hit@k(b) - Hit@k(a) 의 95% 구간 (질문 단위 paired bootstrap)."""
-    ha = [r is not None and r <= k for r in a]
-    hb = [r is not None and r <= k for r in b]
+    return bootstrap_hits([hit(r, k) for r in a], [hit(r, k) for r in b], n)
+
+
+def bootstrap_hits(ha: list[float], hb: list[float], n: int = 10000) -> tuple:
+    """질문별 적중(0~1) 평균 차이 mean(hb) - mean(ha) 의 95% 구간."""
     rnd = random.Random(0)
     m = len(ha)
     diffs = sorted(sum(hb[j] - ha[j] for j in idx) / m
@@ -167,10 +179,98 @@ def run(args):
                 m: bootstrap_diff(base, r) for m, r in methods.items() if m != "BM25+확장 (현재)"}
             print_table(label, len(pairs), report["results"][label])
 
+    if args.decomposed:
+        dec_out = HERE / "results" / "decomposition_eval.json"
+        dec_out.write_text(json.dumps(run_decomposition(gold, args.decomposed, units, bm25),
+                                      ensure_ascii=False, indent=1), encoding="utf-8")
+        print(f"\n분해 비교 질문별 순위: {dec_out.relative_to(HERE.parent)}")
+
     out = HERE / "results" / "retrieval_eval.json"
     out.parent.mkdir(exist_ok=True)
     out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"\n질문별 순위: {out.relative_to(HERE.parent)}")
+
+
+# ---------- 실제 분해 비교 ----------
+
+def run_decomposition(gold: dict, path: Path, units: list[dict], bm25) -> dict:
+    """원문 / 사람 분해 / 실제 분해 질문으로 BM25 검색 점수를 비교한다.
+
+    실제 분해는 agent 라우터(_law_check)처럼 law_check 하위 질문마다 search_regulation(question, laws=[law])을
+    부른 것으로 보고, 하위 질문 중 정답이 가장 높게 나온 순위를 그 질문의 순위로 쓴다.
+    law_check 하위 질문이 없으면(다른 intent로 분해되면) 법령 검색을 하지 않으므로 놓친 것으로 센다.
+    "+원문" 은 라우터가 question 뒤에 그 하위 질문의 원문(original_text)을 이어 붙여 검색한다고 가정한 경우다.
+    분해를 여러 번 돌린 결과(runs)면 실행마다 지표를 내 평균하고, 최저·최고를 함께 남긴다.
+    """
+    dec = json.loads(path.read_text(encoding="utf-8"))
+    runs = dec["runs"] if "runs" in dec else [dec["items"]]
+    as_of = gold["as_of"]
+    arts = [unit_article(u) for u in units]
+
+    def real_rank(subs: list[dict], it: dict, expand: bool, with_original: bool = False) -> int | None:
+        hits = []
+        for s in subs:
+            if s["intent"] != "law_check":
+                continue
+            law = s["entities"].get("law")
+            keys = (server.resolve_law(law)["law_key"],) if law else tuple(server.LAWS)
+            us, bm = server.search_units(keys, as_of, False)   # 서버처럼 법령 필터면 그 법령만으로 색인한다
+            q = f"{s['question']} {s['original_text']}" if with_original else s["question"]
+            hits.append(first_hit(rank_bm25(bm, q, expand), [unit_article(u) for u in us],
+                                  set(it["gold"])))
+        return min((h for h in hits if h), default=None)
+
+    def orig_rank(it: dict, q: str, expand: bool) -> int | None:
+        return first_hit(rank_bm25(bm25, q, expand), arts, set(it["gold"]))
+
+    items = gold["items"]
+    sets = {"전체": items,
+            "개발용 (보면서 고치는 질문)": [it for it in items if it["split"] == "dev"],
+            "확인용 (점수만 보는 질문)": [it for it in items if it["split"] == "test"],
+            "새로 쓴 질문": [it for it in items if it["source"] == "new"],
+            "보강 질문 (원문 BM25 약점)": [it for it in items if it["source"] == "new_hard"],
+            "fixture (사람 분해 있음)": [it for it in items if "decomposed" in it]}
+    real = {"실제 분해": f"실제 분해 ({dec.get('model')})",
+            "실제 분해+원문": "실제 분해 + 하위 질문 원문 이어 붙이기"}
+    out = {"backend": dec.get("backend"), "model": dec.get("model"), "repeat": len(runs),
+           "results": {}, "per_query": {}}
+    for expand in (True, False):
+        tag = "BM25+확장 (현재)" if expand else "BM25"
+        per = {it["id"]: {"원문": orig_rank(it, it["query"], expand),
+                          "사람 분해": orig_rank(it, it["decomposed"], expand) if "decomposed" in it else None,
+                          "실제 분해": [real_rank(r.get(it["id"], {}).get("sub_queries", []), it, expand)
+                                    for r in runs],
+                          "실제 분해+원문": [real_rank(r.get(it["id"], {}).get("sub_queries", []), it, expand, True)
+                                       for r in runs]} for it in items}
+        out["per_query"][tag] = per
+        for set_name, its in sets.items():
+            rows = {"원문": summarize([per[it["id"]]["원문"] for it in its])}
+            if all("decomposed" in it for it in its):
+                rows["사람 분해"] = summarize([per[it["id"]]["사람 분해"] for it in its])
+            base = [hit(per[it["id"]]["원문"]) for it in its]
+            boot = {}
+            for key, name in real.items():
+                by_run = [summarize([per[it["id"]][key][j] for it in its]) for j in range(len(runs))]
+                rows[name] = {m: sum(r[m] for r in by_run) / len(by_run) for m in by_run[0]}
+                rows[name]["Hit@5 최저"] = min(r["Hit@5"] for r in by_run)
+                rows[name]["Hit@5 최고"] = max(r["Hit@5"] for r in by_run)
+                # 질문마다 실행 중 맞힌 비율로 paired bootstrap
+                boot[key] = bootstrap_hits(base, [sum(map(hit, per[it["id"]][key])) / len(runs) for it in its])
+            rows["_bootstrap_Hit@5_vs_원문"] = boot
+            label = f"{set_name} / {tag}"
+            out["results"][label] = rows
+            print_table(label, len(its), rows)
+
+    per = out["per_query"]["BM25+확장 (현재)"]
+    print("\n## 원문과 실제 분해가 갈린 질문 (BM25+확장, Hit@5 기준, 분해 실행별 순위)")
+    for it in items:
+        o, rs = per[it["id"]]["원문"], per[it["id"]]["실제 분해"]
+        if any(hit(o) != hit(r) for r in rs):
+            subs = [s["question"] if s["intent"] == "law_check" else f"[{s['intent']}]"
+                    for s in runs[0].get(it["id"], {}).get("sub_queries", [])]
+            print(f"  {it['id']:<28} 원문 {o or '-'}위 → 분해 {', '.join(str(r or '-') for r in rs)}위  "
+                  f"{it['query']}\n  {'':<28} 분해(1회차): {' | '.join(subs)}")
+    return out
 
 
 def print_table(label: str, n: int, rows: dict):
@@ -181,8 +281,12 @@ def print_table(label: str, n: int, rows: dict):
         if name.startswith("_"):
             continue
         print(f"{name:<44}" + "".join(f"{row[c]:>9.3f}" for c in cols))
-    for name, (lo, hi) in rows["_bootstrap_Hit@5_vs_BM25+확장"].items():
-        print(f"  Hit@5 차이 95% 구간 [{name} - 현재]: {lo:+.3f} ~ {hi:+.3f}")
+        if "Hit@5 최저" in row:
+            print(f"{'':<44}  Hit@5 실행별 {row['Hit@5 최저']:.3f} ~ {row['Hit@5 최고']:.3f}")
+    base, diffs = next((k.removeprefix("_bootstrap_Hit@5_vs_"), v) for k, v in rows.items()
+                       if k.startswith("_bootstrap"))
+    for name, (lo, hi) in diffs.items():
+        print(f"  Hit@5 차이 95% 구간 [{name} - {base}]: {lo:+.3f} ~ {hi:+.3f}")
 
 
 if __name__ == "__main__":
@@ -191,4 +295,6 @@ if __name__ == "__main__":
                    help="함께 평가할 임베딩 모델")
     p.add_argument("--embed-python", default="python3",
                    help="embed.py 를 실행할 파이썬 (torch·transformers 또는 openai 필요)")
+    p.add_argument("--decomposed", type=Path,
+                   help="eval/decompose_gold.py 가 저장한 실제 분해 결과. 주면 원문/사람 분해/실제 분해 비교를 더한다")
     run(p.parse_args())
