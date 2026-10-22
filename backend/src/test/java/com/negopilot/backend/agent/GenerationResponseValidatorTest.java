@@ -24,6 +24,61 @@ class GenerationResponseValidatorTest {
     private final GenerationResponseValidator validator = new GenerationResponseValidator();
 
     @ParameterizedTest
+    @ValueSource(ints = {0, 1, 4, 20})
+    void acceptsOptionalSuggestedQuestionsWithoutACountLimit(int count) {
+        ObjectNode response = completed();
+        ArrayNode questions = answer(response).putArray("suggested_questions");
+        for (int index = 0; index < count; index++) questions.add("후속 질문 " + index);
+        JsonNode before = response.deepCopy();
+        assertValid(response);
+        assertEquals(before, response);
+    }
+
+    @Test
+    void suggestedQuestionsLengthUsesUnicodeCodePoints() {
+        ObjectNode response = completed();
+        answer(response).putArray("suggested_questions").add("😀".repeat(120));
+        assertValid(response);
+        answer(response).putArray("suggested_questions").add("😀".repeat(121));
+        assertInvalid(response);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"null", "{}", "42", "true", "\"질문\"", "[null]", "[1]", "[{}]", "[[]]",
+            "[\"\"]", "[\" \"]", "[\" 질문\"]", "[\"질문 \"]", "[\"질문\",\"질문\"]",
+            "[\"\\u0085질문\"]", "[\"질문\\u00a0\"]"})
+    void rejectsInvalidSuggestedQuestions(String json) {
+        ObjectNode response = completed();
+        answer(response).set("suggested_questions", MAPPER.readTree(json));
+        assertInvalid(response);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x1c, 0x1d, 0x1e, 0x1f, 0x20,
+            0x85, 0xa0, 0x1680, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006,
+            0x2007, 0x2008, 0x2009, 0x200a, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff})
+    void rejectsSuggestionBoundariesTrimmedByPythonOrBrowser(int codePoint) {
+        String whitespace = Character.toString(codePoint);
+        for (String question : new String[] {whitespace, whitespace + "후속 질문", "후속 질문" + whitespace}) {
+            ObjectNode response = completed();
+            answer(response).putArray("suggested_questions").add(question);
+            assertInvalid(response);
+        }
+    }
+
+    @Test
+    void optionalSuggestionsDoNotRelaxRequiredOrUnknownAnswerFields() {
+        ObjectNode response = completed();
+        assertValid(response); // Old responses need no migration or invented field.
+        answer(response).putArray("suggested_questions");
+        answer(response).put("unexpected", "not allowed");
+        assertInvalid(response);
+        answer(response).remove("unexpected");
+        answer(response).remove("text");
+        assertInvalid(response);
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"answer", "refusal", "no_result"})
     void mapsCompletedKindsWithoutApplyingV1RoutingStatus(String kind) {
         ObjectNode response = completed();

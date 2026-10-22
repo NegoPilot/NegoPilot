@@ -90,8 +90,9 @@ def assert_answer_contract(data):
     RouteResult.model_validate(data["routing"])
     answer = data["answer"]
     assert set(answer) == {
-        "kind", "text", "citations", "options", "grounded", "notices", "evidence", "verification",
+        "kind", "text", "citations", "options", "suggested_questions", "grounded", "notices", "evidence", "verification",
     }
+    assert isinstance(answer["suggested_questions"], list)
     assert isinstance(answer["grounded"], bool)
     assert answer["text"]
     evidence = {item["id"]: item for item in answer["evidence"]}

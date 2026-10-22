@@ -49,6 +49,7 @@ const loaded = ref(true)
 const nextCursor = ref<string | null>(null)
 const error = ref<unknown>(null)
 const messageList = ref<HTMLOListElement | null>(null)
+const input = ref<HTMLTextAreaElement | null>(null)
 let epoch = 0
 let pendingController: AbortController | null = null
 let retry: { id: string; query: string; key: string } | null = null
@@ -126,8 +127,23 @@ async function loadOlder() {
   finally { if (token === epoch) olderLoading.value = false }
 }
 const suggestions = computed(() => messages.value.length || loading.value || !loaded.value ? [] : SUGGESTED_QUESTIONS)
+const suggestionsDisabled = computed(() => sending.value || loading.value || olderLoading.value || !loaded.value)
+const latestAssistantKey = computed(() => {
+  const last = messages.value.at(-1)
+  return last?.role === 'assistant' && last.response ? last.key : null
+})
 const canSend = computed(() => !sending.value && !loading.value && loaded.value && draft.value.trim().length > 0 && [...draft.value.trim()].length <= QUERY_MAX)
 const errorText = computed(() => error.value ? describeError(error.value).message : null)
+function fillDraft(text: string, messageKey?: string) {
+  if (suggestionsDisabled.value || (messageKey !== undefined && messageKey !== latestAssistantKey.value)) return
+  draft.value = text
+  const token = epoch
+  nextTick(() => {
+    if (token !== epoch || suggestionsDisabled.value || !input.value) return
+    input.value.focus()
+    input.value.setSelectionRange(input.value.value.length, input.value.value.length)
+  })
+}
 async function send(text: string) {
   const query = text.trim()
   if (!query || [...query].length > QUERY_MAX || sending.value || loading.value || !loaded.value) return
@@ -284,11 +300,28 @@ function supplierSummary(res: GenerationResponse) {
             </a>
           </div>
 
-          <div v-if="m.response.answer.options.length" class="options" role="group" aria-label="이어서 고르기">
-            <button v-for="(o, index) in m.response.answer.options" :key="o" class="option" type="button" :disabled="sending" @click="send(String(index + 1))">
-              {{ index + 1 }}. {{ o }}
-            </button>
-          </div>
+          <section v-if="m.response.answer.options.length" class="reply-suggestions" aria-label="추천 답변">
+            <h3>추천 답변</h3>
+            <div v-if="m.key === latestAssistantKey" class="options">
+              <button v-for="(o, index) in m.response.answer.options" :key="index" class="option" type="button" :disabled="suggestionsDisabled" @click="fillDraft(o, m.key)">
+                {{ o }}
+              </button>
+            </div>
+            <ol v-else class="past-suggestions">
+              <li v-for="(o, index) in m.response.answer.options" :key="index">{{ o }}</li>
+            </ol>
+          </section>
+          <section v-else-if="m.response.answer.kind === 'answer' && m.response.answer.suggested_questions?.length" class="reply-suggestions" aria-label="추천 질문">
+            <h3>추천 질문</h3>
+            <div v-if="m.key === latestAssistantKey" class="options">
+              <button v-for="q in m.response.answer.suggested_questions" :key="q" class="option" type="button" :disabled="suggestionsDisabled" @click="fillDraft(q, m.key)">
+                {{ q }}
+              </button>
+            </div>
+            <ul v-else class="past-suggestions">
+              <li v-for="q in m.response.answer.suggested_questions" :key="q">{{ q }}</li>
+            </ul>
+          </section>
         </li>
       </template>
 
@@ -296,7 +329,7 @@ function supplierSummary(res: GenerationResponse) {
     </ol>
 
     <div v-if="suggestions.length" class="suggestions" role="group" aria-label="예시 질문">
-      <button v-for="q in suggestions" :key="q" class="option" type="button" :disabled="sending" @click="send(q)">{{ q }}</button>
+      <button v-for="q in suggestions" :key="q" class="option" type="button" :disabled="suggestionsDisabled" @click="fillDraft(q)">{{ q }}</button>
     </div>
 
     <p v-if="errorText" class="error" role="alert">{{ errorText }}</p>
@@ -307,6 +340,7 @@ function supplierSummary(res: GenerationResponse) {
       <label for="ai-input" class="sr-only">추가 질문</label>
       <textarea
         id="ai-input"
+        ref="input"
         v-model="draft"
         rows="1"
         :maxlength="QUERY_MAX"
@@ -452,10 +486,23 @@ function supplierSummary(res: GenerationResponse) {
   flex-wrap: wrap;
   gap: 6px;
 }
+.reply-suggestions h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+.past-suggestions {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
 .suggestions {
   padding: 0 16px 12px;
 }
 .option {
+  max-width: 100%;
   min-height: 28px;
   padding: 4px 10px;
   border: 1px solid var(--border-strong);
@@ -464,6 +511,8 @@ function supplierSummary(res: GenerationResponse) {
   font: inherit;
   font-size: 12px;
   text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
   cursor: pointer;
 }
 .option:hover:not(:disabled) {

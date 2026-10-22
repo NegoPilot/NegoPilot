@@ -2,6 +2,8 @@ import type { ConversationList, ConversationSnapshot, GenerationResponse, Messag
 
 type ObjectValue = Record<string, unknown>
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
+// Python str.isspace() plus BOM: JavaScript whitespace omits these control characters.
+const SUGGESTION_EDGE_WHITESPACE = /^[\s\u001c-\u001f\u0085]|[\s\u001c-\u001f\u0085]$/u
 function check(value: unknown): asserts value { if (!value) throw new Error('Invalid conversation response') }
 function object(value: unknown): asserts value is ObjectValue { check(typeof value === 'object' && value !== null && !Array.isArray(value)) }
 function text(value: unknown): asserts value is string { check(typeof value === 'string') }
@@ -22,6 +24,15 @@ function summary(value: unknown) {
   check(Number.isSafeInteger(value.message_count) && Number(value.message_count) >= 0)
 }
 function strings(value: unknown) { check(Array.isArray(value) && value.every((item) => typeof item === 'string')) }
+function suggestedQuestions(value: unknown) {
+  check(Array.isArray(value))
+  const seen = new Set<string>()
+  for (const question of value) {
+    text(question)
+    check(question.length > 0 && !SUGGESTION_EDGE_WHITESPACE.test(question) && [...question].length <= 120 && !seen.has(question))
+    seen.add(question)
+  }
+}
 
 export function parseGenerationResponse(value: unknown, conversationId?: string): GenerationResponse {
   object(value); check(value.schema_version === '0.3')
@@ -35,6 +46,7 @@ export function parseGenerationResponse(value: unknown, conversationId?: string)
   check(['answer', 'clarify', 'refusal', 'no_result', 'failed'].includes(String(answer.kind)))
   text(answer.text); check(answer.text.trim().length > 0)
   check(typeof answer.grounded === 'boolean'); strings(answer.options); strings(answer.notices)
+  if ('suggested_questions' in answer) suggestedQuestions(answer.suggested_questions)
   check(Array.isArray(answer.citations) && Array.isArray(answer.evidence))
   check('verification' in answer)
   const evidenceIds = new Set<string>()
