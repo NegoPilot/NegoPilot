@@ -181,6 +181,29 @@ LANGSMITH_PROJECT=negopilot    # 선택
 - **테스트와 CI:** `tests/conftest.py`가 항상 끕니다. Docker Compose 기본 실행도 켜지 않습니다.
 - **평가 스크립트:** `ask.py`와 평가 스크립트도 `agent/.env`를 읽습니다. 그래서 추적을 켜 두면 평가 실행도 전부 기록됩니다. 대량 평가 때는 끄는 것을 권장합니다.
 
+### LangSmith 데이터셋과 실험 (`scripts/eval_langsmith.py`)
+
+Generation 평가 세트(dev, validation)를 LangSmith 데이터셋으로 올리고, 실제 그래프를 실험으로 돌려 개선 전후를 문항 단위로 비교합니다. `LANGSMITH_API_KEY`가 필요하고, `run`은 모델 키와 MCP 서버 두 개도 필요합니다 (`eval_pipeline.py`와 같음).
+
+```bash
+uv run python scripts/eval_langsmith.py upload --set validation      # 데이터셋 negopilot-generation-validation 만들기·동기화
+uv run python scripts/eval_langsmith.py run --set validation --description "mask 수정 후"
+uv run python scripts/eval_langsmith.py run --set validation --repeat 3 --no-judge   # 채점 없이 3회 반복
+```
+
+| 항목 | 내용 |
+| --- | --- |
+| 데이터셋 | 예제 하나 = 정답 파일 항목 하나. 입력은 질문만, 기대 출력은 `kind`, `points`, `must_evidence`, 정답 분해의 intent. `upload`를 다시 실행하면 바뀐 예제만 고치고, 로컬에 없는 예제는 지우지 않고 경고만 합니다 |
+| 실험 이름 | `<세트>-<커밋 7자리>[-dirty]` (`--prefix`로 앞부분 변경). 메타데이터에 분해·생성·채점 모델을 남깁니다 |
+| 실행 기록 | `run` 동안만 추적을 켜서 예제마다 노드·LLM·MCP 호출이 함께 남습니다 |
+| 평가자 | `eval_pipeline.py`와 같은 기준: `kind_ok`, `intent_match`, `grounded_when_needed`, `must_evidence`, `retried`, `masked`, `tool_errors`, `execution_error`. `--no-judge`가 아니면 LLM 채점으로 `point_coverage`, `points_covered`, `points_total`, `unsupported_claims` |
+| 채점 분리 | 대상은 그래프만 실행하고 채점은 평가자에서 따로 합니다. 실험의 시간·토큰은 Agent 실행만입니다 |
+| 끝에 출력하는 요약 | 정답 포인트 커버율은 `eval_pipeline.py` 보고서처럼 포인트 수로 가중합니다 (LangSmith 화면의 `point_coverage` 평균은 문항 평균이라 다를 수 있음) |
+
+- 개선 전후 비교는 LangSmith에서 두 실험을 골라 비교 화면으로 봅니다. 모델, 협력사 DB, 법령 색인을 같게 두고 비교합니다.
+- 검증 세트 실험의 오답을 보고 프롬프트를 고치지 않습니다. 프롬프트 수정은 dev 세트로 합니다.
+- 질문, 협력사 데이터, 법령 근거, 답변이 LangSmith로 전송됩니다.
+
 ## 실행
 
 ```bash
