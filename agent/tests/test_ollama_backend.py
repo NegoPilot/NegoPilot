@@ -114,40 +114,38 @@ def install_transport(monkeypatch, *, failure=None, failed_phase="decomposition"
     return calls, clients
 
 
-async def execute(version, *, timeout=30):
+async def execute(*, timeout=30):
     app = create_app(settings=ApiSettings(mode="live", internal_api_key="test-key", request_timeout_seconds=timeout),
-                     caller=GenerationStubToolCaller(), generation_caller=GenerationStubToolCaller())
+                     generation_caller=GenerationStubToolCaller())
     async with ORIGINAL_CLIENT(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
-        return await client.post(f"/internal/{version}/query-executions", headers={"X-Internal-Api-Key": "test-key"},
+        return await client.post("/internal/v2/query-executions", headers={"X-Internal-Api-Key": "test-key"},
                                  json={"request_id": str(uuid4()), "query": FIXTURE["query"]})
 
 
-@pytest.mark.parametrize("version", ["v1", "v2"])
-async def test_http_graph_selects_native_backend_and_closes_owned_clients(monkeypatch, version):
+async def test_http_graph_selects_native_backend_and_closes_owned_clients(monkeypatch):
     calls, clients = install_transport(monkeypatch)
     assert clients == []
-    response = await execute(version)
+    response = await execute()
     assert response.status_code == 200, response.text
     assert response.json()["mode"] == "live" and response.json()["execution_status"] == "COMPLETED"
-    assert len(calls) == len(clients) == (1 if version == "v1" else 2)
+    assert len(calls) == len(clients) == 2
     assert all(client.is_closed and client.closes == 1 for client in clients)
     assert all(client.options["trust_env"] is False and client.options["follow_redirects"] is False for client in clients)
     assert all(call["model"] == "qwen3:8b" and call["options"]["num_predict"] == 4096 for call in calls)
-    if version == "v2":
-        assert calls[-1]["format"] == GenerationDraft.model_json_schema()
-        assert response.json()["answer"]["kind"] == "answer"
-        assert response.json()["answer"]["citations"]
+    assert calls[-1]["format"] == GenerationDraft.model_json_schema()
+    assert response.json()["answer"]["kind"] == "answer"
+    assert response.json()["answer"]["citations"]
 
 
-@pytest.mark.parametrize(("version", "phase"), [("v1", "decomposition"), ("v2", "decomposition"), ("v2", "generation")])
+@pytest.mark.parametrize("phase", ["decomposition", "generation"])
 @pytest.mark.parametrize(("failure", "status", "code"), [
     ("timeout", 504, "UPSTREAM_TIMEOUT"), ("cancel", 504, "UPSTREAM_TIMEOUT"),
     ("network", 503, "UPSTREAM_UNAVAILABLE"), ("http", 503, "UPSTREAM_UNAVAILABLE"),
     ("redirect", 503, "UPSTREAM_UNAVAILABLE"), ("malformed", 503, "UPSTREAM_UNAVAILABLE"),
 ])
-async def test_transport_failure_calls_each_phase_once_without_stub_fallback(monkeypatch, version, phase, failure, status, code, caplog):
+async def test_transport_failure_calls_each_phase_once_without_stub_fallback(monkeypatch, phase, failure, status, code, caplog):
     calls, clients = install_transport(monkeypatch, failure=failure, failed_phase=phase)
-    response = await execute(version, timeout=0.05 if failure == "cancel" else 30)
+    response = await execute(timeout=0.05 if failure == "cancel" else 30)
     assert response.status_code == status, response.text
     assert response.json()["error"]["code"] == code
     assert len(calls) == (2 if phase == "generation" else 1)
@@ -158,7 +156,7 @@ async def test_transport_failure_calls_each_phase_once_without_stub_fallback(mon
 @pytest.mark.parametrize("phase", ["decomposition", "generation"])
 async def test_truncated_output_is_failed_without_a_second_attempt(monkeypatch, phase):
     calls, clients = install_transport(monkeypatch, failure="length", failed_phase=phase)
-    response = await execute("v2")
+    response = await execute()
     assert response.status_code == 200, response.text
     assert response.json()["mode"] == "live" and response.json()["execution_status"] == "FAILED"
     assert response.json()["error"]["code"] == ("DECOMPOSITION_FAILED" if phase == "decomposition" else "GENERATION_FAILED")
@@ -175,7 +173,7 @@ async def test_truncated_output_is_failed_without_a_second_attempt(monkeypatch, 
 async def test_bad_configuration_creates_no_client_and_returns_503(monkeypatch, name, value):
     calls, clients = install_transport(monkeypatch)
     monkeypatch.setenv(name, value)
-    response = await execute("v2")
+    response = await execute()
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "UPSTREAM_UNAVAILABLE"
     assert clients == calls == []
@@ -187,7 +185,7 @@ async def test_ollama_limits_and_origin_are_configurable(monkeypatch):
     monkeypatch.setenv("OLLAMA_TIMEOUT_SECONDS", "123.5")
     monkeypatch.setenv("OLLAMA_NUM_CTX", "40960")
     monkeypatch.setenv("OLLAMA_NUM_PREDICT", "2048")
-    response = await execute("v2")
+    response = await execute()
     assert response.status_code == 200, response.text
     assert all(str(client.base_url) == "http://localhost:11435/" for client in clients)
     assert all(client.timeout.read == 123.5 and client.timeout.connect == 5 for client in clients)

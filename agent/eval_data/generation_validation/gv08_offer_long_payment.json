@@ -47,12 +47,24 @@
               "price_linkage": false
             },
             "result": {
+              "schema_version": "2",
               "verdict": "위반 소지 있음",
+              "verdict_code": "VIOLATION",
+              "basis": {
+                "as_of": "2026-10-22",
+                "law_versions": {
+                  "subcontract_act": "2026-10-02",
+                  "subcontract_decree": "2026-08-11"
+                }
+              },
               "supplier": {
                 "supplier_id": "SUP-0040",
                 "name": "미르단조",
                 "source": "MOCK",
-                "revenue_eok": 228
+                "revenue_eok": 228,
+                "certification_source": "MOCK",
+                "capability_source": "MOCK",
+                "quality_source": "MOCK"
               },
               "rfq": {
                 "rfq_id": "RFQ-2026-004",
@@ -67,6 +79,7 @@
                 "payment_days": 120,
                 "price_linkage": false,
                 "raw_material_ratio": 0.36,
+                "energy_ratio": null,
                 "contract_days": 365,
                 "contract_amount": 320000000
               },
@@ -78,7 +91,8 @@
                   "law_refs": [
                     {
                       "law": "subcontract_act",
-                      "article_no": "제13조"
+                      "article_no": "제13조",
+                      "paragraph": "①"
                     }
                   ]
                 },
@@ -89,11 +103,13 @@
                   "law_refs": [
                     {
                       "law": "subcontract_act",
-                      "article_no": "제2조"
+                      "article_no": "제2조",
+                      "paragraph": "⑯"
                     },
                     {
                       "law": "subcontract_act",
-                      "article_no": "제3조"
+                      "article_no": "제3조",
+                      "paragraph": "②"
                     }
                   ]
                 }
@@ -101,13 +117,31 @@
               "warnings": [],
               "info": [
                 {
+                  "code": "ENERGY_RATIO_UNKNOWN",
+                  "severity": "info",
+                  "message": "에너지 비중을 입력하지 않아 주요 에너지 연동 검사를 건너뛰었다. 에너지 비용이 하도급대금의 10% 이상이면 연동 사항을 서면에 적어야 한다",
+                  "law_refs": [
+                    {
+                      "law": "subcontract_act",
+                      "article_no": "제2조",
+                      "paragraph": "⑰"
+                    },
+                    {
+                      "law": "subcontract_act",
+                      "article_no": "제3조",
+                      "paragraph": "②"
+                    }
+                  ]
+                },
+                {
                   "code": "SUBCONTRACT_ACT_APPLIES",
                   "severity": "info",
                   "message": "최근 매출 228억 원으로 중소기업일 가능성이 높아 하도급법상 수급사업자로 보고 검사했다 (중소기업 기준은 중소기업기본법 시행령 별표1로 확인)",
                   "law_refs": [
                     {
                       "law": "subcontract_act",
-                      "article_no": "제2조"
+                      "article_no": "제2조",
+                      "paragraph": "③"
                     }
                   ]
                 }
@@ -115,15 +149,28 @@
               "law_refs": [
                 {
                   "law": "subcontract_act",
-                  "article_no": "제13조"
+                  "article_no": "제13조",
+                  "paragraph": "①"
                 },
                 {
                   "law": "subcontract_act",
-                  "article_no": "제2조"
+                  "article_no": "제2조",
+                  "paragraph": "⑯"
                 },
                 {
                   "law": "subcontract_act",
-                  "article_no": "제3조"
+                  "article_no": "제3조",
+                  "paragraph": "②"
+                },
+                {
+                  "law": "subcontract_act",
+                  "article_no": "제2조",
+                  "paragraph": "⑰"
+                },
+                {
+                  "law": "subcontract_act",
+                  "article_no": "제2조",
+                  "paragraph": "③"
                 }
               ]
             },
@@ -193,7 +240,7 @@
               ],
               "citation": "「하도급거래 공정화에 관한 법률」 제13조(하도급대금의 지급 등) [시행 2026-10-02]",
               "effective_date": "2026-10-02",
-              "as_of": "2026-10-21",
+              "as_of": "2026-10-22",
               "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
               "upcoming_changes": []
             },
@@ -272,12 +319,24 @@
                 },
                 {
                   "no": "⑮",
-                  "text": "이 법에서 \"기술자료\"란 비밀로 관리되는 제조ㆍ수리ㆍ시공 또는 용역수행 방법에 관한 자료, 그 밖에 영업활동에 유용하고 독립된 경제적 가치를 가지는 것으로서 대통령령으로 정하는 자료를 말한다. <신설 2010.1.25, 2018.1.16, 2021.8.17>\n\n<16> <16> 이 법에서 \"주요 원재료\"란 하도급거래에서 목적물등의 제조ㆍ수리ㆍ시공 또는 용역수행에 사용되는 원재료로서 그 비용이 하도급대금의 100분의 10 이상인 원재료를 말한다. <신설 2023.7.18>\n\n<17> <17> 이 법에서 \"주요 에너지\"란 하도급거래에서 목적물등의 제조ㆍ수리ㆍ시공 또는 용역수행에 사용되는 에너지(「에너지법」 제2조제1호 및 제3호에 따른 에너지를 말한다. 이하 같다)로서 그 비용이 하도급대금의 100분의 10 이상인 에너지를 말한다. <신설 2026.2.10>\n\n<18> <18> 이 법에서 \"하도급대금 연동\"이란 주요 원재료의 가격 또는 주요 에너지 비용이 원사업자와 수급사업자가 100분의 10 이내의 범위에서 협의하여 정한 비율 이상 변동하는 경우 그 변동분에 연동하여 하도급대금을 조정하는 것을 말한다. <신설 2023.7.18, 2026.2.10>"
+                  "text": "이 법에서 \"기술자료\"란 비밀로 관리되는 제조ㆍ수리ㆍ시공 또는 용역수행 방법에 관한 자료, 그 밖에 영업활동에 유용하고 독립된 경제적 가치를 가지는 것으로서 대통령령으로 정하는 자료를 말한다. <신설 2010.1.25, 2018.1.16, 2021.8.17>"
+                },
+                {
+                  "no": "⑯",
+                  "text": "이 법에서 \"주요 원재료\"란 하도급거래에서 목적물등의 제조ㆍ수리ㆍ시공 또는 용역수행에 사용되는 원재료로서 그 비용이 하도급대금의 100분의 10 이상인 원재료를 말한다. <신설 2023.7.18>"
+                },
+                {
+                  "no": "⑰",
+                  "text": "이 법에서 \"주요 에너지\"란 하도급거래에서 목적물등의 제조ㆍ수리ㆍ시공 또는 용역수행에 사용되는 에너지(「에너지법」 제2조제1호 및 제3호에 따른 에너지를 말한다. 이하 같다)로서 그 비용이 하도급대금의 100분의 10 이상인 에너지를 말한다. <신설 2026.2.10>"
+                },
+                {
+                  "no": "⑱",
+                  "text": "이 법에서 \"하도급대금 연동\"이란 주요 원재료의 가격 또는 주요 에너지 비용이 원사업자와 수급사업자가 100분의 10 이내의 범위에서 협의하여 정한 비율 이상 변동하는 경우 그 변동분에 연동하여 하도급대금을 조정하는 것을 말한다. <신설 2023.7.18, 2026.2.10>"
                 }
               ],
               "citation": "「하도급거래 공정화에 관한 법률」 제2조(정의) [시행 2026-10-02]",
               "effective_date": "2026-10-02",
-              "as_of": "2026-10-21",
+              "as_of": "2026-10-22",
               "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
               "upcoming_changes": []
             },
@@ -349,7 +408,7 @@
               ],
               "citation": "「하도급거래 공정화에 관한 법률」 제3조(서면의 발급 및 서류의 보존) [시행 2026-10-02]",
               "effective_date": "2026-10-02",
-              "as_of": "2026-10-21",
+              "as_of": "2026-10-22",
               "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
               "upcoming_changes": []
             },

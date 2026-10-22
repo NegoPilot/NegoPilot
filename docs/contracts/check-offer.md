@@ -44,7 +44,7 @@ v1과 비교해 **기존 필드는 이름도 뜻도 바꾸지 않고, 새 필드
   "schema_version": "2",
   "verdict": "위반 소지 있음",
   "verdict_code": "VIOLATION",
-  "basis": {"as_of": "2026-10-22", "law_versions": {"subcontract_act": "2026-10-02", "subcontract_decree": "2026-08-11"}},
+  "basis": {"as_of": "2026-10-22", "law_versions": {"subcontract_act": "2026-10-02", "subcontract_decree": "2026-08-11", "sme_decree": "2026-01-02"}},
   "supplier": {"supplier_id": "SUP-0030", "name": "...", "source": "MOCK", "revenue_eok": 850, "...": "..."},
   "rfq": {"rfq_id": "RFQ-2026-004", "part_name": "...", "process": "...", "material": "...", "annual_volume": 120000, "target_price": 15000},
   "offer": {"unit_price": 15200, "payment_days": 75, "price_linkage": false, "raw_material_ratio": 0.4,
@@ -88,7 +88,8 @@ v1과 비교해 **기존 필드는 이름도 뜻도 바꾸지 않고, 새 필드
 | `PRICE_BELOW_MARKET` | warning | 단가가 같은 공정·소재 최근 견적 중앙값의 90% 미만 (제4조) | |
 | `PRICE_CUT_FROM_LAST_QUOTE` | warning | 이 협력사의 직전 견적보다 5% 넘게 낮음 (제4조) | |
 | `ABOVE_TARGET_PRICE` | info | 단가가 RFQ 목표 단가보다 높음 | |
-| `SUBCONTRACT_ACT_APPLIES`, `SME_STATUS_CHECK`, `SME_STATUS_UNKNOWN` | info | 수급사업자(중소기업자) 해당 여부 | |
+| `SUBCONTRACT_ACT_APPLIES`, `SME_STATUS_CHECK`, `SME_STATUS_UNKNOWN` | info | 수급사업자(중소기업자) 해당 여부. 자동차 및 트레일러 제조업(C30) 중소기업 기준 평균매출액 1,200억 원 이하 (중소기업기본법 시행령 별표 1) | 기준 1,000억 → 1,200억 |
+| `MIDSIZE_PAYMENT_RULES_MAY_APPLY` | info | 중소기업 기준은 넘지만 매출이 3천억 원 미만이라, 중견기업이고 원사업자가 조건에 맞으면 지급 조항(제13조①~⑩)이 적용됨 (제13조⑪, 시행령 제7조의5·제7조의6, 별표 1의2). 2,000억 원 미만이면 원사업자가 상호출자제한기업집단 소속이거나 매출 2조 원 초과일 때, 2,000억 원 이상 3천억 원 미만이면 상호출자제한기업집단 소속일 때 | **추가** |
 | `CERT_MISSING`, `CAPABILITY_MISSING`, `CAPACITY_SHORT` | warning | RFQ 거래 조건(인증, 생산능력) | |
 
 에너지 규칙은 다음 기준을 따릅니다.
@@ -125,7 +126,7 @@ Spring 응답 검증기와 화면은 아래 필드만 기준으로 삼습니다.
 - **전달 경로:** business-mcp `ToolError("[CODE] ...")` → Agent가 `^\[([A-Z_]+)\]`로 코드만 꺼내 `ToolCall.error_code`에 담음(원문은 가림) → Spring이 허용 목록의 `error_code`만 응답에 남김 → Generation과 화면이 코드로 안내.
 - 코드는 business-mcp의 공용 함수(협력사 이름 해석, RFQ 조회, DB 연결)에서 붙이므로 `get_supplier`, `rank_suppliers` 같은 다른 도구의 같은 오류에도 붙습니다. 허용 목록 규칙은 같습니다.
 - `ToolCall.error_code`는 Routing 결과에 새로 생기는 선택 필드입니다. 기존 필드를 바꾸지 않으므로 [Routing 계약](routing.md)의 `schema_version`은 올리지 않습니다.
-- **지금은 Agent 내부에서만 씁니다.** Spring 응답 검증기가 도구 호출 항목의 필드를 `server, tool, args, result, error` 5개로 고정하고 있어서, `error_code`는 직렬화(HTTP 응답, 저장 JSON)에서 뺍니다. 안내 문구는 Agent의 Generation이 만들므로 사용자에게는 이미 보입니다. BE가 검증기와 응답 정리 코드에 `error_code`를 허용하면 `shared/src/negopilot_shared/routing.py`의 `exclude=True`를 지워 응답에 포함합니다.
+- **HTTP 응답에도 공개 코드를 전달합니다.** Agent는 허용된 코드가 있을 때만 선택 필드 `error_code`를 직렬화합니다. Spring은 기존 5개 필드만 있는 응답과 공개 코드가 추가된 응답을 모두 받습니다. 명시적인 `null`도 허용합니다. 알 수 없는 코드와 잘못된 자료형은 응답 검증에서 거절합니다. 오류 원문은 계속 정제합니다. 정상 저장 대상인 대화는 전체 응답에 공개 코드도 보존하며 기존 대화 JSON은 변환하지 않습니다. 전체 실행 실패 응답은 기존 계약에 따라 메시지로 저장하지 않습니다.
 
 ### 회사 이름이 모호할 때
 
@@ -149,7 +150,7 @@ Spring 응답 검증기와 화면은 아래 필드만 기준으로 삼습니다.
 | MCP 서버 정비 | business-mcp 연결 풀과 협력사 이름 해석 통합, law-mcp 검색 캐시 상한과 용어 확장 수정 |
 | Agent 연결 | `offer_check`에 `find_suppliers` 선행, `error_code` 추출과 허용 목록, 분해 계약에 `energy_ratio`·`as_of` 추가, 검증 세트 전후 측정 |
 
-Spring의 허용 목록(`verdict_code`, `basis`, `schema_version`, `error_code`)과 화면 연결 방식(전용 API 또는 채팅 응답의 구조화 필드)은 위 작업이 머지된 뒤 BE와 함께 진행합니다.
+Spring은 도구 호출의 선택 필드 `error_code`에 공개 코드 허용 목록을 적용합니다. 채팅 응답을 사용하는 화면에서 구조화된 검사 결과를 표시하거나 `/review`에 전용 검사 흐름을 연결하는 작업은 별도입니다.
 
 ## 5. 변경 절차
 

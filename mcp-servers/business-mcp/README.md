@@ -84,12 +84,13 @@
 | `RAW_MATERIAL_RATIO_UNKNOWN` | warning | 원재료 비중을 몰라 연동 대상 판단 불가 | 제2조⑯, 제3조② |
 | `PRICE_BELOW_MARKET` | warning | 같은 공정·소재 최근 견적 중앙값의 90% 미만 | 제4조① |
 | `PRICE_CUT_FROM_LAST_QUOTE` | warning | 그 협력사 직전 견적보다 5% 넘게 낮음 | 제4조②1·5 |
-| `SUBCONTRACT_ACT_APPLIES` / `SME_STATUS_CHECK` / `SME_STATUS_UNKNOWN` | info | 수급사업자(중소기업) 해당 가능성 (최근 매출 1,000억 원 기준) | 제2조③ |
+| `SUBCONTRACT_ACT_APPLIES` / `SME_STATUS_CHECK` / `SME_STATUS_UNKNOWN` | info | 수급사업자(중소기업) 해당 가능성 (자동차 및 트레일러 제조업 평균매출액 1,200억 원 이하) | 제2조③, 중소기업기본법 시행령 제3조①·별표 1 |
+| `MIDSIZE_PAYMENT_RULES_MAY_APPLY` | info | 매출 3천억 원 미만 중견기업이면 원사업자 조건에 따라 지급 조항이 적용됨 (2,000억 원 미만: 원사업자가 대기업집단 소속이거나 매출 2조 원 초과, 2,000억~3천억 원: 대기업집단 소속) | 제13조⑪, 시행령 제7조의5·제7조의6·별표 1의2 |
 | `ABOVE_TARGET_PRICE`, `CERT_MISSING`, `CAPABILITY_MISSING`, `CAPACITY_SHORT` | info / warning | RFQ 목표 단가·인증·생산능력 (거래 조건) | - |
 
 - `verdict_code`는 violation이 있으면 `VIOLATION`, warning만 있으면 `CHECK_NEEDED`, 없으면 `OK`입니다. `verdict`는 같은 판정의 문구(`위반 소지 있음`, `확인 필요`, `문제 없음`)이고 화면 분기에는 쓰지 않습니다.
 - 90%·5% 단가 기준은 팀 내부 기준이고, 법이 정한 수치가 아닙니다.
-- 거래 기간 90일·하도급대금 1억 원은 법률이 정한 상한이고, 시행령 제3조③④도 같은 값(90일, 1억원)입니다. `offline_tests/test_rules.py`가 law-mcp 색인과 대조합니다. 중소기업 매출 기준은 중소기업기본법 시행령 별표1인데 law-mcp 색인에 별표가 없어 확인이 필요합니다.
+- 거래 기간 90일·하도급대금 1억 원은 법률이 정한 상한이고, 시행령 제3조③④도 같은 값(90일, 1억원)입니다. `offline_tests/test_rules.py`가 law-mcp 색인과 대조합니다. 중소기업 기준(1,200억 원)과 중견기업 기준(2,000억 원)은 law-mcp 색인에 없는 별표 값이라 law.go.kr 별표 PDF(2025-10-01 개정판)에서 옮겼고, 출처는 `rules.py`에 적었습니다. 협력사는 모두 자동차 부품 제조사라 주된 업종을 자동차 및 트레일러 제조업(C30)으로 봅니다. 중소기업 기준은 3년 평균매출액등인데 DB에는 최근 사업연도 매출만 있어 그 값으로 추정합니다.
 - 판정은 위험 신호입니다. 예외(대등한 지위에서 정한 지급기일 등) 해당 여부의 최종 판단은 법무 검토로 확인합니다.
 
 ## 실행

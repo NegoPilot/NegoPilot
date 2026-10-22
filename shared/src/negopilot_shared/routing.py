@@ -43,9 +43,15 @@ class ToolCall(BaseModel):
     args: dict[str, Any]
     result: Any = None          # MCP 도구가 준 값 그대로
     error: str | None = None
-    # 공개 오류 코드. Spring 응답 검증기가 아직 이 필드를 받지 않아 HTTP 응답과 저장 JSON에서는 뺀다.
-    # Agent 안에서 Generation이 안내 문구를 고르는 데만 쓴다 (#129)
-    error_code: str | None = Field(None, exclude=True)
+    # 허용된 코드만 HTTP 응답과 저장 JSON에 포함한다. 값이 없으면 기존 5필드 계약을 유지한다.
+    error_code: Literal["RFQ_NOT_FOUND", "SUPPLIER_NOT_FOUND", "SUPPLIER_AMBIGUOUS", "VALUE_OUT_OF_RANGE"] | None = Field(
+        None, exclude_if=lambda value: value is None)
+
+    @model_validator(mode="after")
+    def check_error_code(self) -> "ToolCall":
+        if self.error_code is not None and self.error is None:
+            raise ValueError("error_code는 도구 오류가 있을 때만 쓴다")
+        return self
 
 
 class SubQueryOutcome(BaseModel):

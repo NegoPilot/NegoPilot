@@ -1,8 +1,7 @@
-"""Three deterministic fixtures. No model or MCP connections are created."""
+"""Three deterministic decomposition fixtures reused by the Generation stub. No model is created."""
 
 import json
 from pathlib import Path
-from typing import Any
 
 from negopilot_shared import DecompositionResult
 
@@ -25,16 +24,3 @@ class FixtureDecomposer:
         if query not in self.fixtures:
             raise UnsupportedStubQuery("Only the three documented fixture queries are supported")
         return self.fixtures[query].model_copy(deep=True)
-
-
-class StubToolCaller:
-    async def __call__(self, server: str, tool: str, args: dict[str, Any]) -> Any:
-        if server != "law-mcp" or tool != "get_article":
-            raise ValueError("No fixture is configured for this tool")
-        return {
-            "stub": True,
-            "source": "integration-test-fixture",
-            "law_key": args["law"],
-            "article_no": args["article_no"],
-            "text": "테스트용 법령 데이터입니다. 실제 조문이 아닙니다.",
-        }

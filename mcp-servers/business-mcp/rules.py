@@ -37,6 +37,7 @@ class Rule:
 
 ACT = "subcontract_act"
 DECREE = "subcontract_decree"
+SME_DECREE = "sme_decree"
 
 # 판정에 쓰는 법령별 시행판의 시행일. law-mcp 색인(data/index)과 같아야 한다 (offline_tests/test_rules.py가 대조)
 LAW_VERSIONS = {
@@ -44,7 +45,14 @@ LAW_VERSIONS = {
           date(2027, 9, 9)),
     DECREE: (date(2024, 5, 28), date(2024, 6, 8), date(2024, 12, 27), date(2025, 10, 1), date(2026, 7, 1),
              date(2026, 8, 11)),
+    SME_DECREE: (date(2024, 7, 10), date(2024, 8, 21), date(2025, 9, 1), date(2025, 10, 1), date(2025, 12, 23),
+                 date(2026, 1, 2)),
 }
+
+# 협력사는 모두 자동차 부품 제조사라 주된 업종을 자동차 및 트레일러 제조업(C30)으로 본다.
+# 아래 별표 값은 law-mcp 색인에 없어(원문이 첨부 파일) law.go.kr 별표 PDF에서 옮겼다. 둘 다 <개정 2025. 10. 1.>판
+# - 중소기업기본법 시행령 별표 1 (C30 평균매출액등 1,200억원 이하): https://www.law.go.kr/LSW/flDownload.do?flSeq=159973059
+# - 하도급법 시행령 별표 1의2 (C30 연간매출액 2,000억원): https://www.law.go.kr/LSW/flDownload.do?flSeq=167754029
 
 # 하도급법 제13조①: 목적물 수령일부터 60일 이내 지급
 PAYMENT_DAYS_LIMIT = Rule("PAYMENT_DAYS_LIMIT", 60, (LawRef(ACT, "제13조", "①"),))
@@ -62,11 +70,18 @@ LINKAGE_EXEMPT_AMOUNT = Rule("LINKAGE_EXEMPT_AMOUNT", 100_000_000,
 MARKET_PRICE_FLOOR = Rule("MARKET_PRICE_FLOOR", 0.90, (LawRef(ACT, "제4조", "①"),), internal=True)
 # 직전 견적보다 5% 넘게 낮으면 제4조②(일률적 인하 등) 인하 근거 확인 (내부 기준)
 LAST_QUOTE_CUT = Rule("LAST_QUOTE_CUT", 0.05, (LawRef(ACT, "제4조", "②"),), internal=True)
-# 중소기업기본법 시행령 별표1 자동차 제조업 평균매출 기준(억 원). law-mcp 색인에 별표가 없어 확인 필요
-SME_REVENUE_EOK = Rule("SME_REVENUE_EOK", 1000, (LawRef(ACT, "제2조", "③"),), internal=True)
+# 중소기업기본법 시행령 제3조①1가, 별표 1: C30 평균매출액등 1,200억원 이하면 중소기업 (억 원)
+SME_REVENUE_EOK = Rule("SME_REVENUE_EOK", 1200, (LawRef(SME_DECREE, "제3조", "①"),))
+# 하도급법 제13조⑪, 시행령 제7조의5, 별표 1의2: C30 연간매출액 2,000억원 미만 중견기업에도 지급 조항(①~⑩) 적용 (억 원)
+MIDSIZE_REVENUE_EOK = Rule("MIDSIZE_REVENUE_EOK", 2000, (LawRef(ACT, "제13조", "⑪"), LawRef(DECREE, "제7조의5")))
+# 하도급법 제13조⑪: 상호출자제한기업집단 소속 회사와 거래하면 그 기준이 3천억원 (억 원)
+MIDSIZE_REVENUE_LARGE_GROUP_EOK = Rule("MIDSIZE_REVENUE_LARGE_GROUP_EOK", 3000, (LawRef(ACT, "제13조", "⑪"),))
+# 하도급법 제13조⑪2, 시행령 제7조의6: 위탁하는 쪽이 연간매출액 2조원 초과 사업자일 때 적용 (억 원)
+BUYER_REVENUE_EOK = Rule("BUYER_REVENUE_EOK", 20000, (LawRef(ACT, "제13조", "⑪"), LawRef(DECREE, "제7조의6")))
 
 RULES = (PAYMENT_DAYS_LIMIT, MAJOR_MATERIAL_RATIO, MAJOR_ENERGY_RATIO, LINKAGE_EXEMPT_DAYS, LINKAGE_EXEMPT_AMOUNT,
-         MARKET_PRICE_FLOOR, LAST_QUOTE_CUT, SME_REVENUE_EOK)
+         MARKET_PRICE_FLOOR, LAST_QUOTE_CUT, SME_REVENUE_EOK, MIDSIZE_REVENUE_EOK, MIDSIZE_REVENUE_LARGE_GROUP_EOK,
+         BUYER_REVENUE_EOK)
 
 # 자주 쓰는 근거 조문
 LINKAGE_TERMS = LawRef(ACT, "제3조", "②")       # 서면에 연동 사항을 적어야 한다 (②3)
@@ -196,17 +211,33 @@ def price_findings(unit_price: int, market_median: float | None, market_n: int,
 
 
 def sme_findings(revenue_eok: float | None) -> list[dict]:
-    """하도급법 적용 대상(수급사업자 = 중소기업자)인지."""
+    """하도급법 적용 대상(수급사업자 = 중소기업자)인지, 중견기업이면 지급 조항 확대 적용(제13조⑪) 대상인지."""
+    sme = SME_REVENUE_EOK.refs[0]
     if revenue_eok is None:
         return [finding("SME_STATUS_UNKNOWN", "info",
                         "매출 정보가 없어 수급사업자(중소기업자) 해당 여부를 판단할 수 없다", SUBCONTRACTOR)]
     if revenue_eok <= SME_REVENUE_EOK.value:
         return [finding("SUBCONTRACT_ACT_APPLIES", "info",
-                        f"최근 매출 {revenue_eok:,}억 원으로 중소기업일 가능성이 높아 하도급법상 수급사업자로 "
-                        "보고 검사했다 (중소기업 기준은 중소기업기본법 시행령 별표1로 확인)", SUBCONTRACTOR)]
-    return [finding("SME_STATUS_CHECK", "info",
-                    f"최근 매출 {revenue_eok:,}억 원으로 중소기업이 아닐 수 있다. 수급사업자 해당 여부를 "
-                    "확인하고, 중견기업이면 지급 조항 확대 적용 대상인지 본다", SUBCONTRACTOR, LawRef(ACT, "제13조"))]
+                        f"최근 매출 {revenue_eok:,}억 원으로 중소기업일 가능성이 높아 하도급법상 수급사업자로 보고 검사했다 "
+                        f"(자동차 및 트레일러 제조업 중소기업 기준 평균매출액 {SME_REVENUE_EOK.value:,}억 원 이하, "
+                        "중소기업기본법 시행령 별표 1)", SUBCONTRACTOR, sme)]
+    out = [finding("SME_STATUS_CHECK", "info",
+                   f"최근 매출 {revenue_eok:,}억 원으로 중소기업 기준(자동차 및 트레일러 제조업 평균매출액 "
+                   f"{SME_REVENUE_EOK.value:,}억 원 이하)을 넘어 수급사업자가 아닐 수 있다", SUBCONTRACTOR, sme)]
+    midsize, large_group, buyer = (MIDSIZE_REVENUE_EOK.value, MIDSIZE_REVENUE_LARGE_GROUP_EOK.value,
+                                   BUYER_REVENUE_EOK.value)
+    if revenue_eok < midsize:
+        condition = (f"우리(원사업자)가 상호출자제한기업집단 소속이거나 연간매출액 {buyer // 10000:,}조 원을 넘으면")
+    elif revenue_eok < large_group:
+        condition = "우리(원사업자)가 상호출자제한기업집단 소속이면"
+    else:
+        return out
+    out.append(finding("MIDSIZE_PAYMENT_RULES_MAY_APPLY", "info",
+                       f"최근 매출 {revenue_eok:,}억 원으로, 이 협력사가 중견기업이고 {condition} 하도급법 제13조⑪에 따라 "
+                       "대금 지급 조항(①~⑩, 60일 이내 지급 등)이 그대로 적용된다 (자동차 및 트레일러 제조업 기준 "
+                       f"{midsize:,}억 원 미만, 상호출자제한기업집단과 거래하면 {large_group:,}억 원 미만)",
+                       LawRef(ACT, "제13조", "⑪"), LawRef(DECREE, "제7조의5"), LawRef(DECREE, "제7조의6")))
+    return out
 
 
 def verdict_code(findings: list[dict]) -> str:

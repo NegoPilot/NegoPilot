@@ -9,6 +9,8 @@ import tools.jackson.databind.JsonNode;
 final class DecompositionRoutingValidator {
     private static final Set<String> OUTCOME_STATUSES = Set.of(
             "ok", "general_knowledge", "out_of_scope", "unsupported", "missing_args", "empty", "skipped", "error");
+    private static final Set<String> PUBLIC_TOOL_ERROR_CODES = Set.of(
+            "RFQ_NOT_FOUND", "SUPPLIER_NOT_FOUND", "SUPPLIER_AMBIGUOUS", "VALUE_OUT_OF_RANGE");
 
     private DecompositionRoutingValidator() {}
 
@@ -108,11 +110,20 @@ final class DecompositionRoutingValidator {
     private static void toolCalls(JsonNode calls) {
         array(calls);
         for (JsonNode call : calls) {
-            object(call, "server", "tool", "args", "result", "error");
+            // Older Agent responses and saved conversations have no error_code field.
+            if (call.has("error_code")) {
+                object(call, "server", "tool", "args", "result", "error", "error_code");
+            } else {
+                object(call, "server", "tool", "args", "result", "error");
+            }
             text(call.get("server"));
             text(call.get("tool"));
             require(call.get("args").isObject());
             nullableText(call.get("error"));
+            if (call.has("error_code") && !call.get("error_code").isNull()) {
+                oneOf(call.get("error_code"), PUBLIC_TOOL_ERROR_CODES);
+                require(!call.get("error").isNull());
+            }
             // Tool result values are intentionally arbitrary JSON.
         }
     }
