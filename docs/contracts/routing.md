@@ -91,7 +91,7 @@ for sq in decomposition.sub_queries:
 | `find_suppliers` | `{matches: [{supplier_id, name, region}], total, match_type}`. 정확한 이름 일치를 우선하며 total은 반환 제한 전 기업 수 | 기업 구분에만 사용한다. 상세 정보 근거로 만들지 않는다 |
 | `get_supplier` | `{supplier_id, name, source(DART/MOCK), ..., capabilities, financials, recent_quotes}` | 업체 ID, `source` |
 | `rank_suppliers` | `{rfq, ranked: [{supplier_id, name, total_score, notes, flags}], excluded: [{supplier_id, name, reason}], ...}` | 업체 ID, 제외 사유 |
-| `check_offer` | `{verdict, supplier, rfq, offer, violations, warnings, info, law_refs}` (각 항목 `{code, severity, message, law_refs}`) | `verdict`, 항목 `message`, `referenced_articles`의 `citation` |
+| `check_offer` | `{verdict, supplier, rfq, offer, violations, warnings, info, law_refs}` (각 항목 `{code, severity, message, law_refs}`). v2 입력·출력·오류는 [협상안 검사 계약](check-offer.md) | `verdict`, 항목 `message`, `referenced_articles`의 `citation` |
 | `search_regulation` | `[{law_name, article_no, paragraph, title, text, citation, effective_date, source_url, score}]` | **`citation` 그대로** |
 | `get_article` | `{law_name, article_no, title, paragraphs, citation, effective_date, source_url, upcoming_changes}` | 설명 참고, `citation` |
 
