@@ -54,6 +54,7 @@ class Caller:
                             "citation": "하도급법 제13조", "paragraphs": [{"no": "①", "text": "지급 규정"}]},
             "list_rfqs": [{"rfq_id": "RFQ-2026-001"}],
             "rank_suppliers": {"ranked": []},
+            "check_offer": {"verdict": "문제 없음", "violations": [], "warnings": [], "info": [], "law_refs": []},
         }
         value = self.overrides.get(tool, defaults[tool])
         if callable(value):
@@ -288,3 +289,43 @@ async def test_supplier_detail_fanout_without_valid_success_is_still_error(failu
     routing = await Router(SafeToolCaller(caller)).route(search_then_details())
     assert routing.outcome("q2").status == "error"
     assert not [item for item in build_evidence(routing) if item.sub_query == "q2"]
+
+
+OFFER = {"rfq_id": "RFQ-2026-001", "unit_price": 12000, "payment_days": 45, "price_linkage": True}
+
+
+async def test_offer_check_by_name_checks_the_confirmed_supplier_id():
+    """offer_check도 이름이면 find_suppliers로 대상을 확정한 뒤 그 ID로 검사한다 (#129)."""
+    caller = Caller()
+    routing = await Router(caller).route(decomposition("offer_check", {"supplier": "대한"} | OFFER))
+    assert routing.outcome("q1").status == "ok"
+    assert caller.calls == [
+        ("business-mcp", "find_suppliers", {"supplier": "대한", "limit": 10}),
+        ("business-mcp", "check_offer", {"supplier": "SUP-0041"} | OFFER),
+    ]
+
+
+async def test_offer_check_with_ambiguous_name_asks_instead_of_checking():
+    """이름이 여러 곳에 맞으면 check_offer를 부르지 않고 후보를 되묻는다."""
+    caller = Caller(find_suppliers={"matches": MATCHES, "total": 2, "match_type": "partial"})
+    routing, answer, backend = await run_answer(decomposition("offer_check", {"supplier": "대한"} | OFFER), caller)
+    outcome = routing.outcome("q1")
+    assert (outcome.status, outcome.missing) == ("missing_args", ["supplier"])
+    assert [tool for _, tool, _ in caller.calls] == ["find_suppliers"]
+    assert answer.kind == "clarify"
+    assert answer.options == ["대한정밀 (SUP-0041)", "대한금속 (SUP-0042)"]
+    assert not backend.calls
+
+
+async def test_offer_check_with_unknown_name_is_empty_without_checking():
+    caller = Caller(find_suppliers={"matches": [], "total": 0, "match_type": "partial"})
+    routing = await Router(caller).route(decomposition("offer_check", {"supplier": "없는기업"} | OFFER))
+    assert routing.outcome("q1").status == "empty"
+    assert [tool for _, tool, _ in caller.calls] == ["find_suppliers"]
+
+
+async def test_offer_check_with_explicit_id_skips_name_lookup():
+    caller = Caller()
+    routing = await Router(caller).route(decomposition("offer_check", {"supplier": "SUP-0041"} | OFFER))
+    assert routing.outcome("q1").status == "ok"
+    assert caller.calls == [("business-mcp", "check_offer", {"supplier": "SUP-0041"} | OFFER)]

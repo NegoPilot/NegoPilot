@@ -97,7 +97,7 @@ for sq in decomposition.sub_queries:
 
 ## 직접 질문의 결과 처리
 
-이름으로 기업 상세를 요청하면 `find_suppliers`를 호출한다. 한 곳이면 확인된 ID로 상세를 조회한다. 여러 곳이면 `missing_args`로 대상만 묻는다. 후보가 없으면 `empty`다. 예외 원문에서 기업 이름이나 후보 ID를 추출하지 않는다.
+이름으로 기업 상세를 요청하면 `find_suppliers`를 호출한다. 한 곳이면 확인된 ID로 상세를 조회한다. 여러 곳이면 `missing_args`로 대상만 묻는다. 후보가 없으면 `empty`다. 협상안 검사(`offer_check`)도 같은 방식으로 대상을 먼저 확정한 뒤 그 ID로 `check_offer`를 호출한다([협상안 검사 계약](check-offer.md)). 예외 원문에서 기업 이름이나 후보 ID를 추출하지 않는다.
 
 `search_suppliers`와 `list_rfqs` 및 `search_regulation`의 빈 목록은 조회 결과 없음이다. 이때 `calls`가 있는 `empty`로 표시한다. 그 결과를 필요로 하는 질문은 건너뛰며 독립 질문은 계속한다. inputs의 선택어로 필요한 값을 추출하지 못하는 기존 `empty`는 호출 기록이 없으며 이전 전역 중단 정책을 유지한다.
 

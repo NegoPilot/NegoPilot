@@ -124,24 +124,29 @@ class Router:
                                    message=f"{tool} 필수 인자 없음: {', '.join(missing)}")
         if sq.intent == "supplier_detail":
             return await self._supplier_detail(sq, spec, combos)
+        if sq.intent == "offer_check":
+            return await self._offer_check(sq, spec, tool, combos)
         calls = list(await asyncio.gather(*(self._call(spec.server, tool, self._args(tool, c)) for c in combos)))
         outcome = self._outcome(sq, calls)
         if outcome.status == "ok":
             outcome.referenced_articles = await self._referenced_articles(calls)
         return outcome
 
-    async def _supplier_detail(self, sq: SubQuery, spec: IntentSpec,
-                               combos: list[dict[str, Any]]) -> SubQueryOutcome:
-        """이름은 구조화된 후보 조회로 확정하고 ID로 상세를 조회한다."""
+    async def _resolve_suppliers(self, sq: SubQuery, spec: IntentSpec, combos: list[dict[str, Any]]
+                                 ) -> tuple[list[str], list[ToolCall], SubQueryOutcome | None]:
+        """조합마다 supplier를 ID 하나로 확정한다. 이름은 find_suppliers로 찾는다.
+
+        확정하지 못하면(이름 없음, 후보 0곳 또는 여러 곳, 조회 실패) 바로 돌려줄 outcome을 세 번째 값으로 준다.
+        """
         calls: list[ToolCall] = []
         resolved: list[str] = []
         for combo in combos:
             supplier = combo["supplier"]
             if not isinstance(supplier, str) or not supplier.strip():
-                return SubQueryOutcome(id=sq.id, intent=sq.intent, status="missing_args",
-                                       missing=["supplier"], calls=calls)
+                return resolved, calls, SubQueryOutcome(id=sq.id, intent=sq.intent, status="missing_args",
+                                                        missing=["supplier"], calls=calls)
             # 기존 HTTP 문맥의 SUP- 접두 ID는 여기서 형식을 더 제한하지 않는다.
-            # 실제 존재 여부와 ID 해석은 get_supplier가 검증한다.
+            # 실제 존재 여부와 ID 해석은 뒤에 부르는 도구(get_supplier, check_offer)가 검증한다.
             if supplier.strip().upper().startswith("SUP-"):
                 resolved.append(supplier)
                 continue
@@ -149,18 +154,42 @@ class Router:
                                       {"supplier": supplier, "limit": SUPPLIER_MATCH_LIMIT})
             calls.append(search)
             if search.error:
-                return self._outcome(sq, calls)
+                return resolved, calls, self._outcome(sq, calls)
             result = search.result
             if not self._valid_supplier_matches(result):
                 search.error = "Invalid supplier lookup response."
-                return self._outcome(sq, calls)
+                return resolved, calls, self._outcome(sq, calls)
             if result["total"] == 0:
-                return SubQueryOutcome(id=sq.id, intent=sq.intent, status="empty", calls=calls,
-                                       message="이름에 맞는 협력사가 없음")
+                return resolved, calls, SubQueryOutcome(id=sq.id, intent=sq.intent, status="empty", calls=calls,
+                                                        message="이름에 맞는 협력사가 없음")
             if result["total"] > 1:
-                return SubQueryOutcome(id=sq.id, intent=sq.intent, status="missing_args", calls=calls,
-                                       missing=["supplier"], message="동일 이름의 후보 중 대상 선택 필요")
+                return resolved, calls, SubQueryOutcome(id=sq.id, intent=sq.intent, status="missing_args",
+                                                        calls=calls, missing=["supplier"],
+                                                        message="동일 이름의 후보 중 대상 선택 필요")
             resolved.append(result["matches"][0]["supplier_id"])
+        return resolved, calls, None
+
+    async def _offer_check(self, sq: SubQuery, spec: IntentSpec, tool: str,
+                           combos: list[dict[str, Any]]) -> SubQueryOutcome:
+        """협력사를 확정한 뒤 협상안을 검사한다. 이름이 여러 곳에 맞으면 검사하지 않고 후보를 되묻는다 (#129)."""
+        resolved, calls, stop = await self._resolve_suppliers(sq, spec, combos)
+        if stop:
+            return stop
+        checks = list(await asyncio.gather(*(
+            self._call(spec.server, tool, self._args(tool, combo | {"supplier": supplier}))
+            for combo, supplier in zip(combos, resolved))))
+        calls += checks
+        outcome = self._outcome(sq, calls)
+        if outcome.status == "ok":
+            outcome.referenced_articles = await self._referenced_articles(checks)
+        return outcome
+
+    async def _supplier_detail(self, sq: SubQuery, spec: IntentSpec,
+                               combos: list[dict[str, Any]]) -> SubQueryOutcome:
+        """이름은 구조화된 후보 조회로 확정하고 ID로 상세를 조회한다."""
+        resolved, calls, stop = await self._resolve_suppliers(sq, spec, combos)
+        if stop:
+            return stop
         details = list(await asyncio.gather(*(
             self._call(spec.server, "get_supplier", {"supplier": supplier}) for supplier in resolved)))
         for detail in details:
