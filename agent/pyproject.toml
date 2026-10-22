@@ -12,6 +12,7 @@ dependencies = [
     "fastmcp>=4.1.1",
     "httpx2>=2.15.1",
     "langgraph>=1.2.16",
+    "langsmith>=0.14",
     "negopilot-shared",
     "openai>=3.35.1",
     "uvicorn>=0.30,<1",
