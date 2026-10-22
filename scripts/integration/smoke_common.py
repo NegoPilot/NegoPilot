@@ -95,14 +95,14 @@ class SpringSession:
         return status, decoded
 
     def refresh_csrf(self) -> None:
-        status, token = self.send("GET", "/api/v1/auth/csrf")
+        status, token = self.send("GET", "/api/auth/csrf")
         require(status == 200 and isinstance(token, dict) and isinstance(token.get("header_name"), str)
                 and bool(token.get("token")), "CSRF token response is incomplete")
         self.csrf = {token["header_name"]: token["token"]}
 
     def login(self, email: str, password: str) -> None:
         self.refresh_csrf()
-        status, body = self.send("POST", "/api/v1/auth/login", {"email": email, "password": password})
+        status, body = self.send("POST", "/api/auth/login", {"email": email, "password": password})
         require(status == 200 and body["user"]["status"] == "ACTIVE", "Smoke member could not sign in")
         self.refresh_csrf()  # Login rotates the session and invalidates the earlier token.
 
