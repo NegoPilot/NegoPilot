@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from negopilot_shared import DecompositionResult
 from negopilot_agent.ollama import OllamaBackend  # re-export alongside the other providers
 
-from negopilot_agent import timing
+from negopilot_agent import timing, tracing
 from negopilot_agent.decomposition import wire
 
 log = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ class AnthropicBackend:
 
     def __init__(self, client: anthropic.AsyncAnthropic, model: str, effort: str, max_tokens: int,
                  use_fallbacks: bool):
-        self.client = client
+        self.client = tracing.wrap_llm_client(client)   # LANGSMITH_TRACING이 켜졌을 때만 감싼다
         self.model = model
         self.effort = effort
         self.max_tokens = max_tokens
@@ -90,7 +90,7 @@ class OpenAIBackend:
         return wire.to_contract_json(text)
 
     def __init__(self, client: openai.AsyncOpenAI, model: str, max_tokens: int):
-        self.client = client
+        self.client = tracing.wrap_llm_client(client)   # LANGSMITH_TRACING이 켜졌을 때만 감싼다
         self.model = model
         self.max_tokens = max_tokens
 

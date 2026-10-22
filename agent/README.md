@@ -159,6 +159,28 @@ graph.add_node("generate", make_generate_node())   # 상태: decomposition, rout
 
 OpenAI를 선택한 Generation도 `OPENAI_API_KEY`를 사용합니다. 분해와 Generation은 서로 다른 백엔드를 선택할 수 있습니다. EFFORT와 FALLBACKS는 Claude 전용 설정입니다.
 
+## LangSmith 추적 (`negopilot_agent.tracing`)
+
+질문 하나가 분해 → MCP 도구 호출 → 생성을 거치는 과정을 LangSmith에서 한 실행으로 볼 수 있습니다. **기본은 꺼져 있고**, `agent/.env`에 아래 두 값이 모두 있을 때만 켜집니다.
+
+```bash
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=...          # 각자 발급. 커밋하지 않는다
+LANGSMITH_PROJECT=negopilot    # 선택
+```
+
+| 기록되는 것 | 어떻게 |
+| --- | --- |
+| 그래프 실행과 노드(`decompose_query`, `route`, `generate`) | LangGraph가 자동으로 기록 |
+| LLM 호출의 입출력과 토큰 | OpenAI·Anthropic 클라이언트를 `langsmith.wrappers`로 감싼다 (`OpenAIBackend`, `AnthropicBackend`). Ollama는 기록하지 않는다 |
+| MCP 도구 호출 (`business-mcp.check_offer` 등) | `Router._call`이 tool 실행으로 기록. 실패한 호출은 오류로 남는다 |
+| HTTP 실행의 `request_id`와 실행 모드 | 실행 메타데이터 (`negopilot.query`) |
+
+- **외부 전송:** 추적을 켜면 질문, 협력사 데이터, 법령 근거가 LangSmith로 전송됩니다. 내용은 빼고 실행 구조·시간·토큰만 남기려면 `LANGSMITH_HIDE_INPUTS=true`, `LANGSMITH_HIDE_OUTPUTS=true`를 함께 씁니다.
+- **꺼져 있을 때:** 클라이언트를 감싸지 않고 기록도 만들지 않으므로, 동작과 성능이 추적 도입 전과 같습니다.
+- **테스트와 CI:** `tests/conftest.py`가 항상 끕니다. Docker Compose 기본 실행도 켜지 않습니다.
+- **평가 스크립트:** `ask.py`와 평가 스크립트도 `agent/.env`를 읽습니다. 그래서 추적을 켜 두면 평가 실행도 전부 기록됩니다. 대량 평가 때는 끄는 것을 권장합니다.
+
 ## 실행
 
 ```bash

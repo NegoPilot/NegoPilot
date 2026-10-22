@@ -245,9 +245,9 @@ NegoPilot/
 
 | 구분 | 내용 |
 | --- | --- |
-| 완료 | 질의응답 Agent(분해 → MCP 조회 → 근거 검사 생성), law-mcp, business-mcp, 협상안 검사, 회원 승인과 관리자 화면, 개인 대화 저장, 평가 도구, CI |
+| 완료 | 질의응답 Agent(분해 → MCP 조회 → 근거 검사 생성), law-mcp, business-mcp, 협상안 검사, 회원 승인과 관리자 화면, 개인 대화 저장, 평가 도구, CI, LangSmith 추적(선택) |
 | 진행 중 | 협상 흐름 설계: 협상안 작성 → 검사 → 팀장 승인 대기 → 발송 → 회신 해석. 승인 대기 중 상태를 LangGraph checkpointer에 저장하고 협상 한 건을 `thread_id` 하나로 이어 가는 구조 |
-| 예정 | mail-mcp(메일 초안·발송), 답변 스트리밍, LangSmith 추적 |
+| 예정 | mail-mcp(메일 초안·발송), 답변 스트리밍 |
 
 ### MVP 범위
 
