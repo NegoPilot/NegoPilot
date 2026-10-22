@@ -1,6 +1,7 @@
 package com.negopilot.backend.agent;
 
 import com.negopilot.backend.common.api.ApiException;
+import com.negopilot.backend.common.api.RequestIds;
 
 import java.util.Set;
 import java.util.UUID;
@@ -15,7 +16,7 @@ public final class GenerationRequestValidator {
     public record MessageRequest(String query, ObjectNode context) {}
 
     public ValidatedRequest validateQuery(JsonNode body) {
-        UUID id = QueryRequestValidator.parseId(body == null ? null : body.get("request_id"));
+        UUID id = RequestIds.parse(body == null ? null : body.get("request_id"));
         if (!onlyFields(body, Set.of("request_id", "query", "history", "context"))
                 || (body.has("request_id") && id == null) || !validText(body.get("query"))) {
             throw ApiException.validation(id);

@@ -3,7 +3,6 @@ package com.negopilot.backend.auth;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.Set;
-import org.springframework.context.annotation.Profile;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,7 +14,6 @@ import tools.jackson.databind.json.JsonMapper;
 
 @RestController
 @RequestMapping(value = "/api/v1/auth", produces = "application/json")
-@Profile("!legacy-test")
 final class AuthController {
     record CsrfResponse(String header_name, String token) { }
     private final AuthService auth;

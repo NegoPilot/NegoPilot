@@ -292,7 +292,7 @@ PostgreSQL 연결 환경변수인 `TEST_DATABASE_URL`과 `TEST_DATABASE_USER` �
 
 ```sh
 mvn -f backend/pom.xml -B -ntp \
-  -Dtest=PersistentConversationServiceTest,PersistentConversationControllerTest,GenerationConversationServiceTest test
+  -Dtest=PersistentConversationServiceTest,PersistentConversationControllerTest test
 ```
 
 서비스 검사는 실제 PostgreSQL에서 소유권과 재시작 후 조회 및 페이지 경계와 중복 방지와 동시 생성 및 실패 원자성을 검증한다. 생성 중 회원 비활성화와 점유 교체 및 만료도 검증한다. Agent gateway는 테스트 응답을 사용한다. 이 검사는 실제 모델 호출이나 브라우저 로그인 연결의 검증을 대신하지 않는다.

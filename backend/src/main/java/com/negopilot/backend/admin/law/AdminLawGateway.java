@@ -9,13 +9,11 @@ import java.time.LocalDate;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
-import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 
 @Service
-@Profile("!legacy-test")
 public final class AdminLawGateway {
     private static final String ROOT = "/internal/v1/admin/laws";
     private static final String JOBS = ROOT + "/refresh-jobs";

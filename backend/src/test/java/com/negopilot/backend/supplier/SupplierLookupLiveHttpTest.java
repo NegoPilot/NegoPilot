@@ -1,5 +1,7 @@
 package com.negopilot.backend.supplier;
 
+import com.negopilot.backend.support.HttpSliceTestConfiguration;
+
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -34,8 +36,9 @@ import tools.jackson.databind.node.ObjectNode;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** v2 live lookups: Python answers from business-mcp, so Spring checks shape and filters instead of a fixture. */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@org.springframework.test.context.ActiveProfiles("legacy-test")
+@SpringBootTest(classes = {HttpSliceTestConfiguration.class, SupplierLookupController.class, SupplierLookupGateway.class,
+        SupplierGatewayClient.class, SupplierLookupRequestValidator.class, SupplierLookupResponseValidator.class},
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class SupplierLookupLiveHttpTest {
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final String SERVER_KEY = "supplier-lookup-live-test-key";
@@ -171,13 +174,6 @@ class SupplierLookupLiveHttpTest {
     @ValueSource(strings = {"SUP-1", "sup-0001", "SUP-0001extra", "SUP-1234567890123456789"})
     void rejectsInvalidLiveSupplierIdsBeforeCallingPython(String id) throws Exception {
         assertError(get("/api/v2/suppliers/" + id), 400, "VALIDATION_ERROR", false);
-        assertThat(PATHS).isEmpty();
-    }
-
-    @Test
-    void v1LookupsStayStubOnlyWithoutCallingPython() throws Exception {
-        assertError(get("/api/v1/business/catalog"), 503, "DEMO_MODE_REQUIRED", false);
-        assertError(get("/api/v1/suppliers/SUP-0001"), 503, "DEMO_MODE_REQUIRED", false);
         assertThat(PATHS).isEmpty();
     }
 

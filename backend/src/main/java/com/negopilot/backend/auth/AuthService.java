@@ -4,14 +4,12 @@ import com.negopilot.backend.common.api.ApiException;
 import com.negopilot.backend.UserIdentity;
 
 import java.util.UUID;
-import org.springframework.context.annotation.Profile;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
-@Profile("!legacy-test")
 final class AuthService {
     record AuthenticatedMember(UserIdentity identity, MemberView view) { }
 
