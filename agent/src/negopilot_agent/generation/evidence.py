@@ -129,7 +129,9 @@ def from_check_offer(r: dict) -> list[Draft]:
     rfq = r.get("rfq", {})
     who = f"{supplier.get('name')}({supplier.get('supplier_id')}) · {rfq.get('rfq_id')}"
     out = [{"source": "business", "kind": "offer_verdict", "label": f"협상안 검사 결과: {who}",
-            "text": compact({"verdict": r.get("verdict"), "supplier": supplier, "rfq": rfq, "offer": r.get("offer")}),
+            # basis(판정 기준일과 시행판)가 있어야 "그 시점 법으로는 해당 없음" 같은 설명을 근거로 쓸 수 있다
+            "text": compact({"verdict": r.get("verdict"), **({"basis": r["basis"]} if r.get("basis") else {}),
+                             "supplier": supplier, "rfq": rfq, "offer": r.get("offer")}),
             "meta": {"verdict": r.get("verdict")}}]
     for severity, items in (("위반 소지", r.get("violations", [])), ("확인 필요", r.get("warnings", [])),
                             ("참고", r.get("info", []))):

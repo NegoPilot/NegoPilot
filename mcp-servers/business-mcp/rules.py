@@ -89,6 +89,10 @@ LINKAGE_EXEMPTIONS = LawRef(ACT, "제3조", "④")  # 연동 사항을 적지 �
 SUBCONTRACTOR = LawRef(ACT, "제2조", "③")       # 수급사업자 = 중소기업자
 
 
+def korean_date(day: date) -> str:
+    return f"{day.year}년 {day.month}월 {day.day}일"
+
+
 def law_versions_on(as_of: date) -> dict[str, str | None]:
     """as_of에 시행 중인 법령별 시행판의 시행일. 색인보다 이른 날이면 None."""
     out = {}
@@ -163,9 +167,19 @@ def energy_linkage_findings(energy_ratio: float | None, price_linkage: bool, con
     """주요 에너지 연동 약정(하도급법 제3조②3·④, 제2조⑰) 검사.
 
     연동 약정(price_linkage)과 연동하지 않기로 한 합의(waived)는 원재료와 에너지에 함께 적용한다.
+    계약 시점이 규정 시행 전이면 검사하지 않고, 에너지 비중을 받았을 때는 그 이유를 info로 남긴다.
     """
-    if price_linkage or not MAJOR_ENERGY_RATIO.applies_on(as_of):
+    if price_linkage:
         return []
+    if not MAJOR_ENERGY_RATIO.applies_on(as_of):
+        if energy_ratio is None or MAJOR_ENERGY_RATIO.effective_from is None:
+            return []
+        # 근거 조문(제2조⑰)은 그 시점 시행판에 없어 law_refs를 달지 않는다. 날짜는 답변이 옮겨 적기 쉽게 한글로 쓴다
+        return [finding("ENERGY_RULE_NOT_IN_FORCE", "info",
+                        f"계약 시점 {korean_date(as_of)}은 주요 에너지 연동 규정 시행일"
+                        f"({korean_date(MAJOR_ENERGY_RATIO.effective_from)}) 전이라 에너지 비중 "
+                        f"{energy_ratio * 100:.0f}%의 연동 약정은 검사하지 않았다. 이 규정은 시행 이후 체결·갱신하는 "
+                        "하도급계약부터 적용된다")]
     if energy_ratio is None:
         return [finding("ENERGY_RATIO_UNKNOWN", "info",
                         "에너지 비중을 입력하지 않아 주요 에너지 연동 검사를 건너뛰었다. 에너지 비용이 하도급대금의 "

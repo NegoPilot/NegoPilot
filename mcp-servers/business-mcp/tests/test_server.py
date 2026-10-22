@@ -209,6 +209,7 @@ def test_energy_rule_does_not_apply_before_it_took_effect():
     out = offer(price_linkage=False, raw_material_ratio=0.05, energy_ratio=0.12, as_of="2026-08-10")
     assert out["violations"] == []
     assert "ENERGY_RATIO_UNKNOWN" not in codes(out, "info")
+    assert "ENERGY_RULE_NOT_IN_FORCE" in codes(out, "info")
     assert out["basis"]["law_versions"]["subcontract_act"] == "2025-12-17"
 
 
