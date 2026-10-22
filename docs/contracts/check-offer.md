@@ -126,7 +126,7 @@ Spring 응답 검증기와 화면은 아래 필드만 기준으로 삼습니다.
 - **전달 경로:** business-mcp `ToolError("[CODE] ...")` → Agent가 `^\[([A-Z_]+)\]`로 코드만 꺼내 `ToolCall.error_code`에 담음(원문은 가림) → Spring이 허용 목록의 `error_code`만 응답에 남김 → Generation과 화면이 코드로 안내.
 - 코드는 business-mcp의 공용 함수(협력사 이름 해석, RFQ 조회, DB 연결)에서 붙이므로 `get_supplier`, `rank_suppliers` 같은 다른 도구의 같은 오류에도 붙습니다. 허용 목록 규칙은 같습니다.
 - `ToolCall.error_code`는 Routing 결과에 새로 생기는 선택 필드입니다. 기존 필드를 바꾸지 않으므로 [Routing 계약](routing.md)의 `schema_version`은 올리지 않습니다.
-- **지금은 Agent 내부에서만 씁니다.** Spring 응답 검증기가 도구 호출 항목의 필드를 `server, tool, args, result, error` 5개로 고정하고 있어서, `error_code`는 직렬화(HTTP 응답, 저장 JSON)에서 뺍니다. 안내 문구는 Agent의 Generation이 만들므로 사용자에게는 이미 보입니다. BE가 검증기와 응답 정리 코드에 `error_code`를 허용하면 `shared/src/negopilot_shared/routing.py`의 `exclude=True`를 지워 응답에 포함합니다.
+- **HTTP 응답에도 공개 코드를 전달합니다.** Agent는 허용된 코드가 있을 때만 선택 필드 `error_code`를 직렬화합니다. Spring은 기존 5개 필드만 있는 응답과 공개 코드가 추가된 응답을 모두 받습니다. 명시적인 `null`도 허용합니다. 알 수 없는 코드와 잘못된 자료형은 응답 검증에서 거절합니다. 오류 원문은 계속 정제합니다. 정상 저장 대상인 대화는 전체 응답에 공개 코드도 보존하며 기존 대화 JSON은 변환하지 않습니다. 전체 실행 실패 응답은 기존 계약에 따라 메시지로 저장하지 않습니다.
 
 ### 회사 이름이 모호할 때
 
@@ -150,7 +150,7 @@ Spring 응답 검증기와 화면은 아래 필드만 기준으로 삼습니다.
 | MCP 서버 정비 | business-mcp 연결 풀과 협력사 이름 해석 통합, law-mcp 검색 캐시 상한과 용어 확장 수정 |
 | Agent 연결 | `offer_check`에 `find_suppliers` 선행, `error_code` 추출과 허용 목록, 분해 계약에 `energy_ratio`·`as_of` 추가, 검증 세트 전후 측정 |
 
-Spring의 허용 목록(`verdict_code`, `basis`, `schema_version`, `error_code`)과 화면 연결 방식(전용 API 또는 채팅 응답의 구조화 필드)은 위 작업이 머지된 뒤 BE와 함께 진행합니다.
+Spring은 도구 호출의 선택 필드 `error_code`에 공개 코드 허용 목록을 적용합니다. 채팅 응답을 사용하는 화면에서 구조화된 검사 결과를 표시하거나 `/review`에 전용 검사 흐름을 연결하는 작업은 별도입니다.
 
 ## 5. 변경 절차
 

@@ -148,6 +148,7 @@ export interface ToolCall {
   args: Record<string, unknown>
   result: unknown
   error: string | null
+  error_code?: 'RFQ_NOT_FOUND' | 'SUPPLIER_NOT_FOUND' | 'SUPPLIER_AMBIGUOUS' | 'VALUE_OUT_OF_RANGE' | null
 }
 
 export interface RouteOutcome {

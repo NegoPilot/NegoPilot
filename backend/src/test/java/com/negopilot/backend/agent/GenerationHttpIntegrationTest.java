@@ -203,6 +203,42 @@ class GenerationHttpIntegrationTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"RFQ_NOT_FOUND", "SUPPLIER_NOT_FOUND", "SUPPLIER_AMBIGUOUS", "VALUE_OUT_OF_RANGE"})
+    void exposesPublicToolErrorCodeWhileMaskingUpstreamDiagnostics(String code) throws Exception {
+        RESPONSE.set(request -> {
+            ObjectNode body = completed(request);
+            ObjectNode first = (ObjectNode) body.at("/routing/outcomes/0");
+            first.put("status", "error");
+            ObjectNode call = (ObjectNode) first.at("/calls/0");
+            call.put("error", "private upstream connection details").put("error_code", code).putNull("result");
+            first.putArray("referenced_articles").add(call.deepCopy());
+            return StubResponse.json(200, body);
+        });
+        var response = post(QUERIES, query("q"));
+        assertThat(response.statusCode()).isEqualTo(200);
+        JsonNode body = JSON.readTree(response.body());
+        assertThat(body.at("/routing/outcomes/0/calls/0/error_code").stringValue()).isEqualTo(code);
+        assertThat(body.at("/routing/outcomes/0/referenced_articles/0/error_code").stringValue()).isEqualTo(code);
+        assertThat(body.at("/routing/outcomes/0/calls/0/error").stringValue()).isEqualTo("Tool execution failed.");
+        assertThat(body.at("/routing/outcomes/0/referenced_articles/0/error").stringValue()).isEqualTo("Tool execution failed.");
+        assertThat(response.body()).doesNotContain("private upstream connection details");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"DB_UNAVAILABLE", "INTERNAL", "private-secret"})
+    void rejectsNonpublicToolErrorCodeWithoutReturningIt(String code) throws Exception {
+        RESPONSE.set(request -> {
+            ObjectNode body = completed(request);
+            ((ObjectNode) body.at("/routing/outcomes/0/calls/0"))
+                    .put("error", "private upstream connection details").put("error_code", code);
+            return StubResponse.json(200, body);
+        });
+        var response = post(QUERIES, query("q"));
+        assertError(response, 502, "UPSTREAM_INVALID_RESPONSE", false);
+        assertThat(response.body()).doesNotContain(code, "private upstream connection details");
+    }
+
+    @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void sanitizesDiagnosticsOnValidatedCopyWithoutChangingAnswerOrToolResults(boolean empty) throws Exception {
         String diagnostic = empty ? "" : "private diagnostic stack trace";

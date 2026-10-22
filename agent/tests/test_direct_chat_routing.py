@@ -6,7 +6,7 @@ from copy import deepcopy
 
 import pytest
 
-from negopilot_shared import DecompositionResult
+from negopilot_shared import DecompositionResult, public_error_code
 from negopilot_agent.api.execution import SafeToolCaller
 from negopilot_agent.generation import AnswerGenerator
 from negopilot_agent.generation.evidence import build_evidence
@@ -346,4 +346,9 @@ async def test_tool_error_code_becomes_guidance_without_leaking_the_message(mess
     assert any(notice in n for n in answer.notices)
     shown = answer.text + " ".join(answer.notices)
     assert "RFQ-2026-099" not in shown and "5433" not in shown and "raw_material_ratio" not in shown
-    assert "error_code" not in routing.model_dump_json()
+    call = routing.model_dump()["outcomes"][0]["calls"][0]
+    code = public_error_code(message)
+    if code is None:
+        assert "error_code" not in call
+    else:
+        assert call["error_code"] == code

@@ -68,6 +68,8 @@ for sq in decomposition.sub_queries:
 | `referenced_articles` | 결과의 `law_refs`를 미리 조회한 `get_article`. 조회가 실패해도 하위 질문은 `ok`이고 그 항목의 `error`만 채워진다 |
 | `missing` | `missing_args`일 때 확정되지 않은 엔티티 이름. 기업명 후보가 여러 곳이면 `supplier`이며 `calls`에 후보 조회 결과가 남는다 |
 
+`ToolCall.error_code`는 선택 필드입니다. 공개 코드 `RFQ_NOT_FOUND`와 `SUPPLIER_NOT_FOUND` 및 `SUPPLIER_AMBIGUOUS`와 `VALUE_OUT_OF_RANGE`만 전달합니다. 코드가 없으면 Agent는 필드를 생략하며 Spring은 생략과 명시적인 `null`을 모두 받습니다. 코드 값은 `error`가 있는 실패 호출에만 넣습니다. `DB_UNAVAILABLE`과 알 수 없는 코드는 공개하지 않습니다. 기존 5개 필드로 저장된 응답과 fixtures도 계속 유효합니다. 오류 원문은 `error_code` 유무와 관계없이 정제합니다.
+
 ## 3. status별 Generation 처리
 
 | status | 뜻 | Generation |
