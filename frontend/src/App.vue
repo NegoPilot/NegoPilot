@@ -38,20 +38,20 @@ const standalone = computed(() => route.meta.standalone === true)
         <span class="brand-team">{{ session?.department ?? '구매 업무 도우미' }}</span>
       </div>
       <RouterLink to="/overview" class="nav-item" exact-active-class="on">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-          <path d="M2 7.2L8 2l6 5.2V14h-4v-4H6v4H2z" />
+        <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M2.5 7L8 2.5 13.5 7v6.5h-3.5v-4h-4v4H2.5z" />
         </svg>
         홈
       </RouterLink>
       <RouterLink to="/suppliers" class="nav-item" active-class="on">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-          <path d="M2.5 4h11M2.5 8h11M2.5 12h11" />
+        <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M2.5 13.5V7.5l3.5 2V7.5l3.5 2v-6.5h4v10.5zM5 11.5h1M8.5 11.5h1" />
         </svg>
         협력사
       </RouterLink>
       <RouterLink to="/review" class="nav-item" active-class="on">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-          <path d="M8 1.8L14.2 8 8 14.2 1.8 8z" />
+        <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M8 2.5v11M5.5 13.5h5M3.5 4.5h9M3.5 4.5L2 9M3.5 4.5L5 9M12.5 4.5L11 9M12.5 4.5L14 9M2 9h3a1.5 1.5 0 0 1-3 0zM11 9h3a1.5 1.5 0 0 1-3 0z" />
         </svg>
         법규 검토
       </RouterLink>
@@ -80,6 +80,15 @@ const standalone = computed(() => route.meta.standalone === true)
 </template>
 
 <style scoped>
+/* 메뉴 아이콘은 같은 선 굵기와 둥근 끝으로 맞춘다 */
+.nav-icon {
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .shell {
   display: flex;
   flex-wrap: wrap;
@@ -166,7 +175,10 @@ const standalone = computed(() => route.meta.standalone === true)
   bottom: 16px;
   z-index: 50;
   display: flex;
-  width: min(420px, calc(100vw - 32px));
+  /* 대화 목록을 펼치면 패널 내용만큼 왼쪽으로 넓어진다 */
+  max-width: calc(100vw - 32px);
+  /* 그림자도 패널과 같은 모서리로 그려야 아래 모서리가 각져 보이지 않는다 */
+  border-radius: var(--radius);
   box-shadow: 0 8px 28px rgba(30, 50, 90, 0.22);
 }
 .ai-drawer :deep(.ai-panel) {

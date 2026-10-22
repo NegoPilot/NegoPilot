@@ -7,10 +7,17 @@ server.py 가 쓰는 항 단위 색인을 그대로 가져와, 같은 질문 세
     uv run --with numpy python eval/eval_retrieval.py          # BM25만
     uv run --with numpy python eval/eval_retrieval.py --dense bge-m3 openai-small
     uv run --with numpy python eval/eval_retrieval.py --decomposed eval/results/decomposed_gpt-4.1-mini.json
+    uv run --with numpy python eval/eval_retrieval.py --retrievers bm25,hybrid-bge-m3 --min-hit-at-5 0.8
 
 --decomposed 는 eval/decompose_gold.py 가 저장한 실제 분해 결과다. 라우터처럼 law_check 하위 질문을
 question 으로, law 엔티티가 있으면 그 법령만 검색해 "원문 → 사람 분해 → 실제 분해" 를 비교하고
 eval/results/decomposition_eval.json 에 저장한다.
+    uv run --with numpy python eval/eval_retrieval.py --decomposed eval/results/decomposed_gpt-4.1-mini.json \
+        --stepback eval/results/stepback_gpt-4.1-mini.json     # 검색어 확장 비교 (eval/stepback_queries.py)
+
+--retrievers(환경 변수 RETRIEVERS)로 평가할 방식만 고를 수 있고, --min-hit-at-5(MIN_HIT_AT_5)를 주면
+고른 방식 중 하나라도 "원문 질문 (전체) / 전체 법령" Hit@5 가 기준보다 낮을 때 종료 코드 1로 끝난다.
+Docker 로 돌리려면 저장소 루트의 compose.retrieval-eval.yaml 을 쓴다.
 
 임베딩은 --embed-python(기본 python3)으로 eval/embed.py 를 실행해 계산하고,
 eval/.cache/ 에 저장해 두어 색인 문장이 같으면 다시 계산하지 않는다.
@@ -19,6 +26,7 @@ eval/.cache/ 에 저장해 두어 색인 문장이 같으면 다시 계산하지
 import argparse
 import hashlib
 import json
+import os
 import random
 import subprocess
 import sys
@@ -70,6 +78,30 @@ def cached_embed(model: str, kind: str, texts: list[str], python: str) -> np.nda
 
 
 # ---------- 검색 방식 ----------
+
+BASELINE = "bm25"
+GATE_SET = "원문 질문 (전체) / 전체 법령"     # MIN_HIT_AT_5 를 견주는 표
+
+
+def retriever_labels() -> dict[str, str]:
+    """--retrievers 에 쓰는 이름 → 표에 찍히는 방식 이름."""
+    labels = {"bm25": "BM25+확장 (현재)", "bm25-noexp": "BM25"}
+    for e in EMBED_MODELS:
+        labels[e] = f"벡터 {e}"
+        labels[f"{e}-exp"] = f"벡터 {e}+확장"
+        labels[f"hybrid-{e}"] = f"하이브리드 RRF(BM25+확장, {e})"
+    return labels
+
+
+def embedder_of(name: str) -> str | None:
+    e = name.removeprefix("hybrid-").removesuffix("-exp")
+    return e if e in EMBED_MODELS else None
+
+
+def default_retrievers(dense: list[str]) -> list[str]:
+    """--retrievers 를 안 주면 예전처럼 BM25 두 가지에 --dense 모델별 세 가지를 붙인다."""
+    return ["bm25", "bm25-noexp"] + [n for e in dense for n in (e, f"{e}-exp", f"hybrid-{e}")]
+
 
 def rank_bm25(bm25, query: str, expand: bool) -> list[int]:
     scores = bm25.scores(server.tokenize(server.expand_query(query) if expand else query))
@@ -134,7 +166,10 @@ def run(args):
     arts = [unit_article(u) for u in units]
     print(f"색인: 항 {len(units)}개, 질문 {len(gold['items'])}개, 기준일 {as_of}")
 
-    embedders = args.dense
+    selected = args.retrievers or default_retrievers(args.dense)
+    labels = retriever_labels()
+    base_label = labels[BASELINE]
+    embedders = list(dict.fromkeys(e for n in selected if (e := embedder_of(n))))
     doc_vecs = {e: cached_embed(e, "docs", [unit_text(u) for u in units], args.embed_python)
                 for e in embedders}
 
@@ -145,7 +180,7 @@ def run(args):
             "fixture 원문 질문": [(it, it["query"]) for it in gold["items"] if "decomposed" in it],
             "fixture 분해 질문": [(it, it["decomposed"]) for it in gold["items"] if "decomposed" in it]}
 
-    report = {"as_of": as_of, "units": len(units), "results": {}, "per_query": {}}
+    report = {"as_of": as_of, "units": len(units), "retrievers": selected, "results": {}, "per_query": {}}
     for set_name, pairs in sets.items():
         queries = [q for _, q in pairs]
         expanded = [server.expand_query(q) for q in queries]
@@ -160,40 +195,81 @@ def run(args):
                 def keep(r):
                     return [i for i in r if allowed is None or units[i]["law_key"] in allowed]
 
-                bm = keep(rank_bm25(bm25, q, True))
-                runs = {"BM25+확장 (현재)": bm, "BM25": keep(rank_bm25(bm25, q, False))}
-                for e in embedders:
-                    dv, (qv, qxv) = doc_vecs[e], q_vecs[e]
-                    dn = keep(rank_dense(dv, qv[j]))
-                    runs[f"벡터 {e}"] = dn
-                    runs[f"벡터 {e}+확장"] = keep(rank_dense(dv, qxv[j]))
-                    runs[f"하이브리드 RRF(BM25+확장, {e})"] = rank_rrf(bm, dn)
+                bm = keep(rank_bm25(bm25, q, True))      # 하이브리드와 비교 기준에 늘 쓴다
+                runs = {base_label: bm}
+                for name in selected:
+                    e = embedder_of(name)
+                    if name == "bm25-noexp":
+                        r = keep(rank_bm25(bm25, q, False))
+                    elif name == e:
+                        r = keep(rank_dense(doc_vecs[e], q_vecs[e][0][j]))
+                    elif name == f"{e}-exp":
+                        r = keep(rank_dense(doc_vecs[e], q_vecs[e][1][j]))
+                    elif name == f"hybrid-{e}":
+                        r = rank_rrf(bm, keep(rank_dense(doc_vecs[e], q_vecs[e][0][j])))
+                    else:
+                        continue                            # bm25 는 위에서 넣었다
+                    runs[labels[name]] = r
                 for name, r in runs.items():
                     methods.setdefault(name, []).append(first_hit(r, arts, g))
             label = f"{set_name} / {'법령 필터' if use_filter else '전체 법령'}"
+            base = methods[base_label]
+            if BASELINE not in selected:                 # 고르지 않았으면 표에서는 뺀다
+                del methods[base_label]
             report["results"][label] = {m: summarize(r) for m, r in methods.items()}
             report["per_query"][label] = {m: dict(zip([it["id"] for it, _ in pairs], r))
                                           for m, r in methods.items()}
-            base = methods["BM25+확장 (현재)"]
             report["results"][label]["_bootstrap_Hit@5_vs_BM25+확장"] = {
-                m: bootstrap_diff(base, r) for m, r in methods.items() if m != "BM25+확장 (현재)"}
+                m: bootstrap_diff(base, r) for m, r in methods.items() if m != base_label}
             print_table(label, len(pairs), report["results"][label])
 
     if args.decomposed:
         dec_out = HERE / "results" / "decomposition_eval.json"
-        dec_out.write_text(json.dumps(run_decomposition(gold, args.decomposed, units, bm25),
+        dec_out.write_text(json.dumps(run_decomposition(gold, args.decomposed, units, bm25, args.stepback),
                                       ensure_ascii=False, indent=1), encoding="utf-8")
         print(f"\n분해 비교 질문별 순위: {dec_out.relative_to(HERE.parent)}")
 
-    out = HERE / "results" / "retrieval_eval.json"
-    out.parent.mkdir(exist_ok=True)
+    if args.min_hit_at_5 is not None:
+        report["gate"] = gate(report["results"][GATE_SET], args.min_hit_at_5)
+
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
-    print(f"\n질문별 순위: {out.relative_to(HERE.parent)}")
+    print(f"\n질문별 순위: {out}")
+    return report.get("gate", {}).get("passed", True)
+
+
+def gate(rows: dict, minimum: float) -> dict:
+    print(f"\n## 기준: {GATE_SET} Hit@5 >= {minimum:.3f}")
+    failed = []
+    for name, row in rows.items():
+        if name.startswith("_"):
+            continue
+        ok = row["Hit@5"] >= minimum
+        print(f"{'통과' if ok else '미달'}  {name:<44}{row['Hit@5']:>9.3f}")
+        if not ok:
+            failed.append(name)
+    print("결과: " + ("모두 통과" if not failed else f"{len(failed)}개 방식 미달"))
+    return {"set": GATE_SET, "min_hit_at_5": minimum, "failed": failed, "passed": not failed}
+
+
+def parse_retrievers(value: str) -> list[str]:
+    names = [n.strip() for n in value.split(",") if n.strip()]
+    unknown = [n for n in names if n not in retriever_labels()]
+    if unknown or not names:
+        raise argparse.ArgumentTypeError(
+            f"모르는 방식 {unknown or value!r}. 쓸 수 있는 이름: {', '.join(retriever_labels())}")
+    return list(dict.fromkeys(names))
+
+
+def env_float(name: str) -> float | None:
+    value = os.getenv(name, "").strip()
+    return float(value) if value else None
 
 
 # ---------- 실제 분해 비교 ----------
 
-def run_decomposition(gold: dict, path: Path, units: list[dict], bm25) -> dict:
+def run_decomposition(gold: dict, path: Path, units: list[dict], bm25, stepback: Path | None = None) -> dict:
     """원문 / 사람 분해 / 실제 분해 질문으로 BM25 검색 점수를 비교한다.
 
     실제 분해는 agent 라우터(_law_check)처럼 law_check 하위 질문마다 search_regulation(question, laws=[law])을
@@ -201,13 +277,31 @@ def run_decomposition(gold: dict, path: Path, units: list[dict], bm25) -> dict:
     law_check 하위 질문이 없으면(다른 intent로 분해되면) 법령 검색을 하지 않으므로 놓친 것으로 센다.
     "+원문" 은 라우터가 question 뒤에 그 하위 질문의 원문(original_text)을 이어 붙여 검색한다고 가정한 경우다.
     분해를 여러 번 돌린 결과(runs)면 실행마다 지표를 내 평균하고, 최저·최고를 함께 남긴다.
+    stepback(eval/stepback_queries.py 결과)을 주면 하위 질문마다 검색어 여러 개(질문·원문·step-back)를
+    이어 붙이거나 각각 검색해 RRF로 합치는 검색어 확장 방식도 비교한다 (#191).
     """
     dec = json.loads(path.read_text(encoding="utf-8"))
     runs = dec["runs"] if "runs" in dec else [dec["items"]]
     as_of = gold["as_of"]
     arts = [unit_article(u) for u in units]
 
-    def real_rank(subs: list[dict], it: dict, expand: bool, with_original: bool = False) -> int | None:
+    sb = json.loads(stepback.read_text(encoding="utf-8"))["queries"] if stepback else {}
+
+    def step_back(s: dict) -> str:
+        return sb[f"{s['question']}\n{s['original_text']}"]
+
+    # 방식 이름 → (하위 질문에서 검색어 목록 만들기, 합치는 법). concat: 이어 붙여 한 번 검색, rrf: 각각 검색해 RRF
+    variants = {"실제 분해": (lambda s: [s["question"]], "concat"),
+                "실제 분해+원문": (lambda s: [s["question"], s["original_text"]], "concat")}
+    if sb:
+        variants |= {"step-back": (lambda s: [step_back(s)], "concat"),
+                     "질문+원문+step-back 이어 붙이기":
+                         (lambda s: [s["question"], s["original_text"], step_back(s)], "concat"),
+                     "질문·원문 RRF": (lambda s: [s["question"], s["original_text"]], "rrf"),
+                     "질문·원문·step-back RRF": (lambda s: [s["question"], s["original_text"], step_back(s)], "rrf")}
+
+    def real_rank(subs: list[dict], it: dict, expand: bool, variant: str = "실제 분해") -> int | None:
+        make, mode = variants[variant]
         hits = []
         for s in subs:
             if s["intent"] != "law_check":
@@ -215,9 +309,10 @@ def run_decomposition(gold: dict, path: Path, units: list[dict], bm25) -> dict:
             law = s["entities"].get("law")
             keys = (server.resolve_law(law)["law_key"],) if law else tuple(server.LAWS)
             us, bm = server.search_units(keys, as_of, False)   # 서버처럼 법령 필터면 그 법령만으로 색인한다
-            q = f"{s['question']} {s['original_text']}" if with_original else s["question"]
-            hits.append(first_hit(rank_bm25(bm, q, expand), [unit_article(u) for u in us],
-                                  set(it["gold"])))
+            qs = make(s)
+            ranking = (rank_bm25(bm, " ".join(qs), expand) if mode == "concat"
+                       else rank_rrf(*(rank_bm25(bm, q, expand) for q in qs)))
+            hits.append(first_hit(ranking, [unit_article(u) for u in us], set(it["gold"])))
         return min((h for h in hits if h), default=None)
 
     def orig_rank(it: dict, q: str, expand: bool) -> int | None:
@@ -230,18 +325,16 @@ def run_decomposition(gold: dict, path: Path, units: list[dict], bm25) -> dict:
             "새로 쓴 질문": [it for it in items if it["source"] == "new"],
             "보강 질문 (원문 BM25 약점)": [it for it in items if it["source"] == "new_hard"],
             "fixture (사람 분해 있음)": [it for it in items if "decomposed" in it]}
-    real = {"실제 분해": f"실제 분해 ({dec.get('model')})",
-            "실제 분해+원문": "실제 분해 + 하위 질문 원문 이어 붙이기"}
+    real = {v: v for v in variants} | {"실제 분해": f"실제 분해 ({dec.get('model')})",
+                                       "실제 분해+원문": "실제 분해 + 하위 질문 원문 이어 붙이기"}
     out = {"backend": dec.get("backend"), "model": dec.get("model"), "repeat": len(runs),
            "results": {}, "per_query": {}}
     for expand in (True, False):
         tag = "BM25+확장 (현재)" if expand else "BM25"
         per = {it["id"]: {"원문": orig_rank(it, it["query"], expand),
                           "사람 분해": orig_rank(it, it["decomposed"], expand) if "decomposed" in it else None,
-                          "실제 분해": [real_rank(r.get(it["id"], {}).get("sub_queries", []), it, expand)
-                                    for r in runs],
-                          "실제 분해+원문": [real_rank(r.get(it["id"], {}).get("sub_queries", []), it, expand, True)
-                                       for r in runs]} for it in items}
+                          **{v: [real_rank(r.get(it["id"], {}).get("sub_queries", []), it, expand, v)
+                                 for r in runs] for v in variants}} for it in items}
         out["per_query"][tag] = per
         for set_name, its in sets.items():
             rows = {"원문": summarize([per[it["id"]]["원문"] for it in its])}
@@ -295,6 +388,15 @@ if __name__ == "__main__":
                    help="함께 평가할 임베딩 모델")
     p.add_argument("--embed-python", default="python3",
                    help="embed.py 를 실행할 파이썬 (torch·transformers 또는 openai 필요)")
+    p.add_argument("--stepback", type=Path,
+                   help="eval/stepback_queries.py 결과. --decomposed 와 함께 주면 검색어 확장 방식을 비교한다")
     p.add_argument("--decomposed", type=Path,
                    help="eval/decompose_gold.py 가 저장한 실제 분해 결과. 주면 원문/사람 분해/실제 분해 비교를 더한다")
-    run(p.parse_args())
+    p.add_argument("--retrievers", type=parse_retrievers,
+                   default=os.getenv("RETRIEVERS", "").strip() or None,   # 문자열 기본값에도 type 이 적용된다
+                   help="쉼표로 구분한 평가 방식 (환경 변수 RETRIEVERS). 예: bm25,bm25-noexp,bge-m3,hybrid-bge-m3")
+    p.add_argument("--min-hit-at-5", type=float, default=env_float("MIN_HIT_AT_5"),
+                   help=f"{GATE_SET} Hit@5 기준. 고른 방식 중 하나라도 낮으면 종료 코드 1 (환경 변수 MIN_HIT_AT_5)")
+    p.add_argument("--out", default=os.getenv("RESULTS_OUT") or str(HERE / "results" / "retrieval_eval.json"),
+                   help="결과 JSON 경로 (환경 변수 RESULTS_OUT)")
+    sys.exit(0 if run(p.parse_args()) else 1)

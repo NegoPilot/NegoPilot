@@ -235,7 +235,10 @@ class Router:
 
     async def _law_check(self, sq: SubQuery, spec: IntentSpec, ents: dict[str, Any]) -> SubQueryOutcome:
         """search_regulation(질문으로 검색) → 찾은 조문을 get_article로 전문 조회."""
-        args: dict[str, Any] = {"query": sq.question}
+        # 분해 질문(법률 용어) 뒤에 사용자 원문을 붙여 검색한다. 분해가 바꾸거나 뺀 표현도 BM25가 찾게 한다
+        # (law-mcp/eval 측정: Hit@5 0.734 → 0.797, #191)
+        query = sq.question if sq.original_text in sq.question else f"{sq.question} {sq.original_text}"
+        args: dict[str, Any] = {"query": query}
         if "law" in ents:
             args["laws"] = [ents["law"]]
         if "as_of" in ents:

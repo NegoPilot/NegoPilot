@@ -2,9 +2,9 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { createConversation, getConversation, getMessages, sendMessage } from '@/api/conversations'
+import { createConversation, getConversation, getMessages, listConversations, sendMessage } from '@/api/conversations'
 import { ApiError } from '@/api/client'
-import type { GenerationResponse, StoredMessage } from '@/api/types'
+import type { ConversationSummary, GenerationResponse, StoredMessage } from '@/api/types'
 import { describeError } from '@/utils/errors'
 import { parseSupplierEvidence, splitCitations } from '@/utils/evidence'
 import { NO_DATA, formatKrw, formatPercent, formatPpm } from '@/utils/format'
@@ -53,6 +53,58 @@ const input = ref<HTMLTextAreaElement | null>(null)
 let epoch = 0
 let pendingController: AbortController | null = null
 let retry: { id: string; query: string; key: string } | null = null
+
+// 이전 대화 목록 (#174). 대화 왼쪽 사이드바로 열고 닫는다. 열 때와 대화가 바뀔 때 첫 페이지를 다시 조회한다.
+const historyOpen = ref(false)
+const historyItems = ref<ConversationSummary[]>([])
+const historyCursor = ref<string | null>(null)
+const historyLoading = ref(false)
+const historyError = ref<unknown>(null)
+const historyRetryMore = ref(false)
+let historyController: AbortController | null = null
+const historyErrorText = computed(() => historyError.value ? describeError(historyError.value).message : null)
+const updatedFormatter = new Intl.DateTimeFormat('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+
+function cancelHistory() {
+  historyController?.abort()
+  historyController = null
+  historyLoading.value = false
+}
+async function loadHistory(more = false) {
+  cancelHistory()
+  const controller = new AbortController()
+  historyController = controller
+  historyLoading.value = true
+  historyError.value = null
+  historyRetryMore.value = more
+  try {
+    const page = await listConversations(more ? historyCursor.value : null, controller.signal)
+    if (historyController !== controller) return
+    // 첫 페이지는 화면을 비우지 않고 응답이 오면 통째로 바꾼다
+    const kept = more ? historyItems.value : []
+    const existing = new Set(kept.map((item) => item.conversation_id))
+    historyItems.value = [...kept, ...page.items.filter((item) => !existing.has(item.conversation_id))]
+    historyCursor.value = page.next_cursor
+  } catch (failure) { if (historyController === controller) historyError.value = failure }
+  finally { if (historyController === controller) { historyLoading.value = false; historyController = null } }
+}
+function toggleHistory() {
+  historyOpen.value = !historyOpen.value
+  if (historyOpen.value) void loadHistory()
+  else cancelHistory()
+}
+function conversationChanged() {
+  emit('changed')
+  if (historyOpen.value) void loadHistory()
+}
+function selectConversation(id: string) {
+  // 좁은 화면에서는 사이드바가 대화를 덮으므로 고른 뒤 닫는다
+  if (window.matchMedia('(max-width: 760px)').matches) toggleHistory()
+  if (id === conversationId.value) return
+  void loadConversation(id)
+  emit('open', id)
+}
+onBeforeUnmount(cancelHistory)
 
 function cancelView() {
   epoch += 1
@@ -162,7 +214,7 @@ async function send(text: string) {
       if (token !== epoch) return
       conversationId.value = snapshot.conversation_id
       emit('open', snapshot.conversation_id)
-      emit('changed')
+      conversationChanged()
     }
     const id = conversationId.value
     if (!retry || retry.id !== id || retry.query !== query) {
@@ -175,7 +227,7 @@ async function send(text: string) {
     }
     messages.value.push({ key: res.response_id, role: 'assistant', text: res.answer.text, response: res })
     retry = null
-    emit('changed')
+    conversationChanged()
   } catch (failure) {
     if (token !== epoch) return
     messages.value = messages.value.filter((item) => item.key !== userKey)
@@ -228,15 +280,63 @@ function supplierSummary(res: GenerationResponse) {
 </script>
 
 <template>
-  <aside class="panel ai-panel" aria-labelledby="ai-h">
+  <aside class="panel ai-panel" :class="{ 'history-open': historyOpen }" aria-labelledby="ai-h">
+    <nav id="ai-history" class="history" :class="{ open: historyOpen }" aria-label="이전 대화" :inert="!historyOpen">
+      <div class="history-inner">
+        <div class="history-head">
+          <h3>이전 대화</h3>
+        </div>
+        <div class="history-body">
+        <ul v-if="historyItems.length" class="history-list" aria-live="polite">
+          <li v-for="item in historyItems" :key="item.conversation_id">
+            <button
+              class="history-item"
+              :class="{ current: item.conversation_id === conversationId }"
+              type="button"
+              :aria-current="item.conversation_id === conversationId ? 'true' : undefined"
+              :disabled="sending"
+              @click="selectConversation(item.conversation_id)"
+            >
+              <span class="history-title" :title="item.title">{{ item.title }}</span>
+              <span class="history-meta">{{ updatedFormatter.format(new Date(item.updated_at)) }} · 메시지 {{ item.message_count }}개</span>
+            </button>
+          </li>
+        </ul>
+        <p v-if="historyLoading && !historyItems.length" class="muted">불러오는 중입니다…</p>
+        <p v-else-if="!historyItems.length && !historyError" class="muted">아직 저장된 대화가 없습니다.</p>
+        <p v-if="historyErrorText" class="error" role="alert">{{ historyErrorText }}</p>
+        <button v-if="historyError && !historyLoading" class="btn" type="button" @click="loadHistory(historyRetryMore)">다시 시도</button>
+        <button v-else-if="historyCursor" class="btn" type="button" :disabled="historyLoading" @click="loadHistory(true)">
+          {{ historyLoading ? '불러오는 중…' : '더 보기' }}
+        </button>
+        </div>
+      </div>
+    </nav>
+
+    <div class="chat">
     <header class="ai-head">
-      <div>
-        <h2 id="ai-h"><span aria-hidden="true">✦</span> AI 도우미</h2>
-        <p class="muted">기업 선택 없이 질문하고 이전 대화를 이어갈 수 있습니다.</p>
+      <div class="head-title">
+        <button
+          class="icon-btn"
+          type="button"
+          :aria-label="historyOpen ? '이전 대화 목록 닫기' : '이전 대화 목록 열기'"
+          :title="historyOpen ? '목록 닫기' : '이전 대화 목록'"
+          aria-controls="ai-history"
+          :aria-expanded="historyOpen"
+          @click="toggleHistory"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path d="M2.5 4h11M2.5 8h11M2.5 12h11" />
+          </svg>
+        </button>
+        <div>
+          <h2 id="ai-h"><span aria-hidden="true">✦</span> NegoPilot</h2>
+          <p class="muted">기업 선택 없이 질문하고 이전 대화를 이어갈 수 있습니다.</p>
+        </div>
       </div>
       <div class="head-actions">
         <button v-if="conversationId || messages.length" class="link-btn" type="button" @click="newConversation">새 대화</button>
-        <button v-if="closable !== false" class="close" type="button" aria-label="AI 도우미 닫기" @click="emit('close')">
+        <button v-if="closable !== false" class="close" type="button" aria-label="NegoPilot 닫기" @click="emit('close')">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
           <path d="M3.5 3.5l9 9M12.5 3.5l-9 9" />
         </svg>
@@ -348,19 +448,32 @@ function supplierSummary(res: GenerationResponse) {
         :disabled="sending || loading || !loaded"
         @keydown="onKeydown"
       />
-      <button class="send" type="submit" :disabled="!canSend">전송 ↑</button>
+      <button class="send" type="submit" aria-label="전송" title="전송" :disabled="!canSend">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" />
+        </svg>
+      </button>
     </form>
+    </div>
   </aside>
 </template>
 
 <style scoped>
 .ai-panel {
   display: flex;
-  flex-direction: column;
-  min-height: 640px;
-  max-height: calc(100vh - 120px);
   position: sticky;
   top: 16px;
+  min-height: 640px;
+  max-height: calc(100vh - 120px);
+  overflow: hidden;
+}
+.chat {
+  flex: none;
+  width: min(460px, calc(100vw - 32px));
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .ai-head {
   display: flex;
@@ -374,6 +487,146 @@ function supplierSummary(res: GenerationResponse) {
 }
 .ai-head p {
   margin: 4px 0 0;
+}
+.head-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.icon-btn {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin-top: -3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.icon-btn:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+/* 대화 목록 사이드바: 펼치면 패널이 왼쪽으로 넓어지고 대화 영역 너비는 그대로다 */
+.history {
+  flex: none;
+  width: 0;
+  overflow: hidden;
+  background: var(--surface-2);
+  border-right: 1px solid transparent;
+  transition: width 0.2s ease;
+}
+.history.open {
+  width: 248px;
+  border-right-color: var(--border);
+}
+.history-inner {
+  width: 248px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+/* 제목은 고정하고 아래 목록만 스크롤한다 */
+.history-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 16px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.history-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.history-head h3 {
+  font-size: 13px;
+}
+.history p {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 12px;
+}
+.history .error {
+  margin: 0;
+}
+.history-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.history-item {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.history-item:hover:not(:disabled) {
+  background: var(--primary-soft);
+}
+.history-item.current {
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.history-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+/* 제목이 한 줄을 넘으면 말줄임으로 자른다. 버튼 안 flex 항목이라 너비를 명시해야 잘린다 */
+.history-title {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.history-meta {
+  font-size: 11px;
+  color: var(--text-3);
+}
+@media (prefers-reduced-motion: reduce) {
+  .history {
+    transition: none;
+  }
+}
+/* 좁은 화면에서는 패널을 넓힐 수 없어 목록이 대화 위를 덮는다 */
+@media (max-width: 760px) {
+  .history {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 2;
+  }
+  .history.open {
+    box-shadow: 4px 0 16px rgba(30, 50, 90, 0.18);
+  }
 }
 .close {
   width: 32px;
@@ -555,16 +808,26 @@ function supplierSummary(res: GenerationResponse) {
   outline: 2px solid var(--primary);
   outline-offset: 1px;
 }
+/* 보낼 수 있을 때만 색을 채워 눌러도 되는 상태임을 보여 준다 */
 .send {
+  flex: none;
+  width: 28px;
+  height: 28px;
   border: 0;
-  background: none;
-  color: var(--primary);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.send:hover:not(:disabled) {
+  background: var(--primary-hover);
 }
 .send:disabled {
+  background: var(--border);
   color: var(--text-3);
   cursor: not-allowed;
 }

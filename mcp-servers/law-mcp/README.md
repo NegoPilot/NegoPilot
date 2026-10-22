@@ -65,6 +65,27 @@ GitHub API 호출 제한에 걸리면 수집 작업은 실패한다. 필요하�
 
 개발자가 내장 파일 자체를 다시 만들 때 사용하는 기존 `scripts/fetch_laws.py`와 `scripts/build_index.py`는 그대로 유지한다. 관리 화면의 최신화는 이 명령의 `main`을 실행하지 않고 격리된 임시 경로에서 수집과 파싱 함수만 사용한다.
 
+## 검색 방식 비교 평가
+
+`eval/eval_retrieval.py`는 `eval/retrieval_gold.json`의 질문 56개로 검색 방식마다 정답 조문이 몇 위에 나오는지 잰다. 서버의 실제 검색 경로(BM25+확장)는 바꾸지 않는다. 저장소 루트에서 Docker로 돌릴 때는 아래처럼 켤 방식과 기준을 넘긴다.
+
+```bash
+docker compose -f compose.retrieval-eval.yaml run --rm --build law-retrieval-eval
+RETRIEVERS=bm25,hybrid-bge-m3 MIN_HIT_AT_5=0.85 docker compose -f compose.retrieval-eval.yaml run --rm law-retrieval-eval
+```
+
+| 이름 | 방식 |
+| --- | --- |
+| `bm25` | BM25+동의어 확장 (현재 서버) |
+| `bm25-noexp` | BM25, 확장 없음 |
+| `bge-m3`, `openai-small` | 벡터 검색 |
+| `bge-m3-exp`, `openai-small-exp` | 확장한 질문으로 벡터 검색 |
+| `hybrid-bge-m3`, `hybrid-openai-small` | BM25+확장과 벡터를 RRF로 합침 |
+
+`RETRIEVERS`를 비우면 `bm25,bm25-noexp,bge-m3,hybrid-bge-m3`를 평가한다. `MIN_HIT_AT_5`를 주면 고른 방식 중 하나라도 "원문 질문 (전체) / 전체 법령" Hit@5가 기준보다 낮을 때 종료 코드 1로 끝난다. 결과 JSON은 `eval/results/local/`에 남는다.
+
+임베딩은 `eval/.cache/`를 컨테이너와 같이 쓴다. 색인 문장이 같으면 다시 계산하지 않는다. 캐시가 없으면 bge-m3는 컨테이너 CPU로 계산하고, `openai-small`은 `OPENAI_API_KEY`가 있어야 한다. Docker 없이 돌릴 때는 `uv run --with numpy python eval/eval_retrieval.py --help`를 본다.
+
 ## 폴더 구조
 
 ```
@@ -75,6 +96,7 @@ scripts/fetch_laws.py                       원문 내려받기 (한 번만 실�
 scripts/build_index.py                      원문 → 색인
 server.py                                   MCP Server
 tests/test_server.py                        MCP Client 테스트
+eval/eval_retrieval.py                      검색 방식 비교 평가 (eval/retrieval_gold.json)
 ```
 
 ## 알아둘 점
