@@ -47,11 +47,7 @@ class SupplierChatModeTest {
     }
 
     @Test
-    void originalApiStillUsesItsOwnKeyAndHealthRules() throws Exception {
-        var response = send("POST", "/api/v1/agent/queries", "{\"query\":\"test\"}");
-        assertThat(response.statusCode()).isEqualTo(503);
-        assertThat(JSON.readTree(response.body()).path("error").path("code").stringValue())
-                .isEqualTo("UPSTREAM_UNAVAILABLE");
+    void healthStaysAvailable() throws Exception {
         assertThat(send("GET", "/health", "").statusCode()).isEqualTo(200);
     }
 

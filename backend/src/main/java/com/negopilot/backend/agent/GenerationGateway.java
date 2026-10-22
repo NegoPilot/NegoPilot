@@ -1,6 +1,7 @@
 package com.negopilot.backend.agent;
 
 import com.negopilot.backend.common.api.ApiException;
+import com.negopilot.backend.common.api.RequestIds;
 import com.negopilot.backend.common.http.AgentHttpTransport;
 
 import java.util.Set;
@@ -56,7 +57,7 @@ public final class GenerationGateway {
         }
         // Generic Python validation and exception handlers may not have decoded an ID.
         if (!((status == 400 || status == 500) && body.get("request_id").isNull())
-                && !id.equals(QueryRequestValidator.parseId(body.get("request_id")))) {
+                && !id.equals(RequestIds.parse(body.get("request_id")))) {
             throw ApiException.invalidResponse(id);
         }
         JsonNode error = body.get("error");

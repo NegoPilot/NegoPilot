@@ -50,9 +50,4 @@ public class AgentHttpConfiguration {
                 .requestFactory(new HttpComponentsClientHttpRequestFactory(agentHttpClient))
                 .build();
     }
-
-    @Bean
-    AgentResponseValidator agentResponseValidator() {
-        return new AgentResponseValidator();
-    }
 }

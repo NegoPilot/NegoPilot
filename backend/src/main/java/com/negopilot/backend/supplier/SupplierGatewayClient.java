@@ -1,7 +1,7 @@
 package com.negopilot.backend.supplier;
 
-import com.negopilot.backend.agent.QueryRequestValidator;
 import com.negopilot.backend.common.api.ApiException;
+import com.negopilot.backend.common.api.RequestIds;
 import com.negopilot.backend.common.http.AgentHttpTransport;
 import java.net.URI;
 import java.util.HashMap;
@@ -61,7 +61,7 @@ final class SupplierGatewayClient {
         }
         JsonNode upstreamId = body.get("request_id");
         if (!upstreamId.isNull()) {
-            UUID decoded = QueryRequestValidator.parseId(upstreamId);
+            UUID decoded = RequestIds.parse(upstreamId);
             if (decoded == null || (idWasSent && !requestId.equals(decoded))) return ApiException.invalidResponse(requestId);
         }
         JsonNode error = body.get("error");

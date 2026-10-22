@@ -27,8 +27,8 @@ public final class GenerationResponseValidator {
         JsonNode decomposition = response.get("decomposition");
         JsonNode routing = response.get("routing");
         try {
-            AgentResponseValidator.validateDecomposition(decomposition);
-            AgentResponseValidator.validateRouting(routing, decomposition);
+            DecompositionRoutingValidator.validateDecomposition(decomposition);
+            DecompositionRoutingValidator.validateRouting(routing, decomposition);
         } catch (IllegalArgumentException ignored) {
             throw invalid();
         }
