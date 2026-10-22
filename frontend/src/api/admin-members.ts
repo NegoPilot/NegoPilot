@@ -1,4 +1,4 @@
-import { ApiError, request } from './client'
+import { API_PATHS, ApiError, request } from './client'
 
 export type AdminMemberRole = 'USER' | 'ADMIN'
 export type AdminMemberStatus = 'PENDING' | 'ACTIVE' | 'REJECTED' | 'DISABLED'
@@ -42,7 +42,7 @@ export const MEMBER_STATUS_LABEL: Record<AdminMemberStatus, string> = {
   DISABLED: '비활성',
 }
 
-const ROOT = '/api/v1/admin/members'
+const ROOT = `${API_PATHS.admin}/members`
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
 const ROLES: readonly string[] = ['USER', 'ADMIN']
 const STATUSES: readonly string[] = ['PENDING', 'ACTIVE', 'REJECTED', 'DISABLED']

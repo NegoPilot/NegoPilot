@@ -3,6 +3,16 @@ import type { ApiErrorBody } from './types'
 const configuredTimeout = Number(import.meta.env.VITE_API_TIMEOUT_MS)
 export const DEFAULT_TIMEOUT_MS = Number.isFinite(configuredTimeout) && configuredTimeout >= 1_000 && configuredTimeout <= 2_147_483_647 ? configuredTimeout : 40_000
 
+// 공개 API 경로는 여기서만 정한다. URL에는 버전을 두지 않고 응답의 schema_version으로 계약을 구분한다.
+const API_ROOT = '/api'
+export const API_PATHS = {
+  auth: `${API_ROOT}/auth`,
+  admin: `${API_ROOT}/admin`,
+  conversations: `${API_ROOT}/conversations`,
+  businessCatalog: `${API_ROOT}/business/catalog`,
+  suppliers: `${API_ROOT}/suppliers`,
+} as const
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -30,7 +40,7 @@ export async function request<T>(path: string, init: RequestInit = {}, timeoutMs
   const method = (init.method ?? 'GET').toUpperCase()
   // 로그인 시 토큰이 바뀌므로 각 변경 요청 직전에 현재 세션의 토큰을 받는다.
   if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
-    const csrf = await request<{ header_name: string; token: string }>('/api/v1/auth/csrf', { signal: init.signal })
+    const csrf = await request<{ header_name: string; token: string }>(`${API_PATHS.auth}/csrf`, { signal: init.signal })
     if (!csrf || typeof csrf.header_name !== 'string' || !/^[A-Za-z0-9-]+$/.test(csrf.header_name)
       || typeof csrf.token !== 'string' || !csrf.token) throw new ApiError(502, 'INVALID_RESPONSE', 'Invalid CSRF response.', false)
     headers.set(csrf.header_name, csrf.token)
@@ -47,7 +57,7 @@ export async function request<T>(path: string, init: RequestInit = {}, timeoutMs
     try { body = text ? JSON.parse(text) : null } catch { /* HTTP 오류를 아래에서 분류한다. */ }
     if (!response.ok) {
       if (isErrorBody(body)) {
-        if (body.error.code === 'UNAUTHENTICATED' && path !== '/api/v1/auth/me' && typeof window !== 'undefined') {
+        if (body.error.code === 'UNAUTHENTICATED' && path !== `${API_PATHS.auth}/me` && typeof window !== 'undefined') {
           window.dispatchEvent(new Event('negopilot:unauthenticated'))
         }
         throw new ApiError(response.status, body.error.code, body.error.message, body.error.retryable, body.request_id ?? null)

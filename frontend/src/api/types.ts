@@ -1,6 +1,6 @@
 // Spring 공개 API의 응답 형식. 계약이 바뀌면 이 파일을 같은 PR에서 고친다.
-// - 협력사 조회: docs/contracts/supplier-lookup.md (v0.3, /api/v2 live)
-// - 생성 답변 대화: docs/contracts/agent-generation.md (v0.3, /api/v2)
+// - 협력사 조회: docs/contracts/supplier-lookup.md (v0.3, live)
+// - 생성 답변 대화: docs/contracts/agent-generation.md (v0.3)
 
 export interface Envelope<T> {
   schema_version: '0.3'
@@ -99,7 +99,7 @@ export interface SupplierSearchParams {
   limit?: number
 }
 
-// ── 생성 답변 대화 (docs/contracts/agent-generation.md v0.3, /api/v2) ──
+// ── 생성 답변 대화 (docs/contracts/agent-generation.md v0.3) ──
 
 export interface ChatContext {
   /** 0..1개. 대명사를 해석하는 보조 데이터일 뿐 기업 사실은 도구 결과로 확인한다 */
