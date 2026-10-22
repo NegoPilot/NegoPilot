@@ -17,7 +17,7 @@ import secrets
 import threading
 from functools import wraps
 import re
-from collections import Counter
+from collections import Counter, OrderedDict
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -92,7 +92,7 @@ def admin_exact_version(law_key: str, version_id: str) -> dict | None:
 @mcp.tool(annotations={"readOnlyHint": True})
 @dataset_read
 def admin_law_catalog() -> dict:
-    """Return the dataset actually loaded by this process. No collection or editing."""
+    """관리자 화면용. 이 서버가 지금 불러온 법령 데이터의 목록과 건수를 반환한다. 수집·수정은 하지 않는다."""
     items = [{"law_key": key, "law_name": law["law_name"], "version_count": len(law["versions"]),
               "article_count": sum(len(v["articles"]) for v in law["versions"])}
              for key, law in sorted(LAWS.items())]
@@ -104,7 +104,10 @@ def admin_law_catalog() -> dict:
 @mcp.tool(annotations={"readOnlyHint": True})
 @dataset_read
 def admin_law_versions(law_key: str) -> dict | None:
-    """List every retained version without choosing a date-dependent fallback."""
+    """관리자 화면용. 법령 하나가 가진 모든 판(최신 판부터)을 반환한다. 기준일로 판을 고르지 않는다.
+
+    law_key: subcontract_act 처럼 정확한 키 (별칭은 받지 않는다). 없으면 null
+    """
     law = LAWS.get(law_key)
     if law is None:
         return None
@@ -115,9 +118,13 @@ def admin_law_versions(law_key: str) -> dict | None:
 @mcp.tool(annotations={"readOnlyHint": True})
 @dataset_read
 def admin_law_articles(law_key: str, version_id: str, offset: int = 0, limit: int = 50) -> dict | None:
-    """Page article metadata from one exact retained version."""
+    """관리자 화면용. 지정한 판의 조문 목록(번호, 제목, 삭제 여부)을 페이지 단위로 반환한다.
+
+    version_id: admin_law_versions의 version_id. 판이 없으면 null
+    offset: 0 이상, limit: 1~100
+    """
     if offset < 0 or not 1 <= limit <= 100:
-        raise ToolError("Invalid page")
+        raise ToolError("offset 은 0 이상, limit 은 1~100 이어야 한다")
     version = admin_exact_version(law_key, version_id)
     if version is None:
         return None
@@ -130,7 +137,10 @@ def admin_law_articles(law_key: str, version_id: str, offset: int = 0, limit: in
 @mcp.tool(annotations={"readOnlyHint": True})
 @dataset_read
 def admin_law_article(law_key: str, version_id: str, article_no: str) -> dict | None:
-    """Read one exact version's article. Never modify or refresh the dataset."""
+    """관리자 화면용. 지정한 판의 조문 하나를 전문과 인용 문구로 반환한다. 판이나 조문이 없으면 null.
+
+    article_no: '제4조', '16조의2' 처럼 입력. 데이터를 바꾸거나 갱신하지 않는다
+    """
     version = admin_exact_version(law_key, version_id)
     if version is None:
         return None
@@ -215,7 +225,22 @@ GLOSSARY = {
 
 
 def expand_query(query: str) -> str:
-    extra = [term for key, term in GLOSSARY.items() if key in query]
+    """현업 표현을 찾아 법령 용어를 덧붙인다.
+
+    긴 표현부터 찾고, 이미 찾은 글자는 짧은 표현이 다시 쓰지 않는다.
+    예: '1차 협력사'는 원사업자만 붙고, 그 안의 '협력사'로 수급사업자가 함께 붙지 않는다.
+    """
+    used = [False] * len(query)
+    found: list[tuple[int, str]] = []          # (질문 안 위치, 덧붙일 용어)
+    for key in sorted(GLOSSARY, key=len, reverse=True):
+        start = query.find(key)
+        while start >= 0:
+            end = start + len(key)
+            if not any(used[start:end]):
+                used[start:end] = [True] * len(key)
+                found.append((start, GLOSSARY[key]))
+            start = query.find(key, end)
+    extra = list(dict.fromkeys(term for _, term in sorted(found)))   # 질문에 나온 순서, 같은 용어는 한 번
     return query + (" " + " ".join(extra) if extra else "")
 
 
@@ -249,18 +274,24 @@ class Bm25:
         return out
 
 
-_search_cache: dict[tuple, tuple[list[dict], Bm25]] = {}
+# 법령 조합·시행판마다 색인 하나. 오래 안 쓴 색인부터 버린다 (LRU)
+SEARCH_CACHE_SIZE = 32
+_search_cache: OrderedDict[tuple, tuple[list[dict], Bm25]] = OrderedDict()
 
 
 def search_units(law_keys: tuple[str, ...], as_of: str, include_addenda: bool):
-    """항 단위 검색 문서 목록과 BM25 인덱스. 같은 조건이면 재사용한다."""
-    cache_key = (law_keys, as_of, include_addenda)
+    """항 단위 검색 문서 목록과 BM25 인덱스. 같은 조건이면 재사용한다.
+
+    캐시 키는 기준일이 아니라 그날 시행 중인 판이다. 기준일이 달라도 시행판이 같으면 같은 색인을 쓴다.
+    """
+    versions = {key: version_in_force(LAWS[key], as_of) for key in law_keys}
+    cache_key = (law_keys, tuple(admin_version_id(v) for v in versions.values()), include_addenda)
     if cache_key in _search_cache:
+        _search_cache.move_to_end(cache_key)
         return _search_cache[cache_key]
     units = []
     for key in law_keys:
-        law = LAWS[key]
-        v = version_in_force(law, as_of)
+        v = versions[key]
         for art in v["articles"]:
             if art["deleted"]:
                 continue
@@ -276,6 +307,8 @@ def search_units(law_keys: tuple[str, ...], as_of: str, include_addenda: bool):
                               "tokens": tokenize(ad["title"] + " " + ad["text"])})
     result = (units, Bm25([u["tokens"] for u in units]))
     _search_cache[cache_key] = result
+    while len(_search_cache) > SEARCH_CACHE_SIZE:
+        _search_cache.popitem(last=False)
     return result
 
 
