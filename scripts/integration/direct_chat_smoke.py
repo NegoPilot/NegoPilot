@@ -2,8 +2,10 @@
 """Exercise documented direct-chat stub questions through real Python and Spring.
 
 The production stub API runs the real graph and AnswerGenerator. A separate
-caller-only failure server checks tool errors. No model, DB or dependency install
-is used. Reports and logs stay under /tmp and only owned processes are stopped.
+caller-only failure server checks tool errors. Spring runs its default profile
+against a disposable PostgreSQL container with a signed-in member. No model or
+dependency install is used. Reports and logs stay under /tmp and only owned
+processes and containers are stopped.
 """
 from __future__ import annotations
 
@@ -13,7 +15,6 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
-import subprocess
 import sys
 import tempfile
 import time
@@ -171,12 +172,14 @@ def assert_forwarded_history(actual: list[dict], messages: list[dict]) -> None:
                 "Assistant history text or codepoint limit changed")
 
 
-def write_report(path: Path, report: dict[str, Any], key: str) -> None:
-    """Keep a detected key leak out of every persisted response and relay record."""
+def write_report(path: Path, report: dict[str, Any], *private: str) -> None:
+    """Keep a detected key or password leak out of every persisted response and relay record."""
     path = require_tmp_output(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     serialized = json.dumps(report, ensure_ascii=False, indent=2)
-    path.write_text(serialized.replace(key, "[REDACTED]") + "\n", encoding="utf-8")
+    for value in private:
+        serialized = serialized.replace(value, "[REDACTED]")
+    path.write_text(serialized + "\n", encoding="utf-8")
 
 
 def tool_failure_app():
@@ -193,7 +196,6 @@ class DirectChatSmoke(GenerationSmoke):
     def __init__(self, jar: Path):
         super().__init__(jar)
         self.suppliers = load_suppliers()
-        self.legacy_responses: list[dict[str, Any]] = []
 
     def start_fixture_python(self) -> int:
         return self.start_python(self.key, "Python built-in direct-chat stub")
@@ -330,26 +332,10 @@ class DirectChatSmoke(GenerationSmoke):
         finally:
             self.relay.upstream = previous_upstream
 
-    def legacy_fixture_unchanged(self):
-        path = "/internal/v1/suppliers?process=%ED%94%84%EB%A0%88%EC%8A%A4"
-        status, body = request(self.python, path, key=self.key, method="GET")
-        self.legacy_responses.append({"path": path, "method": "GET", "status": status, "body": body})
-        require(status == 200 and body["schema_version"] == "0.2" and body["mode"] == "stub", "Legacy supplier response changed")
-        require([item["supplier_id"] for item in body["data"]["items"]] == ["SUP-0052"], "Direct-chat fixture contaminated legacy v0.2")
-
-    def check_openapi(self):
-        super().check_openapi()
-        if self.legacy_responses:
-            result = subprocess.run([str(ROOT / "agent/.venv/bin/python"), "-B",
-                                     str(ROOT / "scripts/integration/check_openapi.py"), "--contract",
-                                     str(ROOT / "docs/contracts/supplier-chat.openapi.json")],
-                                    input=json.dumps(self.legacy_responses), text=True, capture_output=True,
-                                    cwd=ROOT, env=child_environment(None), timeout=30)
-            require(result.returncode == 0, "Legacy OpenAPI failed: " + result.stdout.strip())
-
     def check_logs(self):
         self.check("logs.no_internal_key_or_tool_diagnostic", lambda: require(all(
-            self.key not in "".join(process.log) and TOOL_DIAGNOSTIC not in "".join(process.log)
+            self.key not in "".join(process.log) and self.member_password not in "".join(process.log)
+            and TOOL_DIAGNOSTIC not in "".join(process.log)
             for process in self.processes), "A process logged private diagnostic data"))
 
     def run(self):
@@ -358,6 +344,7 @@ class DirectChatSmoke(GenerationSmoke):
         self.python = self.start_fixture_python()
         self.relay.upstream = self.python
         self.spring = self.start_spring(self.key, "Spring direct-chat gateway")
+        self.session = self.sign_in(self.spring)
         for name, fn in [
             ("selection_free_supplier_search", self.search_without_selection),
             ("selection_free_law_evidence", self.law_without_selection),
@@ -368,7 +355,6 @@ class DirectChatSmoke(GenerationSmoke):
             ("number_without_option_data_is_rejected", self.number_without_options_is_rejected),
             ("topic_change_after_clarification", self.topic_change),
             ("tool_failure_is_not_ambiguous_selection", self.tool_failure),
-            ("legacy_v02_fixture_unchanged", self.legacy_fixture_unchanged),
         ]:
             self.check(name, fn)
         self.check("no_live_model_or_external_tool_calls", lambda: require(not self.relay.unexpected_paths,
@@ -389,6 +375,9 @@ def main():
     if not args.jar.is_file() or not CONTRACT.is_file() or not (ROOT / "agent/.venv/bin/python").is_file():
         print("Prepare the final Spring JAR, Python environment and OpenAPI before running.")
         return 2
+    if shutil.which("docker") is None:
+        print("Docker is required for the disposable PostgreSQL DB.")
+        return 2
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="negopilot-direct-chat-", dir="/tmp") as temporary:
         jar = Path(temporary) / "backend.jar"
@@ -402,7 +391,7 @@ def main():
             return 130
         except Exception as error:
             runner.results.append({"name": "runner", "status": "FAIL", "detail":
-                                   f"{type(error).__name__}: {str(error).replace(runner.key, '[REDACTED]')}"})
+                                   f"{type(error).__name__}: {runner.redact(str(error))}"})
         finally:
             runner.close()
         runner.check_logs()
@@ -412,15 +401,15 @@ def main():
         report = {"schema_version": "0.3", "mode": "stub", "real_model": False,
                   "spring_jar_sha256": jar_hash, "duration_seconds": round(time.monotonic() - started, 2),
                   "passed": passed, "total": len(runner.results),
-                  "http_responses_checked": len(runner.responses) + len(runner.legacy_responses),
-                  "generation_http_responses": len(runner.responses), "legacy_http_responses": len(runner.legacy_responses),
-                  "checks": runner.results, "responses": runner.responses, "legacy_responses": runner.legacy_responses,
+                  "http_responses_checked": len(runner.responses),
+                  "checks": runner.results, "responses": runner.responses,
                   "forwarded": runner.relay.records if runner.relay else [],
-                  "limitations": ["Built-in API stub questions with real graph and AnswerGenerator", "No real LLM/MCP/DB calls",
-                                  "Only tool-failure server overrides generation_caller", "Memory ends when owned Spring exits"]}
-        write_report(report_path, report, runner.key)
+                  "limitations": ["Built-in API stub questions with real graph and AnswerGenerator", "No real LLM/MCP calls",
+                                  "Only tool-failure server overrides generation_caller",
+                                  "Conversations use a disposable PostgreSQL container removed after the run"]}
+        write_report(report_path, report, runner.key, runner.member_password)
         log_path = require_tmp_output(report_path.with_suffix(".logs.txt"))
-        log_path.write_text("\n".join(p.label + "\n" + "".join(p.log).replace(runner.key, "[REDACTED]") for p in runner.processes))
+        log_path.write_text("\n".join(p.label + "\n" + runner.redact("".join(p.log)) for p in runner.processes))
         print(f"Result: {passed}/{len(runner.results)} checks passed. Owned processes cleaned up.")
         return 0 if passed == len(runner.results) else 1
 

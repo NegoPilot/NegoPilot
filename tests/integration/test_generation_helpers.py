@@ -222,6 +222,7 @@ class GenerationHelpersTest(unittest.TestCase):
             with mock.patch.object(smoke, "ROOT", root), mock.patch.object(smoke, "CONTRACT", contract), \
                     mock.patch.object(smoke, "GenerationSmoke", return_value=runner) as factory, \
                     mock.patch.object(sys, "argv", ["generation_smoke.py", "--jar", str(jar), "--report", str(report)]), \
+                    mock.patch.object(smoke.shutil, "which", return_value="/usr/bin/docker"), \
                     mock.patch("builtins.print"):
                 self.assertEqual(smoke.main(), 130)
             runner.close.assert_called_once_with()
