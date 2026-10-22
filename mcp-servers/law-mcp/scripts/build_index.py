@@ -20,7 +20,20 @@ ARTICLE_RE = re.compile(r"^#####\s+(제\d+조(?:의\d+)?)\s*(?:\((.*?)\))?\s*(.*
 CHAPTER_RE = re.compile(r"^##\s+(제\d+장.*)$")
 SECTION_RE = re.compile(r"^###\s+(제\d+절.*)$")
 ADDENDUM_RE = re.compile(r"^부칙")
-PARAGRAPH_RE = re.compile(r"\*\*([①-⑳])\*\*")
+PARAGRAPH_RE = re.compile(r"\*\*([①-⑳㉑-㉟㊱-㊿])\*\*")
+# 원문이 16항 이상을 원문자 대신 "**<16>** <16>"으로 적는 판이 있다. 원문자로 바꿔 판마다 표기를 맞춘다
+NUMBERED_PARAGRAPH_RE = re.compile(r"\*\*<(\d{1,2})>\*\*(?: <\1>)?")
+
+
+def circled(n: int) -> str:
+    """1~50을 원문자(①~㊿)로 바꾼다."""
+    if 1 <= n <= 20:
+        return chr(0x2460 + n - 1)
+    if 21 <= n <= 35:
+        return chr(0x3251 + n - 21)
+    if 36 <= n <= 50:
+        return chr(0x32B1 + n - 36)
+    raise ValueError(f"항 번호 {n}을 원문자로 바꿀 수 없다")
 
 
 def split_frontmatter(text: str) -> tuple[dict, str]:
@@ -59,7 +72,7 @@ def parse_body(body: str) -> tuple[list[dict], list[dict]]:
 
     def flush_article():
         if current is not None:
-            text = "\n".join(current["lines"])
+            text = NUMBERED_PARAGRAPH_RE.sub(lambda m: f"**{circled(int(m.group(1)))}**", "\n".join(current["lines"]))
             current["paragraphs"] = split_paragraphs(text)
             current["text"] = clean(text)
             # 삭제된 조문은 제목이나 본문이 "삭제 <날짜>" 한 줄뿐이다

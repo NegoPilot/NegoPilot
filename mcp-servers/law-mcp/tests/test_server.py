@@ -47,6 +47,16 @@ def test_get_article_with_alias_and_loose_number():
     assert art["citation"].startswith("「하도급거래 공정화에 관한 법률」 제4조")
 
 
+def test_paragraphs_from_16_use_circled_numbers_in_every_version():
+    # 2026-10-02 판 원문은 16항 이상을 "<16>"으로 적는다. 색인은 원문자로 맞춰 항을 나눠야 한다
+    for as_of in ("2026-09-01", "2026-10-20"):
+        art = run(call("get_article", {"law": "subcontract_act", "article_no": "제2조", "as_of": as_of}))
+        paragraphs = {p["no"]: p["text"] for p in art["paragraphs"]}
+        assert "주요 원재료" in paragraphs["⑯"]
+        assert "주요 에너지" in paragraphs["⑰"]
+        assert "<16>" not in json.dumps(art, ensure_ascii=False)
+
+
 def test_get_article_branch_number():
     art = run(call("get_article", {"law": "subcontract_act", "article_no": "16조의2"}))
     assert art["article_no"] == "제16조의2"

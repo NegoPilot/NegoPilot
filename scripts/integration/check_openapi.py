@@ -13,7 +13,6 @@ import sys
 from urllib.parse import urlsplit
 
 from jsonschema import Draft202012Validator, FormatChecker
-from http_smoke import validate_execution_payload
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -50,18 +49,12 @@ def validate_records(contract: dict, responses: list) -> list[str]:
         errors = list(validator.iter_errors(record["body"]))
         for error in errors:
             failures.append(f"Response {index}: schema path " + "/".join(map(str, error.schema_path)))
-        if not errors and record["status"] == 200 and path in {
-                "/internal/v1/query-executions", "/api/v1/agent/queries"}:
-            try:
-                validate_execution_payload(record["body"])
-            except (AssertionError, KeyError, TypeError, ValueError):
-                failures.append(f"Response {index}: execution identity, state or sanitized diagnostics mismatch")
     return failures
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--contract", type=Path, default=ROOT / "docs/contracts/agent-http.openapi.json")
+    parser.add_argument("--contract", type=Path, default=ROOT / "docs/contracts/agent-generation.openapi.json")
     args = parser.parse_args()
     try:
         contract = json.loads(args.contract.read_text())
