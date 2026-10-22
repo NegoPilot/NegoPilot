@@ -601,7 +601,9 @@ async def test_failed_reference_lookup_preserves_primary_evidence(monkeypatch, c
     assert data["execution_status"] == "COMPLETED" and data["error"] is None
     outcome = data["routing"]["outcomes"][0]
     assert outcome["status"] == "ok" and outcome["calls"] == routing["outcomes"][0]["calls"]
-    assert len(outcome["referenced_articles"]) == 3 and caller.remaining == []
+    # 녹화된 결과가 지목한 조문 수만큼 조회를 시도한다 (check_offer v2에서는 항별로 조문이 늘 수 있다)
+    expected = len(routing["outcomes"][0]["referenced_articles"])
+    assert expected > 0 and len(outcome["referenced_articles"]) == expected and caller.remaining == []
     assert all(item["error"] == "Tool execution failed." for item in outcome["referenced_articles"])
     assert all(item["kind"] != "referenced_article" for item in data["answer"]["evidence"])
     assert PRIVATE not in caplog.text and API_KEY not in caplog.text

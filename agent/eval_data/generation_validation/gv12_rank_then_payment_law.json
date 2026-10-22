@@ -88,6 +88,9 @@
                   "fin_year": 2025,
                   "operating_margin": 0.064,
                   "debt_ratio": 3.43,
+                  "certification_source": "MOCK",
+                  "capability_source": "MOCK",
+                  "quality_source": "MOCK",
                   "last_price": 5120,
                   "scores": {
                     "price": 1.0,
@@ -107,11 +110,13 @@
                       "law_refs": [
                         {
                           "law": "subcontract_act",
-                          "article_no": "제2조"
+                          "article_no": "제2조",
+                          "paragraph": "⑯"
                         },
                         {
                           "law": "subcontract_act",
-                          "article_no": "제3조"
+                          "article_no": "제3조",
+                          "paragraph": "②"
                         }
                       ]
                     }
@@ -134,6 +139,9 @@
                   "fin_year": 2025,
                   "operating_margin": 0.002,
                   "debt_ratio": 2.33,
+                  "certification_source": "MOCK",
+                  "capability_source": "MOCK",
+                  "quality_source": "MOCK",
                   "last_price": 5550,
                   "scores": {
                     "price": 0.751,
@@ -153,11 +161,13 @@
                       "law_refs": [
                         {
                           "law": "subcontract_act",
-                          "article_no": "제2조"
+                          "article_no": "제2조",
+                          "paragraph": "⑯"
                         },
                         {
                           "law": "subcontract_act",
-                          "article_no": "제3조"
+                          "article_no": "제3조",
+                          "paragraph": "②"
                         }
                       ]
                     }
@@ -180,6 +190,9 @@
                   "fin_year": 2025,
                   "operating_margin": 0.034,
                   "debt_ratio": 2.26,
+                  "certification_source": "MOCK",
+                  "capability_source": "MOCK",
+                  "quality_source": "MOCK",
                   "last_price": 5330,
                   "scores": {
                     "price": 0.879,
@@ -199,11 +212,13 @@
                       "law_refs": [
                         {
                           "law": "subcontract_act",
-                          "article_no": "제2조"
+                          "article_no": "제2조",
+                          "paragraph": "⑯"
                         },
                         {
                           "law": "subcontract_act",
-                          "article_no": "제3조"
+                          "article_no": "제3조",
+                          "paragraph": "②"
                         }
                       ]
                     }
@@ -226,6 +241,9 @@
                   "fin_year": 2025,
                   "operating_margin": -0.007,
                   "debt_ratio": 2.01,
+                  "certification_source": "MOCK",
+                  "capability_source": "MOCK",
+                  "quality_source": "MOCK",
                   "last_price": 5640,
                   "scores": {
                     "price": 0.699,
@@ -247,7 +265,8 @@
                       "law_refs": [
                         {
                           "law": "subcontract_act",
-                          "article_no": "제13조"
+                          "article_no": "제13조",
+                          "paragraph": "①"
                         }
                       ]
                     },
@@ -258,11 +277,13 @@
                       "law_refs": [
                         {
                           "law": "subcontract_act",
-                          "article_no": "제2조"
+                          "article_no": "제2조",
+                          "paragraph": "⑯"
                         },
                         {
                           "law": "subcontract_act",
-                          "article_no": "제3조"
+                          "article_no": "제3조",
+                          "paragraph": "②"
                         }
                       ]
                     }
@@ -285,6 +306,9 @@
                   "fin_year": 2025,
                   "operating_margin": 0.015,
                   "debt_ratio": 1.33,
+                  "certification_source": "MOCK",
+                  "capability_source": "MOCK",
+                  "quality_source": "MOCK",
                   "last_price": 5890,
                   "scores": {
                     "price": 0.555,
@@ -315,6 +339,9 @@
                   "fin_year": 2025,
                   "operating_margin": 0.04,
                   "debt_ratio": 0.35,
+                  "certification_source": "MOCK",
+                  "capability_source": "MOCK",
+                  "quality_source": "MOCK",
                   "last_price": 5680,
                   "scores": {
                     "price": 0.676,
@@ -345,6 +372,9 @@
                   "fin_year": 2025,
                   "operating_margin": 0.017,
                   "debt_ratio": 2.35,
+                  "certification_source": "MOCK",
+                  "capability_source": "MOCK",
+                  "quality_source": "MOCK",
                   "last_price": 6070,
                   "scores": {
                     "price": 0.451,
@@ -376,6 +406,9 @@
                   "fin_year": 2025,
                   "operating_margin": -0.006,
                   "debt_ratio": 1.66,
+                  "certification_source": "MOCK",
+                  "capability_source": "MOCK",
+                  "quality_source": "MOCK",
                   "last_price": 5620,
                   "scores": {
                     "price": 0.711,
@@ -395,11 +428,13 @@
                       "law_refs": [
                         {
                           "law": "subcontract_act",
-                          "article_no": "제2조"
+                          "article_no": "제2조",
+                          "paragraph": "⑯"
                         },
                         {
                           "law": "subcontract_act",
-                          "article_no": "제3조"
+                          "article_no": "제3조",
+                          "paragraph": "②"
                         }
                       ]
                     }
@@ -422,6 +457,9 @@
                   "fin_year": 2025,
                   "operating_margin": 0.029,
                   "debt_ratio": 1.35,
+                  "certification_source": "MOCK",
+                  "capability_source": "MOCK",
+                  "quality_source": "MOCK",
                   "last_price": 5670,
                   "scores": {
                     "price": 0.682,
@@ -452,6 +490,9 @@
                   "fin_year": 2025,
                   "operating_margin": 0.017,
                   "debt_ratio": 2.22,
+                  "certification_source": "MOCK",
+                  "capability_source": "MOCK",
+                  "quality_source": "MOCK",
                   "last_price": 5750,
                   "scores": {
                     "price": 0.636,
@@ -471,11 +512,13 @@
                       "law_refs": [
                         {
                           "law": "subcontract_act",
-                          "article_no": "제2조"
+                          "article_no": "제2조",
+                          "paragraph": "⑯"
                         },
                         {
                           "law": "subcontract_act",
-                          "article_no": "제3조"
+                          "article_no": "제3조",
+                          "paragraph": "②"
                         }
                       ]
                     }
@@ -578,12 +621,24 @@
                 },
                 {
                   "no": "⑮",
-                  "text": "이 법에서 \"기술자료\"란 비밀로 관리되는 제조ㆍ수리ㆍ시공 또는 용역수행 방법에 관한 자료, 그 밖에 영업활동에 유용하고 독립된 경제적 가치를 가지는 것으로서 대통령령으로 정하는 자료를 말한다. <신설 2010.1.25, 2018.1.16, 2021.8.17>\n\n<16> <16> 이 법에서 \"주요 원재료\"란 하도급거래에서 목적물등의 제조ㆍ수리ㆍ시공 또는 용역수행에 사용되는 원재료로서 그 비용이 하도급대금의 100분의 10 이상인 원재료를 말한다. <신설 2023.7.18>\n\n<17> <17> 이 법에서 \"주요 에너지\"란 하도급거래에서 목적물등의 제조ㆍ수리ㆍ시공 또는 용역수행에 사용되는 에너지(「에너지법」 제2조제1호 및 제3호에 따른 에너지를 말한다. 이하 같다)로서 그 비용이 하도급대금의 100분의 10 이상인 에너지를 말한다. <신설 2026.2.10>\n\n<18> <18> 이 법에서 \"하도급대금 연동\"이란 주요 원재료의 가격 또는 주요 에너지 비용이 원사업자와 수급사업자가 100분의 10 이내의 범위에서 협의하여 정한 비율 이상 변동하는 경우 그 변동분에 연동하여 하도급대금을 조정하는 것을 말한다. <신설 2023.7.18, 2026.2.10>"
+                  "text": "이 법에서 \"기술자료\"란 비밀로 관리되는 제조ㆍ수리ㆍ시공 또는 용역수행 방법에 관한 자료, 그 밖에 영업활동에 유용하고 독립된 경제적 가치를 가지는 것으로서 대통령령으로 정하는 자료를 말한다. <신설 2010.1.25, 2018.1.16, 2021.8.17>"
+                },
+                {
+                  "no": "⑯",
+                  "text": "이 법에서 \"주요 원재료\"란 하도급거래에서 목적물등의 제조ㆍ수리ㆍ시공 또는 용역수행에 사용되는 원재료로서 그 비용이 하도급대금의 100분의 10 이상인 원재료를 말한다. <신설 2023.7.18>"
+                },
+                {
+                  "no": "⑰",
+                  "text": "이 법에서 \"주요 에너지\"란 하도급거래에서 목적물등의 제조ㆍ수리ㆍ시공 또는 용역수행에 사용되는 에너지(「에너지법」 제2조제1호 및 제3호에 따른 에너지를 말한다. 이하 같다)로서 그 비용이 하도급대금의 100분의 10 이상인 에너지를 말한다. <신설 2026.2.10>"
+                },
+                {
+                  "no": "⑱",
+                  "text": "이 법에서 \"하도급대금 연동\"이란 주요 원재료의 가격 또는 주요 에너지 비용이 원사업자와 수급사업자가 100분의 10 이내의 범위에서 협의하여 정한 비율 이상 변동하는 경우 그 변동분에 연동하여 하도급대금을 조정하는 것을 말한다. <신설 2023.7.18, 2026.2.10>"
                 }
               ],
               "citation": "「하도급거래 공정화에 관한 법률」 제2조(정의) [시행 2026-10-02]",
               "effective_date": "2026-10-02",
-              "as_of": "2026-10-21",
+              "as_of": "2026-10-22",
               "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
               "upcoming_changes": []
             },
@@ -655,7 +710,7 @@
               ],
               "citation": "「하도급거래 공정화에 관한 법률」 제3조(서면의 발급 및 서류의 보존) [시행 2026-10-02]",
               "effective_date": "2026-10-02",
-              "as_of": "2026-10-21",
+              "as_of": "2026-10-22",
               "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
               "upcoming_changes": []
             },
@@ -723,7 +778,7 @@
               ],
               "citation": "「하도급거래 공정화에 관한 법률」 제13조(하도급대금의 지급 등) [시행 2026-10-02]",
               "effective_date": "2026-10-02",
-              "as_of": "2026-10-21",
+              "as_of": "2026-10-22",
               "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
               "upcoming_changes": []
             },
@@ -759,7 +814,7 @@
                 "citation": "「하도급거래 공정화에 관한 법률」 제13조⑦(하도급대금의 지급 등) [시행 2026-10-02]",
                 "effective_date": "2026-10-02",
                 "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
-                "score": 43.45
+                "score": 43.35
               },
               {
                 "law_key": "subcontract_act",
@@ -772,7 +827,7 @@
                 "citation": "「하도급거래 공정화에 관한 법률」 제2조⑭(정의) [시행 2026-10-02]",
                 "effective_date": "2026-10-02",
                 "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
-                "score": 41.66
+                "score": 41.55
               },
               {
                 "law_key": "subcontract_act",
@@ -785,7 +840,7 @@
                 "citation": "「하도급거래 공정화에 관한 법률」 제13조⑧(하도급대금의 지급 등) [시행 2026-10-02]",
                 "effective_date": "2026-10-02",
                 "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
-                "score": 40.79
+                "score": 40.67
               },
               {
                 "law_key": "subcontract_act",
@@ -798,7 +853,7 @@
                 "citation": "「하도급거래 공정화에 관한 법률」 제13조④(하도급대금의 지급 등) [시행 2026-10-02]",
                 "effective_date": "2026-10-02",
                 "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
-                "score": 39.06
+                "score": 39.1
               },
               {
                 "law_key": "subcontract_act",
@@ -811,7 +866,7 @@
                 "citation": "「하도급거래 공정화에 관한 법률」 제13조⑥(하도급대금의 지급 등) [시행 2026-10-02]",
                 "effective_date": "2026-10-02",
                 "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
-                "score": 38.34
+                "score": 38.26
               }
             ],
             "error": null
@@ -878,7 +933,7 @@
               ],
               "citation": "「하도급거래 공정화에 관한 법률」 제13조(하도급대금의 지급 등) [시행 2026-10-02]",
               "effective_date": "2026-10-02",
-              "as_of": "2026-10-21",
+              "as_of": "2026-10-22",
               "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
               "upcoming_changes": []
             },
@@ -957,12 +1012,24 @@
                 },
                 {
                   "no": "⑮",
-                  "text": "이 법에서 \"기술자료\"란 비밀로 관리되는 제조ㆍ수리ㆍ시공 또는 용역수행 방법에 관한 자료, 그 밖에 영업활동에 유용하고 독립된 경제적 가치를 가지는 것으로서 대통령령으로 정하는 자료를 말한다. <신설 2010.1.25, 2018.1.16, 2021.8.17>\n\n<16> <16> 이 법에서 \"주요 원재료\"란 하도급거래에서 목적물등의 제조ㆍ수리ㆍ시공 또는 용역수행에 사용되는 원재료로서 그 비용이 하도급대금의 100분의 10 이상인 원재료를 말한다. <신설 2023.7.18>\n\n<17> <17> 이 법에서 \"주요 에너지\"란 하도급거래에서 목적물등의 제조ㆍ수리ㆍ시공 또는 용역수행에 사용되는 에너지(「에너지법」 제2조제1호 및 제3호에 따른 에너지를 말한다. 이하 같다)로서 그 비용이 하도급대금의 100분의 10 이상인 에너지를 말한다. <신설 2026.2.10>\n\n<18> <18> 이 법에서 \"하도급대금 연동\"이란 주요 원재료의 가격 또는 주요 에너지 비용이 원사업자와 수급사업자가 100분의 10 이내의 범위에서 협의하여 정한 비율 이상 변동하는 경우 그 변동분에 연동하여 하도급대금을 조정하는 것을 말한다. <신설 2023.7.18, 2026.2.10>"
+                  "text": "이 법에서 \"기술자료\"란 비밀로 관리되는 제조ㆍ수리ㆍ시공 또는 용역수행 방법에 관한 자료, 그 밖에 영업활동에 유용하고 독립된 경제적 가치를 가지는 것으로서 대통령령으로 정하는 자료를 말한다. <신설 2010.1.25, 2018.1.16, 2021.8.17>"
+                },
+                {
+                  "no": "⑯",
+                  "text": "이 법에서 \"주요 원재료\"란 하도급거래에서 목적물등의 제조ㆍ수리ㆍ시공 또는 용역수행에 사용되는 원재료로서 그 비용이 하도급대금의 100분의 10 이상인 원재료를 말한다. <신설 2023.7.18>"
+                },
+                {
+                  "no": "⑰",
+                  "text": "이 법에서 \"주요 에너지\"란 하도급거래에서 목적물등의 제조ㆍ수리ㆍ시공 또는 용역수행에 사용되는 에너지(「에너지법」 제2조제1호 및 제3호에 따른 에너지를 말한다. 이하 같다)로서 그 비용이 하도급대금의 100분의 10 이상인 에너지를 말한다. <신설 2026.2.10>"
+                },
+                {
+                  "no": "⑱",
+                  "text": "이 법에서 \"하도급대금 연동\"이란 주요 원재료의 가격 또는 주요 에너지 비용이 원사업자와 수급사업자가 100분의 10 이내의 범위에서 협의하여 정한 비율 이상 변동하는 경우 그 변동분에 연동하여 하도급대금을 조정하는 것을 말한다. <신설 2023.7.18, 2026.2.10>"
                 }
               ],
               "citation": "「하도급거래 공정화에 관한 법률」 제2조(정의) [시행 2026-10-02]",
               "effective_date": "2026-10-02",
-              "as_of": "2026-10-21",
+              "as_of": "2026-10-22",
               "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
               "upcoming_changes": []
             },
