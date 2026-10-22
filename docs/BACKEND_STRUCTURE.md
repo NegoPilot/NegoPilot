@@ -56,7 +56,7 @@ Java 소스의 시작 패키지는 `com.negopilot.backend`다. HTTP 경로와 �
 
 각 Gateway는 성공 응답의 검증과 해당 API의 오류 계약을 유지한다. `request_id`의 null 허용 범위와 상태 코드 및 `retryable` 규칙은 Gateway마다 다르다. [AgentResponseSanitizer](../backend/src/main/java/com/negopilot/backend/agent/AgentResponseSanitizer.java)는 검증된 응답을 복사한 뒤 내부 진단 문구를 공개용 문구로 바꾼다. 분해와 Routing 결과의 형태는 [DecompositionRoutingValidator](../backend/src/main/java/com/negopilot/backend/agent/DecompositionRoutingValidator.java)가 검사하고, Generation 응답의 봉투와 상태는 `GenerationResponseValidator`가 검사한다.
 
-실제 공급사 조회는 `SupplierLookupController`에서 [SupplierLookupGateway](../backend/src/main/java/com/negopilot/backend/supplier/SupplierLookupGateway.java)를 거쳐 `/internal/v2`로 전달된다. 요청 파라미터와 기업 ID는 `SupplierLookupRequestValidator`가, 응답은 `SupplierLookupResponseValidator`가 검사한다. [SupplierGatewayClient](../backend/src/main/java/com/negopilot/backend/supplier/SupplierGatewayClient.java)는 공급사 URI 인코딩과 오류 매핑을 공유한다.
+실제 공급사 조회는 `SupplierLookupController`에서 [SupplierLookupGateway](../backend/src/main/java/com/negopilot/backend/supplier/SupplierLookupGateway.java)를 거쳐 Python 내부 경로(`/internal/business/catalog`, `/internal/suppliers`)로 전달된다. 요청 파라미터와 기업 ID는 `SupplierLookupRequestValidator`가, 응답은 `SupplierLookupResponseValidator`가 검사한다. [SupplierGatewayClient](../backend/src/main/java/com/negopilot/backend/supplier/SupplierGatewayClient.java)는 공급사 URI 인코딩과 오류 매핑을 공유한다.
 
 ## 호환 진입점
 

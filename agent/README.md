@@ -256,9 +256,9 @@ FastAPI 진입점은 `negopilot_agent.api.app:app`입니다. [Generation HTTP �
 
 | Python 내부 경로 | 동작 |
 | --- | --- |
-| `POST /internal/v2/query-executions` | 실제 `build_graph`와 `AnswerGenerator`를 실행하고 `schema_version: "0.3"` 응답에 최종 `Answer`를 포함 |
-| `GET /internal/v2/business/catalog`, `/internal/v2/suppliers`, `/internal/v2/suppliers/{supplier_id}` | 실행 모드와 관계없이 business-mcp의 협력사 데이터 조회 |
-| `/internal/v1/admin/laws/**` | 관리자 법령 조회와 최신화 |
+| `POST /internal/query-executions` | 실제 `build_graph`와 `AnswerGenerator`를 실행하고 `schema_version: "0.3"` 응답에 최종 `Answer`를 포함 |
+| `GET /internal/business/catalog`, `/internal/suppliers`, `/internal/suppliers/{supplier_id}` | 실행 모드와 관계없이 business-mcp의 협력사 데이터 조회 |
+| `/internal/admin/laws/**` | 관리자 법령 조회와 최신화 |
 
 과거 fixture 기반 v0.1 질의 실행(`/internal/v1/query-executions`)과 v0.2 협력사 조회·템플릿 대화(`/internal/v1/business`, `/internal/v1/suppliers`, `/internal/v1/chat/responses`)는 #141에서 제거했습니다. 생성 답변을 사용할 클라이언트는 Spring의 `/api/agent/queries` 또는 `/api/conversations` 경로를 사용합니다.
 
@@ -282,7 +282,7 @@ uv run uvicorn negopilot_agent.api.app:app --host 127.0.0.1 --port 9200
 ```bash
 export AGENT_INTERNAL_API_KEY='replace-with-a-local-test-key'
 curl --fail http://127.0.0.1:9200/health
-curl --fail-with-body http://127.0.0.1:9200/internal/v2/query-executions \
+curl --fail-with-body http://127.0.0.1:9200/internal/query-executions \
   -H "X-Internal-Api-Key: ${AGENT_INTERNAL_API_KEY}" \
   -H 'Content-Type: application/json' \
   --data '{"request_id":"11111111-1111-4111-8111-111111111111","query":"하도급법 제4조 보여줘","history":[]}'
@@ -319,10 +319,10 @@ mvn -f backend/pom.xml -B -ntp spring-boot:run
 
 ### 협력사 조회
 
-`/internal/v2/business/catalog`, `/internal/v2/suppliers`, `/internal/v2/suppliers/{supplier_id}`는 실행 모드와 관계없이 `BUSINESS_MCP_URL`의 business-mcp를 호출합니다. 모델은 호출하지 않습니다. 검색은 `process`가 필수이고 알 수 없는 parameter와 중복 parameter는 400 `VALIDATION_ERROR`입니다. 기업 ID는 `SUP-[0-9]{4,18}` 형식입니다. 상세 규칙은 [협력사 live 조회 계약](../docs/contracts/supplier-lookup.md)을 따릅니다.
+`/internal/business/catalog`, `/internal/suppliers`, `/internal/suppliers/{supplier_id}`는 실행 모드와 관계없이 `BUSINESS_MCP_URL`의 business-mcp를 호출합니다. 모델은 호출하지 않습니다. 검색은 `process`가 필수이고 알 수 없는 parameter와 중복 parameter는 400 `VALIDATION_ERROR`입니다. 기업 ID는 `SUP-[0-9]{4,18}` 형식입니다. 상세 규칙은 [협력사 live 조회 계약](../docs/contracts/supplier-lookup.md)을 따릅니다.
 
 ```bash
-curl --fail-with-body --get http://127.0.0.1:9200/internal/v2/suppliers \
+curl --fail-with-body --get http://127.0.0.1:9200/internal/suppliers \
   -H "X-Internal-Api-Key: ${AGENT_INTERNAL_API_KEY}" \
   --data-urlencode 'process=다이캐스팅' \
   --data-urlencode 'material=ADC12'
@@ -330,7 +330,7 @@ curl --fail-with-body --get http://127.0.0.1:9200/internal/v2/suppliers \
 
 ### live 설정과 검증 범위
 
-`AGENT_EXECUTION_MODE=live`에서는 v2 경로가 QueryDecomposer와 실제 McpToolCaller를 연결합니다. 위의 분해 및 Routing 환경 변수를 재사용합니다. 현재 기본 모델은 [DecomposerSettings](src/negopilot_agent/decomposition/decomposer.py)의 `DEFAULT_MODELS`에 정의돼 있습니다. `anthropic`은 `claude-opus-5-5`이며 `openai`는 `gpt-4.1-mini`입니다. [모델 백엔드](src/negopilot_agent/decomposition/backends.py)는 이 설정을 받아 호출합니다.
+`AGENT_EXECUTION_MODE=live`에서는 `/internal/query-executions`가 QueryDecomposer와 실제 McpToolCaller를 연결합니다. 위의 분해 및 Routing 환경 변수를 재사용합니다. 현재 기본 모델은 [DecomposerSettings](src/negopilot_agent/decomposition/decomposer.py)의 `DEFAULT_MODELS`에 정의돼 있습니다. `anthropic`은 `claude-opus-5-5`이며 `openai`는 `gpt-4.1-mini`입니다. [모델 백엔드](src/negopilot_agent/decomposition/backends.py)는 이 설정을 받아 호출합니다.
 
 직접 uvicorn을 실행하면서 기본 모델을 사용하려면 `NEGOPILOT_DECOMPOSER_MODEL`을 설정하지 않아야 합니다. `agent/.env.example`의 `NEGOPILOT_DECOMPOSER_MODEL=`을 그대로 불러오면 빈 문자열이 선택됩니다. 이 경우 HTTP 경로는 503 `UPSTREAM_UNAVAILABLE`을 반환합니다. 기본 모델을 선택할 때는 환경 파일에서 해당 줄을 제거하거나 환경 파일을 불러온 뒤 아래 명령을 실행합니다.
 
@@ -355,7 +355,7 @@ uv run --locked python -m pytest tests/test_api.py tests/test_supplier_lookup_li
 
 ### v2 전체 그래프 실행과 schema v0.3
 
-`POST /internal/v2/query-executions`는 최신 `build_graph`의 분해와 Routing 및 Generation을 한 번 실행합니다. 최종 답변은 실제 `AnswerGenerator`가 만듭니다. 기본 모드는 `live`이며 모델이나 MCP 연결 실패를 숨기거나 `stub` 응답으로 자동 전환하지 않습니다. 내부 키와 `AGENT_REQUEST_TIMEOUT_SECONDS` 설정을 재사용하며 전체 그래프에 하나의 처리 제한 시간을 적용합니다.
+`POST /internal/query-executions`는 최신 `build_graph`의 분해와 Routing 및 Generation을 한 번 실행합니다. 최종 답변은 실제 `AnswerGenerator`가 만듭니다. 기본 모드는 `live`이며 모델이나 MCP 연결 실패를 숨기거나 `stub` 응답으로 자동 전환하지 않습니다. 내부 키와 `AGENT_REQUEST_TIMEOUT_SECONDS` 설정을 재사용하며 전체 그래프에 하나의 처리 제한 시간을 적용합니다.
 
 요청의 `request_id`는 필수 UUID입니다. `query`는 공백만 있는 값을 제외한 1..4000 code point이며 입력 원문을 보존합니다. `history`는 생략하면 빈 배열이며 최대 20개입니다. `context`는 생략하면 `{"selected_supplier_ids":[]}`입니다. 정의되지 않은 필드와 명시적인 null은 거절합니다.
 
@@ -379,7 +379,7 @@ Python 서버가 stub으로 실행 중일 때 다음 요청으로 기업 문맥�
 
 ```bash
 export AGENT_INTERNAL_API_KEY='replace-with-a-local-test-key'
-curl --fail-with-body http://127.0.0.1:9200/internal/v2/query-executions \
+curl --fail-with-body http://127.0.0.1:9200/internal/query-executions \
   -H "X-Internal-Api-Key: ${AGENT_INTERNAL_API_KEY}" \
   -H 'Content-Type: application/json' \
   --data '{"request_id":"44444444-4444-4444-8444-444444444444","query":"이 회사에 대해 알려줘","history":[],"context":{"selected_supplier_ids":["SUP-0034"]}}'
@@ -457,7 +457,7 @@ uv run --locked python -m pytest -q
 
 회원 인증과 승인 및 세션과 개인 채팅 이력 저장은 Spring이 담당한다. Python의 Generation 요청과 응답은 v0.3을 유지한다. [회원 계약](../docs/contracts/membership.md)과 [이력 계약](../docs/contracts/history.md)을 참고한다.
 
-`/internal/v1/admin/laws` 아래의 버전 조회와 최신화 API는 `AGENT_INTERNAL_API_KEY`로 인증한다. 조회는 law-mcp의 읽기 도구를 사용한다. 최신화는 별도의 HTTP 제어 경로를 사용하며 Agent 도구로 노출하지 않는다. stub 모드에서도 관리자 법령 조회와 최신화는 실제 law-mcp에 연결한다.
+`/internal/admin/laws` 아래의 버전 조회와 최신화 API는 `AGENT_INTERNAL_API_KEY`로 인증한다. 조회는 law-mcp의 읽기 도구를 사용한다. 최신화는 별도의 HTTP 제어 경로를 사용하며 Agent 도구로 노출하지 않는다. stub 모드에서도 관리자 법령 조회와 최신화는 실제 law-mcp에 연결한다.
 
 - `LAW_MCP_URL`은 법령 서버의 `/mcp` 주소다. 기본값은 `http://localhost:9103/mcp`다.
 - `LAW_ADMIN_API_KEY`는 Python과 법령 서버 사이의 별도 관리 키다. 프런트로 전달하지 않는다.

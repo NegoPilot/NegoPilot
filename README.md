@@ -68,7 +68,7 @@ flowchart LR
 ```
 
 - **Frontend → Backend:** 사용자는 Vue 화면에서 로그인하고 질문합니다. Spring이 세션 인증과 회원 상태를 확인합니다.
-- **Backend → Agent:** Spring은 질문을 Agent 내부 API(`POST /internal/v2/query-executions`)로 넘기고, 답변과 인용, 검증 정보를 확인해 대화에 저장합니다.
+- **Backend → Agent:** Spring은 질문을 Agent 내부 API(`POST /internal/query-executions`)로 넘기고, 답변과 인용, 검증 정보를 확인해 대화에 저장합니다.
 - **Agent → MCP:** Agent는 데이터를 직접 읽지 않고 MCP 도구로만 조회합니다. 두 MCP 서버는 각자의 데이터만 읽습니다.
 
 ## AI Agent 설계
