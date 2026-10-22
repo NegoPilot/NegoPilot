@@ -27,7 +27,7 @@ v1과 비교해 **기존 필드는 이름도 뜻도 바꾸지 않고, 새 필드
 | `payment_days` | 정수 | 예 | 목적물 수령일부터 대금 지급까지 일수, 0보다 큼 | |
 | `price_linkage` | 불리언 | 예 | 납품대금 연동 약정을 넣는지. `true`면 주요 원재료와 주요 에너지 모두 약정에 포함한 것으로 본다 | 뜻 보완 |
 | `raw_material_ratio` | 실수 0~1 | 아니오 | 단가 중 원재료 비용 비중. 생략하면 기존 계약 값 | |
-| `energy_ratio` | 실수 0~1 | 아니오 | 단가 중 에너지 비용 비중. 생략하면 에너지 검사를 건너뛰고 `ENERGY_RATIO_UNKNOWN`(info)을 남긴다 | **추가** |
+| `energy_ratio` | 실수 0~1 | 아니오 | 단가 중 에너지 비용 비중. 생략하면 에너지 검사를 건너뛰고 `ENERGY_RATIO_UNKNOWN`(info)을 남긴다. `price_linkage`가 `true`이거나 `as_of`가 에너지 규칙 시행 전이면 남기지 않는다 | **추가** |
 | `contract_days` | 정수 | 아니오 | 거래 기간(일). 기본 365 | |
 | `linkage_waived_by_agreement` | 불리언 | 아니오 | 연동하지 않기로 합의했는지. 기본 `false` | |
 | `buyer_is_small_business` | 불리언 | 아니오 | 원사업자(우리)가 소기업인지. 기본 `false` | |
@@ -64,11 +64,11 @@ v1과 비교해 **기존 필드는 이름도 뜻도 바꾸지 않고, 새 필드
 | `schema_version` | 이 결과 형식의 버전. v2는 `"2"`. 필드를 지우거나 뜻을 바꾸면 올린다 | **추가** |
 | `verdict` | 사람이 읽는 판정 문구 (`위반 소지 있음`, `확인 필요`, `문제 없음`). 문구는 다듬을 수 있으므로 **화면 분기에 쓰지 않는다** | |
 | `verdict_code` | 화면이 분기에 쓰는 판정 코드. `violations`가 있으면 `VIOLATION`, `warnings`만 있으면 `CHECK_NEEDED`, 둘 다 없으면 `OK` | **추가** |
-| `basis` | 판정 기준. `as_of`와, 판정에 쓴 법령별 시행판의 시행일 | **추가** |
+| `basis` | 판정 기준. `as_of`와, 판정에 쓴 법령별 시행판의 시행일. `as_of`가 law-mcp 색인의 가장 오래된 판보다 이르면 그 법령은 `null` | **추가** |
 | `supplier`, `rfq` | 검사 대상 정보 | |
 | `offer` | 검사한 조건. 생략한 인자는 실제로 쓴 값(기존 계약 값, 기본값)으로 채운다. `energy_ratio`는 입력이 없으면 `null` | `energy_ratio` 추가 |
 | `violations`, `warnings`, `info` | 검사 항목 목록. 각 항목은 `{code, severity, message, law_refs}` | |
-| `law_refs` | 모든 항목의 근거 조문을 중복 없이 모은 목록 | |
+| `law_refs` | 모든 항목의 근거 조문을 중복 없이 모은 목록. `(law, article_no, paragraph)`가 같으면 하나로 본다. 그래서 같은 조문이 항별로 여러 번 나올 수 있다 | |
 | `law_refs[].paragraph` | 근거가 되는 항. 원문자(`①`)로 쓰고, 16항 이상은 law-mcp 색인의 표기를 그대로 쓴다. 항을 특정할 수 없으면 생략한다. **`article_no`는 그대로 두므로** Routing은 지금처럼 `get_article(law, article_no)`를 부른다 | **추가** |
 
 ### 검사 항목 코드
@@ -79,7 +79,7 @@ v1과 비교해 **기존 필드는 이름도 뜻도 바꾸지 않고, 새 필드
 | --- | --- | --- | --- |
 | `PAYMENT_DAYS_OVER_60` | violation | 지급 기한이 수령일부터 60일 초과 (하도급법 제13조①) | |
 | `LINKAGE_TERMS_MISSING` | violation | 원재료 비중 10% 이상인데 연동 약정 없음 (제2조⑯, 제3조②3) | |
-| `LINKAGE_WAIVED_NEEDS_WRITTEN_REASON` | warning | 원재료 연동 대상인데 연동하지 않기로 합의 (제3조④4) | |
+| `LINKAGE_WAIVED_NEEDS_WRITTEN_REASON` | warning | 원재료 또는 에너지 연동 대상인데 연동하지 않기로 합의 (제3조④4). 둘 다 해당하면 원재료와 에너지 항목이 하나씩 나온다 | 에너지에도 적용 |
 | `RAW_MATERIAL_RATIO_UNKNOWN` | warning | 원재료 비중을 알 수 없음 | |
 | `LINKAGE_EXEMPT` | info | 원재료 연동 대상이지만 예외 해당 가능 (제3조④1~3) | |
 | `ENERGY_LINKAGE_TERMS_MISSING` | violation | 에너지 비중 10% 이상인데 연동 약정 없음 (제2조⑰, 제3조②3) | **추가** |
@@ -91,7 +91,10 @@ v1과 비교해 **기존 필드는 이름도 뜻도 바꾸지 않고, 새 필드
 | `SUBCONTRACT_ACT_APPLIES`, `SME_STATUS_CHECK`, `SME_STATUS_UNKNOWN` | info | 수급사업자(중소기업자) 해당 여부 | |
 | `CERT_MISSING`, `CAPABILITY_MISSING`, `CAPACITY_SHORT` | warning | RFQ 거래 조건(인증, 생산능력) | |
 
-에너지 연동 누락은 원재료와 함께 약정 하나로 다루므로, 원재료 연동 합의(`linkage_waived_by_agreement`)는 에너지에도 같이 적용합니다.
+에너지 규칙은 다음 기준을 따릅니다.
+
+- **시행일:** 주요 에너지(제2조⑰)와 연동 서면 기재(제3조②3)의 에너지 부분은 2026-08-11 시행판부터 있습니다. 부칙 <제21340호> 제2조에 따라 시행 이후 체결·갱신하는 하도급계약부터 적용하므로, `as_of`가 2026-08-11보다 이르면 에너지 검사를 하지 않습니다.
+- **약정과 합의:** 제3조②3은 원재료와 에너지를 같은 연동 사항으로 적게 하고, 제3조④는 그 사항 전체에 예외와 합의를 둡니다. 그래서 `price_linkage`와 `linkage_waived_by_agreement`는 원재료와 에너지에 함께 적용하고, 예외(제3조④1~3)도 같은 기준으로 봅니다.
 
 ### 화면이 기대도 되는 필드
 
@@ -120,6 +123,7 @@ Spring 응답 검증기와 화면은 아래 필드만 기준으로 삼습니다.
 
 - **원문 메시지는 계속 가립니다.** 오류 원문에는 DB 연결 정보 같은 내부 내용이 섞일 수 있습니다. Agent의 `SafeToolCaller`와 Spring의 응답 정리 코드는 지금처럼 원문을 가리고, **허용 목록에 있는 코드만** 통과시킵니다.
 - **전달 경로:** business-mcp `ToolError("[CODE] ...")` → Agent가 `^\[([A-Z_]+)\]`로 코드만 꺼내 `ToolCall.error_code`에 담음(원문은 가림) → Spring이 허용 목록의 `error_code`만 응답에 남김 → Generation과 화면이 코드로 안내.
+- 코드는 business-mcp의 공용 함수(협력사 이름 해석, RFQ 조회, DB 연결)에서 붙이므로 `get_supplier`, `rank_suppliers` 같은 다른 도구의 같은 오류에도 붙습니다. 허용 목록 규칙은 같습니다.
 - `ToolCall.error_code`는 Routing 결과에 새로 생기는 선택 필드입니다. 기존 필드를 바꾸지 않으므로 [Routing 계약](routing.md)의 `schema_version`은 올리지 않습니다.
 
 ### 회사 이름이 모호할 때
