@@ -1,0 +1,31 @@
+{
+  "note": "협상안에 계약 날짜가 있으면 as_of",
+  "query": "2026년 9월 15일에 계약하는 건인데 SUP-0023에 RFQ-2026-005를 단가 5,120원, 결제 30일, 연동 약정 넣어서 제안하면 괜찮아?",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "2026년 9월 15일에 계약하는 건인데 SUP-0023에 RFQ-2026-005를 단가 5,120원, 결제 30일, 연동 약정 넣어서 제안하면 괜찮아?",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "2026-09-15 계약 기준으로 SUP-0023에 RFQ-2026-005 단가 5,120원, 지급 30일, 연동 약정 있음 협상안의 하도급법 위반 여부",
+        "original_text": "2026년 9월 15일에 계약하는 건인데 SUP-0023에 RFQ-2026-005를 단가 5,120원, 결제 30일, 연동 약정 넣어서 제안하면 괜찮아?",
+        "intent": "offer_check",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "supplier": "SUP-0023",
+          "rfq_id": "RFQ-2026-005",
+          "unit_price": 5120,
+          "payment_days": 30,
+          "price_linkage": true,
+          "as_of": "2026-09-15"
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}
