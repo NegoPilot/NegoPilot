@@ -1,6 +1,6 @@
 # 최신 Agent Generation HTTP 계약 v0.3
 
-기준 main은 `4cad84287086f83f5a858ee9084f005557b81bff`이다. Spring과 Python 사이에서 최신 `build_graph`의 분해와 Routing 및 Generation을 한 번 실행한다. 생성 답변을 사용할 클라이언트는 아래 v2 공개 경로를 호출한다. 과거 v0.1 질의 실행과 v0.2 fixture 대화 경로는 #130과 #141에서 제거됐다. 기본 실행 모드는 live이며 실패할 때 stub으로 전환하지 않는다.
+기준 main은 `4cad84287086f83f5a858ee9084f005557b81bff`이다. Spring과 Python 사이에서 최신 `build_graph`의 분해와 Routing 및 Generation을 한 번 실행한다. 생성 답변을 사용할 클라이언트는 아래 공개 경로를 호출한다. 과거 v0.1 질의 실행과 v0.2 fixture 대화 경로는 #130과 #141에서 제거됐다. 기본 실행 모드는 live이며 실패할 때 stub으로 전환하지 않는다.
 
 Agent 요청과 실행 응답 및 `/health`의 정적 스키마는 [OpenAPI v0.3](agent-generation.openapi.json)에 있다. 대화 생성과 조회 응답은 이 파일에 두지 않는다. 기본 실행의 로그인과 CSRF는 [회원 계약](membership.md)을 따른다. 영속 대화의 v0.4 스냅샷과 추가 경로는 [개인 이력 계약](history.md)을 따른다.
 
@@ -12,11 +12,11 @@ Agent 요청과 실행 응답 및 `/health`의 정적 스키마는 [OpenAPI v0.3
 
 | 경로 | 역할 |
 | --- | --- |
-| POST /api/v2/agent/queries | Spring의 상태 없는 생성 답변 API |
+| POST /api/agent/queries | Spring의 상태 없는 생성 답변 API |
 | POST /internal/v2/query-executions | Python의 전체 Agent 실행 |
-| POST /api/v2/conversations | 기본 실행은 PostgreSQL 대화 생성. 상세는 이력 v0.4 계약 |
-| GET /api/v2/conversations/{conversation_id} | 대화 문맥과 저장 메시지 조회. 상세는 이력 v0.4 계약 |
-| POST /api/v2/conversations/{conversation_id}/messages | 저장 문맥과 이력으로 생성 답변 요청 |
+| POST /api/conversations | 기본 실행은 PostgreSQL 대화 생성. 상세는 이력 v0.4 계약 |
+| GET /api/conversations/{conversation_id} | 대화 문맥과 저장 메시지 조회. 상세는 이력 v0.4 계약 |
+| POST /api/conversations/{conversation_id}/messages | 저장 문맥과 이력으로 생성 답변 요청 |
 
 질의 요청은 `request_id`와 `query` 및 `history`와 `context`다. 내부 API의 request_id는 필수 UUID다. 공개 질의 API에서는 생략하면 Spring이 만든다. query는 1..4000 code point이며 공백만 있는 문자열은 거절한다. 원문은 보존한다. history는 생략 시 빈 배열이며 최대 20개다. 항목은 user 또는 assistant role과 1..4000자의 content만 갖는다. context는 생략 시 `{selected_supplier_ids:[]}`다. 응답의 decomposition.original_query는 전달된 query와 일치해야 한다. 정의되지 않은 필드와 명시적인 null은 거절한다.
 
@@ -61,7 +61,7 @@ Routing 진단 필드는 고정 문구로 정제한 사본을 Generator에 전�
 
 ## 대화 메시지 응답
 
-`POST /api/v2/conversations/{conversation_id}/messages`의 성공 응답은 위 실행 응답에 Spring이 발급한 `conversation_id`와 `response_id`를 더한 객체다. 저장과 실패 처리, 이력 전달, 중복 방지 규칙은 [이력 v0.4 계약](history.md)을 따른다.
+`POST /api/conversations/{conversation_id}/messages`의 성공 응답은 위 실행 응답에 Spring이 발급한 `conversation_id`와 `response_id`를 더한 객체다. 저장과 실패 처리, 이력 전달, 중복 방지 규칙은 [이력 v0.4 계약](history.md)을 따른다.
 
 ## 오류와 검증 모드
 

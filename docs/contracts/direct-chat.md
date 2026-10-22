@@ -45,7 +45,7 @@ Agent 실행 응답은 [Generation HTTP v0.3](agent-generation.md)을 사용한�
 기업을 선택하지 않은 상태의 대화 생성 요청이다.
 
 ```http
-POST /api/v2/conversations
+POST /api/conversations
 Content-Type: application/json
 
 {"context":{"selected_supplier_ids":[]}}
@@ -54,7 +54,7 @@ Content-Type: application/json
 응답의 `conversation_id`로 메시지를 보낸다.
 
 ```http
-POST /api/v2/conversations/{conversation_id}/messages
+POST /api/conversations/{conversation_id}/messages
 Content-Type: application/json
 
 {"query":"부산 협력사 찾아줘"}

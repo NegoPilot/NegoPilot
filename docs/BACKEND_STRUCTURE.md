@@ -8,7 +8,7 @@ Java 소스의 시작 패키지는 `com.negopilot.backend`다. HTTP 경로와 �
 | --- | --- |
 | `auth` | 로그인과 세션 및 회원 승인. [AuthController](../backend/src/main/java/com/negopilot/backend/auth/AuthController.java)와 [MembershipController](../backend/src/main/java/com/negopilot/backend/auth/MembershipController.java) |
 | `chat` | DB에 저장되는 대화와 메시지. [PersistentConversationController](../backend/src/main/java/com/negopilot/backend/chat/PersistentConversationController.java) |
-| `agent` | v2 답변 생성의 요청 및 응답 계약과 `/health`. [GenerationGateway](../backend/src/main/java/com/negopilot/backend/agent/GenerationGateway.java)와 [HealthController](../backend/src/main/java/com/negopilot/backend/agent/HealthController.java) |
+| `agent` | 답변 생성의 요청 및 응답 계약과 `/health`. [GenerationGateway](../backend/src/main/java/com/negopilot/backend/agent/GenerationGateway.java)와 [HealthController](../backend/src/main/java/com/negopilot/backend/agent/HealthController.java) |
 | `supplier` | 실제 공급사 조회. [SupplierLookupController](../backend/src/main/java/com/negopilot/backend/supplier/SupplierLookupController.java) |
 | `admin.supplier` | 공급사 관리. [AdminSupplierController](../backend/src/main/java/com/negopilot/backend/admin/supplier/AdminSupplierController.java) |
 | `admin.law` | 법령 조회와 갱신 작업. [AdminLawController](../backend/src/main/java/com/negopilot/backend/admin/law/AdminLawController.java) |
@@ -16,7 +16,7 @@ Java 소스의 시작 패키지는 `com.negopilot.backend`다. HTTP 경로와 �
 | `common.api` | 공통 예외와 JSON 오류 응답 및 `request_id` 해석. [ApiException](../backend/src/main/java/com/negopilot/backend/common/api/ApiException.java)과 [ApiErrorHandler](../backend/src/main/java/com/negopilot/backend/common/api/ApiErrorHandler.java) 및 [RequestIds](../backend/src/main/java/com/negopilot/backend/common/api/RequestIds.java) |
 | `common.http` | 내부 API의 HTTP 전송. [AgentHttpTransport](../backend/src/main/java/com/negopilot/backend/common/http/AgentHttpTransport.java) |
 
-v2 직접 질의 경로인 `/api/v2/agent/queries`는 일반 실행에서 `PersistentConversationController`가 받는다. 이 경로는 회원 권한을 확인한 뒤 `GenerationGateway`로 전달하며 대화 이력을 저장하지 않는다. 대화에 메시지를 추가하는 경로는 대화 서비스를 거친다.
+직접 질의 경로인 `/api/agent/queries`는 일반 실행에서 `PersistentConversationController`가 받는다. 이 경로는 회원 권한을 확인한 뒤 `GenerationGateway`로 전달하며 대화 이력을 저장하지 않는다. 대화에 메시지를 추가하는 경로는 대화 서비스를 거친다.
 
 ## 인증과 회원 관리
 

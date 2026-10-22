@@ -19,9 +19,9 @@ Vue 가입과 로그인 및 /chat
 
 가입과 로그인 및 개인 대화 화면은 서버에 연결돼 있습니다. 관리자 화면과 별도 협력사 검색 화면은 연결 준비 안내를 표시합니다. 관리자 백엔드 API는 구현돼 있으므로 현재 가입 승인은 관리자 세션으로 API를 호출해야 합니다. RFQ 개요와 법규 검토 화면의 예시는 실제 조회 결과와 구분합니다.
 
-별도 [협력사 조회 v2 API](contracts/supplier-lookup.md)는 `/api/v2/business/catalog`과 `/api/v2/suppliers` 및 `/api/v2/suppliers/{id}`로 제공합니다. 이 API는 채팅 모드와 관계없이 Python을 거쳐 business MCP를 조회합니다. 모델은 호출하지 않습니다. 채팅이 stub이어도 v2 조회에는 business MCP와 DB가 필요합니다. 별도 검색 화면은 아직 이 API에 연결하지 않았습니다.
+별도 [협력사 조회 API](contracts/supplier-lookup.md)는 `/api/business/catalog`과 `/api/suppliers` 및 `/api/suppliers/{id}`로 제공합니다. 이 API는 채팅 모드와 관계없이 Python을 거쳐 business MCP를 조회합니다. 모델은 호출하지 않습니다. 채팅이 stub이어도 협력사 조회에는 business MCP와 DB가 필요합니다. `/suppliers` 화면이 이 API로 검색과 상세를 조회합니다.
 
-Agent 그래프는 `agent/src/negopilot_agent/graph.py`에 있습니다. CLI 진입점 `agent/scripts/ask.py`는 회원 인증이나 개인 대화 저장을 수행하지 않습니다. 브라우저 대화는 Spring의 `/api/v2/conversations` 경로를 사용합니다.
+Agent 그래프는 `agent/src/negopilot_agent/graph.py`에 있습니다. CLI 진입점 `agent/scripts/ask.py`는 회원 인증이나 개인 대화 저장을 수행하지 않습니다. 브라우저 대화는 Spring의 `/api/conversations` 경로를 사용합니다.
 
 ## 2. 모두가 먼저 읽을 것
 
@@ -37,7 +37,7 @@ Agent 그래프는 `agent/src/negopilot_agent/graph.py`에 있습니다. CLI 진
 | 8 | [회원 계약](contracts/membership.md) | 가입과 세션 및 최초 관리자 생성과 승인 |
 | 9 | [개인 대화 계약](contracts/history.md) | 계정별 저장과 페이지 조회 및 제목 변경과 삭제 |
 | 10 | [협력사 관리 계약](contracts/admin-suppliers.md)과 [법령 관리 계약](contracts/admin-laws.md) | 관리자 API와 DB migration 및 법령 최신화 |
-| 11 | [협력사 조회 v2 계약](contracts/supplier-lookup.md) | 모델 호출 없는 MCP 조회와 검색 조건 및 출처 |
+| 11 | [협력사 조회 계약](contracts/supplier-lookup.md) | 모델 호출 없는 MCP 조회와 검색 조건 및 출처 |
 
 ## 3. 담당별 시작점
 
@@ -203,7 +203,7 @@ NEGOPILOT_BACKEND_URL=http://127.0.0.1:8080 npm run dev
 브라우저에서 `http://127.0.0.1:5173`을 엽니다. Vite가 `/api`와 `/health`를 Spring으로 전달합니다. 프런트의 생성 요청 제한은 기본 330초입니다. 다른 환경에서는 `VITE_API_TIMEOUT_MS`와 각 서버의 제한을 함께 확인합니다. 로컬 HTTP에만 `SESSION_COOKIE_SECURE=false`를 사용하며 운영 HTTPS에서는 기본값 `true`를 유지합니다.
 
 1. `/signup`에서 가입하면 `USER/PENDING`으로 등록됩니다. 로그인해도 업무 화면을 사용할 수 없습니다.
-2. 관리자는 [회원 계약](contracts/membership.md#요청-순서)에 따라 로그인 세션과 CSRF 토큰을 준비합니다. `PATCH /api/v1/admin/members/{id}/status`에 `{"status":"ACTIVE"}`를 보내 승인합니다. 현재 관리자 화면에서는 승인할 수 없습니다.
+2. 관리자는 [회원 계약](contracts/membership.md#요청-순서)에 따라 로그인 세션과 CSRF 토큰을 준비합니다. `PATCH /api/admin/members/{id}/status`에 `{"status":"ACTIVE"}`를 보내 승인합니다. 현재 관리자 화면에서는 승인할 수 없습니다.
 3. 승인된 사용자는 `/chat`에서 기업 선택 없이 질문합니다. 개인 대화 목록에서 이전 기록과 근거를 다시 열 수 있습니다.
 4. 응답의 모드와 오류를 확인합니다. `/health`의 성공은 Python과 MCP 및 모델 연결 성공을 뜻하지 않습니다.
 

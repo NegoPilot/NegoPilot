@@ -237,7 +237,7 @@ FastAPI 진입점은 `negopilot_agent.api.app:app`입니다. [Generation HTTP �
 | `GET /internal/v2/business/catalog`, `/internal/v2/suppliers`, `/internal/v2/suppliers/{supplier_id}` | 실행 모드와 관계없이 business-mcp의 협력사 데이터 조회 |
 | `/internal/v1/admin/laws/**` | 관리자 법령 조회와 최신화 |
 
-과거 fixture 기반 v0.1 질의 실행(`/internal/v1/query-executions`)과 v0.2 협력사 조회·템플릿 대화(`/internal/v1/business`, `/internal/v1/suppliers`, `/internal/v1/chat/responses`)는 #141에서 제거했습니다. 생성 답변을 사용할 클라이언트는 Spring의 `/api/v2/agent/queries` 또는 `/api/v2/conversations` 경로를 사용합니다.
+과거 fixture 기반 v0.1 질의 실행(`/internal/v1/query-executions`)과 v0.2 협력사 조회·템플릿 대화(`/internal/v1/business`, `/internal/v1/suppliers`, `/internal/v1/chat/responses`)는 #141에서 제거했습니다. 생성 답변을 사용할 클라이언트는 Spring의 `/api/agent/queries` 또는 `/api/conversations` 경로를 사용합니다.
 
 ### stub 서버 시작
 
@@ -374,7 +374,7 @@ curl --fail-with-body http://127.0.0.1:9200/internal/v2/query-executions \
 
 일부 Routing 오류가 있어도 코어가 답변을 만들면 완료로 처리합니다. 부분 실패는 `routing`과 `answer.notices`에 남깁니다. 고정 안내도 Generation이 처리한 결과이므로 `COMPLETED`가 항상 모델 호출이나 모든 도구의 성공을 뜻하지는 않습니다. `verification.masked: true`와 검증 오류 목록이 함께 있는 보정 결과도 보존합니다.
 
-대화 저장이 필요하면 Spring의 `/api/v2/conversations`를 사용합니다. Python의 v2 실행 자체는 상태를 저장하지 않습니다. Spring은 대화를 PostgreSQL에 저장하고 최신 20개 메시지를 전달합니다. 같은 대화에 생성 중인 요청이 있으면 `409 CONVERSATION_BUSY`로 거절합니다. 저장된 긴 assistant 본문은 유지하며 모델에 전달할 때만 4000 code point로 제한합니다. HTTP 오류나 `execution_status: FAILED`에서는 기존 메시지와 문맥을 유지합니다. 상세 규칙은 [이력 v0.4 계약](../docs/contracts/history.md)을 따릅니다.
+대화 저장이 필요하면 Spring의 `/api/conversations`를 사용합니다. Python의 v2 실행 자체는 상태를 저장하지 않습니다. Spring은 대화를 PostgreSQL에 저장하고 최신 20개 메시지를 전달합니다. 같은 대화에 생성 중인 요청이 있으면 `409 CONVERSATION_BUSY`로 거절합니다. 저장된 긴 assistant 본문은 유지하며 모델에 전달할 때만 4000 code point로 제한합니다. HTTP 오류나 `execution_status: FAILED`에서는 기존 메시지와 문맥을 유지합니다. 상세 규칙은 [이력 v0.4 계약](../docs/contracts/history.md)을 따릅니다.
 
 ### v2 live 모델 선택과 비용 없는 검사
 
@@ -425,7 +425,7 @@ uv run --locked python -m pytest -q
 
 ### 채팅에서 바로 질문하기
 
-기업을 미리 선택하지 않아도 v2 대화 API로 질문할 수 있습니다. 지역만으로 기업을 검색하거나 이름으로 기업을 찾고 관련 법령을 조회합니다. 기업 후보가 여러 곳이거나 필수 거래 조건이 없을 때만 추가로 묻습니다. 조회 0건과 연결 실패는 추가 입력 부족과 구분합니다.
+기업을 미리 선택하지 않아도 Spring 대화 API로 질문할 수 있습니다. 지역만으로 기업을 검색하거나 이름으로 기업을 찾고 관련 법령을 조회합니다. 기업 후보가 여러 곳이거나 필수 거래 조건이 없을 때만 추가로 묻습니다. 조회 0건과 연결 실패는 추가 입력 부족과 구분합니다.
 
 [직접 질문 계약](../docs/contracts/direct-chat.md)에 질문별 처리 기준과 stub 예시 및 추가 질문 이후의 대화 규칙을 정리했습니다. 기업명 조회에는 최신 business-mcp의 `find_suppliers`가 필요합니다. Agent와 business-mcp를 함께 갱신해 실행하세요.
 

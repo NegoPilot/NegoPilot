@@ -6,7 +6,7 @@
     "description": "Spring and Python execute the latest decomposition → Routing → Generation graph once. Live is the default. Stub substitutes model and tool I/O while keeping the real graph and AnswerGenerator. See agent-generation.md for runtime invariants. Production Spring authentication and CSRF are specified in membership.md. Conversation creation, snapshots and lists use v0.4 as specified in history.md; the message response here is the v0.3 GenerationExecutionResponse with conversation_id and response_id."
   },
   "paths": {
-    "/api/v2/agent/queries": {
+    "/api/agent/queries": {
       "post": {
         "operationId": "generatePublicAnswer",
         "security": [],
@@ -176,7 +176,7 @@
         }
       ]
     },
-    "/api/v2/conversations/{conversation_id}/messages": {
+    "/api/conversations/{conversation_id}/messages": {
       "post": {
         "operationId": "generateConversationMessage",
         "security": [],
