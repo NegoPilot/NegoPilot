@@ -30,7 +30,6 @@ class LatestRoutingContractTest {
     private static final UUID REQUEST_ID = UUID.fromString("cb0bcb9c-5ea7-4d26-bb54-f4d211867273");
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
     private static final String OFFER_FIXTURE = "05_offer_check.json";
-    private final AgentResponseValidator validator = new AgentResponseValidator();
 
     record FixtureCase(String file, String decompositionStatus, String routingStatus,
                        List<String> outcomeStatuses, List<Integer> referenceCounts,
@@ -86,7 +85,7 @@ class LatestRoutingContractTest {
         }
 
         JsonNode before = response.deepCopy();
-        assertDoesNotThrow(() -> validator.validate(response, REQUEST_ID));
+        assertDoesNotThrow(() -> validate(response));
         assertEquals(before, response, "Validation must preserve recorded tool payloads and references");
     }
 
@@ -106,7 +105,7 @@ class LatestRoutingContractTest {
             assertFalse(call.path("result").path("citation").stringValue().isBlank());
             assertTrue(call.path("error").isNull());
         }
-        assertDoesNotThrow(() -> validator.validate(response, REQUEST_ID));
+        assertDoesNotThrow(() -> validate(response));
     }
 
     @Test
@@ -118,7 +117,7 @@ class LatestRoutingContractTest {
         assertFalse(input.has("from_"));
         assertEquals(List.of("q1", "q2"), nodes(routing(response).path("outcomes"))
                 .map(item -> item.path("id").stringValue()).toList());
-        assertDoesNotThrow(() -> validator.validate(response, REQUEST_ID));
+        assertDoesNotThrow(() -> validate(response));
     }
 
     @ParameterizedTest
@@ -188,7 +187,7 @@ class LatestRoutingContractTest {
         ObjectNode response = envelope(OFFER_FIXTURE);
         reference(response).set("result", MAPPER.readTree(result));
         JsonNode before = response.deepCopy();
-        assertDoesNotThrow(() -> validator.validate(response, REQUEST_ID));
+        assertDoesNotThrow(() -> validate(response));
         assertEquals(before, response);
     }
 
@@ -201,17 +200,18 @@ class LatestRoutingContractTest {
         assertEquals("COMPLETED", response.path("execution_status").stringValue());
         assertTrue(response.path("error").isNull());
         JsonNode before = response.deepCopy();
-        assertDoesNotThrow(() -> validator.validate(response, REQUEST_ID));
+        assertDoesNotThrow(() -> validate(response));
         assertEquals(before, response);
-
-        response.put("execution_status", "FAILED");
-        response.set("error", error("ROUTING_FAILED"));
-        assertInvalid(response);
     }
 
-    private void assertInvalid(JsonNode response) {
+    private static void validate(JsonNode response) {
+        DecompositionRoutingValidator.validateDecomposition(response.get("decomposition"));
+        DecompositionRoutingValidator.validateRouting(response.get("routing"), response.get("decomposition"));
+    }
+
+    private static void assertInvalid(JsonNode response) {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
-                () -> validator.validate(response, REQUEST_ID));
+                () -> validate(response));
         assertEquals("Invalid upstream response", exception.getMessage());
     }
 

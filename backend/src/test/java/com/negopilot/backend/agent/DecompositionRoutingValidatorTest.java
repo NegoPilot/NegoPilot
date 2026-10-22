@@ -1,6 +1,5 @@
 package com.negopilot.backend.agent;
 
-import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
@@ -17,10 +16,8 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-class AgentResponseValidatorTest {
-    private static final UUID REQUEST_ID = UUID.fromString("91fb53c9-f421-4fe9-af39-780defd223c0");
+class DecompositionRoutingValidatorTest {
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
-    private final AgentResponseValidator validator = new AgentResponseValidator();
 
     @ParameterizedTest
     @ValueSource(strings = {"ok", "general_knowledge", "out_of_scope", "unsupported", "skipped", "empty"})
@@ -37,39 +34,17 @@ class AgentResponseValidatorTest {
         if (status.equals("empty")) {
             routing(response).put("halted", true).put("halt_reason", "No matching result");
         }
-        assertDoesNotThrow(() -> validator.validate(response, REQUEST_ID));
+        assertDoesNotThrow(() -> validate(response));
     }
 
     @Test
     void acceptsClarification() {
-        assertDoesNotThrow(() -> validator.validate(clarify(), REQUEST_ID));
+        assertDoesNotThrow(() -> validate(clarify()));
     }
 
     @Test
     void acceptsDecompositionFailure() {
-        assertDoesNotThrow(() -> validator.validate(failed(), REQUEST_ID));
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"DECOMPOSITION_FAILED", "ROUTING_FAILED"})
-    void rejectsRetryableExecutionFailures(String code) {
-        ObjectNode response = code.equals("DECOMPOSITION_FAILED") ? failed() : completed();
-        if (code.equals("ROUTING_FAILED")) {
-            response.put("execution_status", "FAILED");
-            outcome(response).put("status", "error");
-            ((ArrayNode) outcome(response).get("calls")).add(toolCall("Tool execution failed."));
-            response.set("error", error(code));
-        }
-        ((ObjectNode) response.get("error")).put("retryable", true);
-        assertInvalid(response);
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"COMPLETED", "FAILED"})
-    void rejectsClarificationWithWrongExecutionStatus(String status) {
-        ObjectNode response = clarify();
-        response.put("execution_status", status);
-        assertInvalid(response);
+        assertDoesNotThrow(() -> validate(failed()));
     }
 
     @Test
@@ -85,26 +60,7 @@ class AgentResponseValidatorTest {
         response.put("execution_status", "NEEDS_INPUT");
         outcome(response).put("status", "missing_args");
         ((ArrayNode) outcome(response).get("missing")).add("supplier");
-        assertDoesNotThrow(() -> validator.validate(response, REQUEST_ID));
-    }
-
-    @Test
-    void routingErrorTakesPrecedenceOverMissingArguments() {
-        ObjectNode response = completed();
-        ObjectNode secondSubQuery = (ObjectNode) subQuery(response).deepCopy();
-        secondSubQuery.put("id", "q2");
-        ((ArrayNode) decomposition(response).get("sub_queries")).add(secondSubQuery);
-        ObjectNode secondOutcome = (ObjectNode) outcome(response).deepCopy();
-        secondOutcome.put("id", "q2").put("status", "error");
-        ((ArrayNode) secondOutcome.get("calls")).add(toolCall("Tool execution failed."));
-        ((ArrayNode) routing(response).get("outcomes")).add(secondOutcome);
-        outcome(response).put("status", "missing_args");
-        ((ArrayNode) outcome(response).get("missing")).add("supplier");
-        response.put("execution_status", "FAILED");
-        response.set("error", error("ROUTING_FAILED"));
-        assertDoesNotThrow(() -> validator.validate(response, REQUEST_ID));
-        response.put("execution_status", "NEEDS_INPUT").putNull("error");
-        assertInvalid(response);
+        assertDoesNotThrow(() -> validate(response));
     }
 
     @ParameterizedTest
@@ -119,17 +75,8 @@ class AgentResponseValidatorTest {
         call.set("result", MAPPER.readTree(result));
         ((ArrayNode) outcome(response).get("calls")).add(call);
         JsonNode before = response.deepCopy();
-        assertDoesNotThrow(() -> validator.validate(response, REQUEST_ID));
+        assertDoesNotThrow(() -> validate(response));
         assertEquals(before, response);
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"schema_version", "request_id", "execution_status", "generation_status",
-            "mode", "decomposition", "routing", "error"})
-    void rejectsMissingEnvelopeFields(String name) {
-        ObjectNode response = completed();
-        response.remove(name);
-        assertInvalid(response);
     }
 
     @ParameterizedTest
@@ -142,16 +89,6 @@ class AgentResponseValidatorTest {
 
     static Stream<Consumer<ObjectNode>> invalidMutations() {
         return Stream.of(
-                r -> r.put("unexpected", true),
-                r -> r.put("schema_version", "0.2"),
-                r -> r.put("schema_version", 0.1),
-                r -> r.put("generation_status", "COMPLETED"),
-                r -> r.put("mode", "test"),
-                r -> r.put("request_id", UUID.randomUUID().toString()),
-                r -> r.put("request_id", "1-1-1-1-1"),
-                r -> r.putNull("request_id"),
-                r -> r.put("execution_status", "FAILED"),
-                r -> r.set("error", error("ROUTING_FAILED")),
                 r -> decomposition(r).remove("clarification"),
                 r -> decomposition(r).put("status", "clarify"),
                 r -> decomposition(r).put("status", "failed"),
@@ -198,17 +135,11 @@ class AgentResponseValidatorTest {
     }
 
     @Test
-    void rejectsMalformedClarificationAndFailure() {
+    void rejectsMalformedClarificationAndRoutedFailure() {
         ObjectNode clarification = clarify();
         ((ArrayNode) decomposition(clarification).get("clarification").get("options")).removeAll();
         assertInvalid(clarification);
         ObjectNode failure = failed();
-        failure.set("error", error("ROUTING_FAILED"));
-        assertInvalid(failure);
-        failure = failed();
-        ((ObjectNode) failure.get("error")).put("retryable", "false");
-        assertInvalid(failure);
-        failure = failed();
         routing(failure).put("status", "routed");
         assertInvalid(failure);
     }
@@ -225,14 +156,19 @@ class AgentResponseValidatorTest {
         ObjectNode secondOutcome = (ObjectNode) outcome(response).deepCopy();
         secondOutcome.put("id", "q2");
         ((ArrayNode) routing(response).get("outcomes")).add(secondOutcome);
-        assertDoesNotThrow(() -> validator.validate(response, REQUEST_ID));
+        assertDoesNotThrow(() -> validate(response));
         ((ArrayNode) second.get("depends_on")).add("q3");
         assertInvalid(response);
     }
 
-    private void assertInvalid(JsonNode response) {
+    private static void validate(JsonNode response) {
+        DecompositionRoutingValidator.validateDecomposition(response.get("decomposition"));
+        DecompositionRoutingValidator.validateRouting(response.get("routing"), response.get("decomposition"));
+    }
+
+    private static void assertInvalid(JsonNode response) {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
-                () -> validator.validate(response, REQUEST_ID));
+                () -> validate(response));
         assertEquals("Invalid upstream response", exception.getMessage());
     }
 

@@ -145,22 +145,47 @@ API 형식은 [회원 계약](docs/contracts/membership.md)과 [직접 질문 �
 
 ### 전체 서비스 (Docker)
 
-Docker를 실행한 뒤 저장소 루트에서 다음 명령을 실행합니다. DB, 테이블, 테스트 계정이 자동으로 준비됩니다. Java, Python, Node.js를 따로 설치할 필요는 없습니다.
+Docker를 실행한 뒤 저장소 루트에서 최초 한 번 설정 파일을 복사합니다. 이미 `.env`가 있다면 필요한 항목만 추가합니다. Java와 Python 및 Node.js를 호스트에 따로 설치할 필요는 없습니다.
+
+```sh
+cp .env.example .env
+```
+
+`.env`에 `OPENAI_API_KEY`를 입력합니다. 질문 해석과 답변 생성의 기본 공급자는 모두 `openai`이며 모델은 `gpt-4.1-mini`입니다. `NEGOPILOT_DECOMPOSER_MODEL`과 `NEGOPILOT_GENERATOR_MODEL`로 각 단계의 모델을 지정할 수 있습니다. 설정을 마친 뒤 실행합니다.
 
 ```sh
 docker compose up --build -d
 ```
 
-[http://localhost:5173](http://localhost:5173)에서 다음 로컬 테스트 계정으로 로그인합니다.
+DB와 테이블 및 로컬 계정을 자동으로 준비합니다. [http://localhost:5173](http://localhost:5173)에서 다음 계정으로 로그인하면 홈 오른쪽 AI 패널이 열립니다.
 
 | 계정 | 이메일 | 비밀번호 |
 | --- | --- | --- |
 | 승인된 일반 회원 | `user@negopilot.local` | `LocalUser2026!` |
 | 관리자 | `admin@negopilot.local` | `LocalAdmin2026!` |
 
-루트 Docker Compose는 모델 키 없이 실행되도록 Agent를 `stub` 모드로 띄웁니다. `stub`은 모델과 도구 입출력만 테스트용으로 바꾸고, 그래프와 근거 검사는 실제 코드로 실행합니다. 회원과 대화 기록은 PostgreSQL volume에 저장돼 컨테이너를 다시 만들어도 유지됩니다. 포트와 계정 변경은 [Docker 실행 안내](docs/LOCAL_DOCKER.md)를 참고합니다.
+기본 Compose는 `live` 모드로 질문 해석부터 MCP 조회와 최종 답변 생성까지 실행합니다. 실제 질문에는 모델 API 호출 비용이 발생할 수 있습니다. Docker 시작기는 모델과 필수 키 설정만 검사하며 네트워크로 키의 유효성을 확인하지 않습니다. live 실패를 stub 답변으로 바꾸지 않습니다.
 
-### 실제 모델로 Agent 실행
+회원과 대화 기록은 PostgreSQL volume에 저장되어 컨테이너를 다시 만들어도 유지됩니다. 기존 계정과 비밀번호도 덮어쓰지 않습니다. `live`는 모든 자료가 실데이터라는 뜻은 아닙니다. 초기 business DB에는 DART 공시 스냅샷과 가상 기업 및 가상 운영 데이터가 함께 들어갑니다. 모델 공급자 변경과 필드별 출처 및 화면 연결 상태는 [Docker 실행 안내](docs/LOCAL_DOCKER.md)를 참고합니다.
+
+### 모델 키 없는 테스트 실행
+
+Docker Compose 2.24.4 이상에서 테스트 override를 추가합니다. 기본 live 환경과 별도 프로젝트 및 DB volume을 사용하며 웹 포트는 `5174`입니다. 테스트 환경의 모델 키는 빈 값으로 덮어쓰고 채팅은 정해진 stub 응답을 사용합니다. 회원과 대화 저장 및 별도 협력사 MCP 조회는 실제 코드를 실행합니다.
+
+```sh
+docker compose -f compose.yaml -f compose.test.yaml up --build -d --wait
+```
+
+[http://localhost:5174](http://localhost:5174)에서 같은 기본 계정으로 로그인합니다. 테스트 상태 확인과 로그 조회 및 종료에도 두 파일을 모두 지정합니다.
+
+```sh
+docker compose -f compose.yaml -f compose.test.yaml ps -a
+docker compose -f compose.yaml -f compose.test.yaml down
+```
+
+일반 종료는 데이터를 보존합니다. `down -v`는 해당 프로젝트의 DB와 대화 기록을 삭제합니다. 포트 변경과 재시작 검사는 [Docker 실행 안내](docs/LOCAL_DOCKER.md)를 따릅니다.
+
+### Agent 개별 실행
 
 Python 3.12 이상과 [uv](https://docs.astral.sh/uv/)가 필요합니다. `agent/.env`에 `OPENAI_API_KEY`를 넣고, MCP 서버 두 개를 먼저 띄웁니다.
 
@@ -211,6 +236,7 @@ NegoPilot/
 │   ├── LOCAL_DOCKER.md        Docker 실행 안내
 │   └── contracts/             컴포넌트 사이 데이터 형식 (분해, Routing, Generation, HTTP API)
 ├── compose.yaml               전체 로컬 서비스
+├── compose.test.yaml          키 없는 stub 테스트용 override
 ├── .github/                   이슈·PR 템플릿, CI(workflows/ci.yml)
 └── CONTRIBUTING.md            협업 규칙
 ```

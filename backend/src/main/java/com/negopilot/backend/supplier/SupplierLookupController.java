@@ -16,9 +16,9 @@ import tools.jackson.databind.JsonNode;
 @RequestMapping(produces = MediaType.APPLICATION_JSON_VALUE)
 final class SupplierLookupController {
     private final SupplierLookupGateway gateway;
-    private final SupplierChatRequestValidator validator;
+    private final SupplierLookupRequestValidator validator;
 
-    SupplierLookupController(SupplierLookupGateway gateway, SupplierChatRequestValidator validator) {
+    SupplierLookupController(SupplierLookupGateway gateway, SupplierLookupRequestValidator validator) {
         this.gateway = gateway;
         this.validator = validator;
     }
@@ -40,7 +40,7 @@ final class SupplierLookupController {
     JsonNode detail(@PathVariable String supplierId, HttpServletRequest request) {
         UUID id = begin(request);
         noParameters(request, id);
-        return gateway.detail(validator.lookupSupplierId(supplierId), id);
+        return gateway.detail(validator.supplierId(supplierId), id);
     }
 
     private static UUID begin(HttpServletRequest request) {

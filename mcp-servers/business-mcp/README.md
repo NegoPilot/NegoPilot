@@ -103,7 +103,7 @@ uv run python -m pytest -q                 # MCP Client로 도구 호출 테스�
 - 접속 정보는 `DATABASE_URL` 환경변수로 바꿉니다. 기본값은 `postgresql://agent:agent@localhost:5432/supplier_db`입니다.
 - 테스트는 같은 DB 안에 고유한 `pytest_business_` 접두사의 임시 스키마를 만들어 seed와 관리 migration을 적용한 뒤 지웁니다. 공개 스키마와 저장소 CSV는 변경하지 않습니다. DB에 연결할 수 없으면 테스트를 건너뜁니다.
 
-DB 없이 검색 규칙과 SQL 인자 및 상세 조회 호환성만 확인하려면 아래 명령을 사용합니다. `query`를 대역으로 바꾸고 DB 연결을 차단합니다. 기존 `tests/conftest.py`의 자동 seed를 실행하지 않습니다.
+DB 없이 검색 규칙과 SQL 인자, 상세 조회 호환성, 협상안 검사 법 규칙(`rules.py`)의 경계값만 확인하려면 아래 명령을 사용합니다. `query`를 대역으로 바꾸고 DB 연결을 차단합니다. 기존 `tests/conftest.py`의 자동 seed를 실행하지 않습니다.
 
 ```bash
 uv run python -m pytest offline_tests -q --confcutdir=offline_tests
@@ -149,8 +149,9 @@ data/dart_raw/              OpenDART 응답 캐시 (git 제외)
 scripts/collect_dart.py     OpenDART에서 개황·재무·직원 수 수집 → data/dart_*.csv (인증키 필요)
 scripts/seed.py             DART 회사 + 가상 협력사로 150곳 구성 (seed 42), DB에 넣고 data/*.csv 사본 저장
 server.py                   MCP Server
+rules.py                    협상안 검사 법 규칙과 기준값 (근거 조문·적용 기간 포함, DB 없음)
 tests/                      MCP Client 테스트 (임시 스키마 사용)
-offline_tests/              DB 없는 검색과 상세 조회 회귀 테스트
+offline_tests/              DB 없는 검색·상세 조회 회귀 테스트와 법 규칙 경계값 테스트
 docs/ERD.png                ERD
 docker-compose.yml          PostgreSQL 16 컨테이너
 SETUP.md                    단계별 실행 가이드, 데이터 추가·갱신 방법, 자주 나는 오류

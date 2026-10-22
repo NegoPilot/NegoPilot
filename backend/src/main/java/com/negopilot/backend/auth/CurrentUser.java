@@ -3,12 +3,10 @@ package com.negopilot.backend.auth;
 import com.negopilot.backend.common.api.ApiException;
 import com.negopilot.backend.UserIdentity;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 @Component
-@Profile("!legacy-test")
 public final class CurrentUser {
     private final MembershipRepository members;
     CurrentUser(MembershipRepository members) { this.members = members; }

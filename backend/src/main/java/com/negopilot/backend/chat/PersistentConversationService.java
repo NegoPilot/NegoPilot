@@ -18,14 +18,12 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
-@Profile("!legacy-test")
 @Service
 final class PersistentConversationService {
     private static final String OPTIONS_SEPARATOR = "\n\n선택지 데이터:\n";

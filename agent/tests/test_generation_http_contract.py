@@ -384,7 +384,7 @@ async def test_model_rewritten_query_is_restored_before_generation(monkeypatch):
 
 @pytest.mark.parametrize("case,name", [
     ("today_as_of", "01_law_article"),
-    ("disallowed_as_of", "05_offer_check"),
+    ("disallowed_as_of", "02_parallel_suppliers"),   # offer_check는 check_offer v2부터 as_of를 받는다
     ("disallowed_input", "03_rank_then_law"),
     ("both", "03_rank_then_law"),
 ])

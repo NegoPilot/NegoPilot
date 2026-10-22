@@ -102,7 +102,7 @@ for group in result.parallel_groups():              # [["q1", "q2"], ["q3"]] →
 | `supplier_search` | business-mcp | `search_suppliers` | process, material, region, iatf_required, min_monthly_capacity, top_n |
 | `supplier_detail` | business-mcp | 기업명은 `find_suppliers` → 유일 후보의 `get_supplier`. 명시 ID는 `get_supplier` | supplier |
 | `supplier_ranking` | business-mcp | `rank_suppliers` | rfq_id, top_n |
-| `offer_check` | business-mcp | `check_offer` | supplier, rfq_id, unit_price, payment_days, price_linkage, raw_material_ratio, contract_days, linkage_waived_by_agreement, buyer_is_small_business |
+| `offer_check` | business-mcp | `check_offer` | supplier, rfq_id, unit_price, payment_days, price_linkage, raw_material_ratio, energy_ratio, contract_days, linkage_waived_by_agreement, buyer_is_small_business, as_of |
 | `law_check` | law-mcp | `search_regulation` → `get_article` | law, as_of, price_change_pct |
 | `law_article` | law-mcp | `get_article` | law, article_no, as_of |
 | `draft_email` | mail-mcp | (예정) | supplier, rfq_id |
@@ -133,12 +133,13 @@ for group in result.parallel_groups():              # [["q1", "q2"], ["q3"]] →
 | `payment_days` | int > 0 | `60` | |
 | `price_linkage` | bool | `false` | 납품대금 연동 약정 여부 |
 | `raw_material_ratio` | 0~1 | `0.45` | |
+| `energy_ratio` | 0~1 | `0.12` | 단가 중 에너지 비용 비중. 선택 ([협상안 검사 계약](check-offer.md)) |
 | `contract_days` | int > 0 | `365` | |
 | `linkage_waived_by_agreement` | bool | `false` | |
 | `buyer_is_small_business` | bool | `false` | |
 | `law` | law_key | `subcontract_act` | law-mcp의 `list_laws` 참고. 사용자가 법령 이름을 말했을 때만 |
 | `article_no` | `제N조` 또는 `제N조의M` | `제16조의2` | |
-| `as_of` | `YYYY-MM-DD` | `2026-10-20` | 생략하면 오늘 |
+| `as_of` | `YYYY-MM-DD` | `2026-10-20` | 생략하면 오늘. `offer_check`에서는 계약(위탁) 시점이며 사용자가 날짜를 말했을 때만 |
 | `price_change_pct` | number | `-5` | 인하는 음수. 현재 분해가 뽑지 않음 |
 
 ## 5. 근거와 되묻기 규칙

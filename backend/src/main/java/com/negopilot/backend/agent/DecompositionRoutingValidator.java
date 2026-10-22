@@ -2,58 +2,15 @@ package com.negopilot.backend.agent;
 
 import java.util.HashSet;
 import java.util.Set;
-import java.util.UUID;
 
 import tools.jackson.databind.JsonNode;
 
-/** Validates the HTTP boundary without duplicating the Python intent registry. */
-public final class AgentResponseValidator {
+/** Validates decomposition and routing results without duplicating the Python intent registry. */
+final class DecompositionRoutingValidator {
     private static final Set<String> OUTCOME_STATUSES = Set.of(
             "ok", "general_knowledge", "out_of_scope", "unsupported", "missing_args", "empty", "skipped", "error");
 
-    public void validate(JsonNode response, UUID expectedRequestId) {
-        object(response, "schema_version", "request_id", "execution_status", "generation_status",
-                "mode", "decomposition", "routing", "error");
-        equalsText(response.get("schema_version"), "0.1");
-        equalsText(response.get("generation_status"), "NOT_IMPLEMENTED");
-        oneOf(response.get("mode"), Set.of("live", "stub"));
-        oneOf(response.get("execution_status"), Set.of("COMPLETED", "NEEDS_INPUT", "FAILED"));
-        String requestId = text(response.get("request_id"));
-        require(requestId.matches("[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"));
-        require(UUID.fromString(requestId).equals(expectedRequestId));
-
-        JsonNode decomposition = response.get("decomposition");
-        validateDecomposition(decomposition);
-        JsonNode routing = response.get("routing");
-        validateRouting(routing, decomposition);
-
-        String expectedStatus;
-        String expectedError = null;
-        String decompositionStatus = text(decomposition.get("status"));
-        if (decompositionStatus.equals("failed")) {
-            expectedStatus = "FAILED";
-            expectedError = "DECOMPOSITION_FAILED";
-        } else if (decompositionStatus.equals("clarify")) {
-            expectedStatus = "NEEDS_INPUT";
-        } else if (hasOutcome(routing, "error")) {
-            expectedStatus = "FAILED";
-            expectedError = "ROUTING_FAILED";
-        } else if (hasOutcome(routing, "missing_args")) {
-            expectedStatus = "NEEDS_INPUT";
-        } else {
-            expectedStatus = "COMPLETED";
-        }
-        equalsText(response.get("execution_status"), expectedStatus);
-        JsonNode error = response.get("error");
-        if (expectedError == null) {
-            require(error.isNull());
-        } else {
-            object(error, "code", "message", "retryable");
-            equalsText(error.get("code"), expectedError);
-            nonemptyText(error.get("message"));
-            require(error.get("retryable").isBoolean() && !error.get("retryable").booleanValue());
-        }
-    }
+    private DecompositionRoutingValidator() {}
 
     static void validateDecomposition(JsonNode decomposition) {
         object(decomposition, "schema_version", "status", "original_query", "sub_queries",

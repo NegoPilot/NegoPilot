@@ -41,10 +41,6 @@ public final class ApiException extends RuntimeException {
         return new ApiException(id, HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Internal server error", false);
     }
 
-    public static ApiException demoRequired(UUID id) {
-        return new ApiException(id, HttpStatus.SERVICE_UNAVAILABLE, "DEMO_MODE_REQUIRED", "Stub mode is required", false);
-    }
-
     public static ApiException supplierNotFound(UUID id) {
         return new ApiException(id, HttpStatus.NOT_FOUND, "SUPPLIER_NOT_FOUND", "Supplier not found", false);
     }

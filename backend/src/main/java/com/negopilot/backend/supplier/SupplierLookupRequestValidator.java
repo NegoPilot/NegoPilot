@@ -5,18 +5,15 @@ import com.negopilot.backend.common.api.ApiException;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.stereotype.Component;
-import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.JsonNodeFactory;
 import tools.jackson.databind.node.ObjectNode;
 
 @Component
-public final class SupplierChatRequestValidator {
+final class SupplierLookupRequestValidator {
     private static final Set<String> SEARCH_FIELDS = Set.of(
             "process", "material", "region", "iatf_required", "iso14001_required", "min_monthly_capacity", "limit");
 
-    public record MessageRequest(String query, ObjectNode context) {}
-
-    public ObjectNode search(Map<String, String[]> parameters) {
+    ObjectNode search(Map<String, String[]> parameters) {
         if (parameters == null || !parameters.containsKey("process")) throw invalid();
         for (Map.Entry<String, String[]> entry : parameters.entrySet()) {
             if (entry.getKey() == null || !SEARCH_FIELDS.contains(entry.getKey()) || entry.getValue() == null
@@ -41,47 +38,9 @@ public final class SupplierChatRequestValidator {
         return result.put("limit", boundedInteger(rawLimit, 1, 100));
     }
 
-    public ObjectNode create(JsonNode body) {
-        if (!onlyFields(body, Set.of("context")) || !body.has("context")) throw invalid();
-        return context(body.get("context"));
-    }
-
-    public MessageRequest message(JsonNode body) {
-        if (!onlyFields(body, Set.of("query", "context")) || !body.path("query").isString()) throw invalid();
-        String query = normalizedText(body.get("query").stringValue(), 4000);
-        return new MessageRequest(query, body.has("context") ? context(body.get("context")) : null);
-    }
-
-    public String conversationId(String raw) {
-        // Preserve case for the service's exact ID lookup instead of normalizing UUID aliases.
-        if (raw == null || !raw.matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")) {
-            throw invalid();
-        }
-        return raw;
-    }
-
-    public String supplierId(String raw) {
-        return checkedSupplierId(raw);
-    }
-
-    String lookupSupplierId(String raw) {
+    String supplierId(String raw) {
         if (raw == null || !raw.matches("SUP-[0-9]{4,18}")) throw invalid();
         return raw;
-    }
-
-    private static ObjectNode context(JsonNode context) {
-        if (!onlyFields(context, Set.of("selected_supplier_ids"))) throw invalid();
-        JsonNode selected = context.get("selected_supplier_ids");
-        if (selected == null || !selected.isArray() || selected.size() > 1) throw invalid();
-        for (JsonNode id : selected) {
-            if (!id.isString()) throw invalid();
-            checkedSupplierId(id.stringValue());
-        }
-        return ((ObjectNode) context).deepCopy();
-    }
-
-    private static boolean onlyFields(JsonNode body, Set<String> allowed) {
-        return body != null && body.isObject() && body.propertyNames().stream().allMatch(allowed::contains);
     }
 
     private static String normalizedText(String raw, int maxLength) {
@@ -101,13 +60,6 @@ public final class SupplierChatRequestValidator {
         }
         if (value < min || value > max) throw invalid();
         return value;
-    }
-
-    private static String checkedSupplierId(String raw) {
-        if (raw == null || !raw.matches("[A-Za-z0-9_-]{1,100}")) {
-            throw invalid();
-        }
-        return raw;
     }
 
     private static String trimWhitespace(String value) {

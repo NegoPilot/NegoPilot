@@ -7,13 +7,11 @@ import com.negopilot.backend.UserIdentity;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Map;
 import java.util.UUID;
-import org.springframework.context.annotation.Profile;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@Profile("!legacy-test")
 @RequestMapping(value = "/api/v1/admin/suppliers", produces = MediaType.APPLICATION_JSON_VALUE)
 final class AdminSupplierController {
     private final CurrentUser currentUser;

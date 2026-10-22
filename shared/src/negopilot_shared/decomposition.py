@@ -51,6 +51,7 @@ class Entities(BaseModel):
     payment_days: int | None = Field(None, gt=0)
     price_linkage: bool | None = None
     raw_material_ratio: float | None = Field(None, ge=0, le=1)
+    energy_ratio: float | None = Field(None, ge=0, le=1)   # 단가 중 에너지 비용 비중 (check_offer v2)
     contract_days: int | None = Field(None, gt=0)
     linkage_waived_by_agreement: bool | None = None
     buyer_is_small_business: bool | None = None

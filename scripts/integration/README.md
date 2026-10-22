@@ -1,6 +1,8 @@
 # Spring과 Python HTTP 통합 검증
 
-이 디렉터리의 네 smoke 실행기는 개발용 fixture 계약 회귀 검사입니다. 공통 Spring 실행기는 `SPRING_PROFILES_ACTIVE=legacy-test`를 고정합니다. 이 프로필은 회원 인증과 CSRF 및 application DB를 사용하지 않고 기존 메모리 대화 계약을 검사합니다. 셸의 운영 프로필과 DB 설정을 상속하지 않습니다. 사용자용 서버를 실행하는 용도로 사용하지 않습니다.
+> **현재 상태:** Spring의 `legacy-test` 프로필과 v1 비즈니스 API는 #130에서 제거됐습니다. 아래 `http_smoke.py`, `generation_smoke.py`, `direct_chat_smoke.py`는 아직 Spring을 `legacy-test`로 띄우도록 작성되어 있어 지금은 통과하지 않습니다. 기본 프로필(로그인, CSRF, DB) 기준 재작성은 #132에서 진행합니다. 그 전까지 기본 프로필 흐름은 `compose_smoke.py`와 backend 테스트로 확인합니다.
+
+이 디렉터리의 smoke 실행기는 개발용 fixture 계약 회귀 검사입니다. 공통 Spring 실행기는 `SPRING_PROFILES_ACTIVE=legacy-test`를 고정합니다. 셸의 운영 프로필과 DB 설정을 상속하지 않습니다. 사용자용 서버를 실행하는 용도로 사용하지 않습니다.
 
 실제 가입과 승인 및 JDBC 세션과 개인 대화 저장은 기본 Spring 실행 프로필의 기능입니다. 해당 실행 순서는 [개발 시작 가이드](../../docs/GETTING_STARTED.md#5-로컬에서-돌려-보기)를 따릅니다. 이 smoke의 성공을 회원 인증이나 PostgreSQL 저장 및 재시작 복구의 검증으로 해석하지 않습니다.
 
@@ -8,9 +10,7 @@ Generation 경로의 계약 회귀는 `generation_smoke.py`로 검사합니다. 
 
 `direct_chat_smoke.py`는 같은 v2 경로에서 기업을 미리 선택하지 않은 직접 질문과 추가 답변을 검사합니다. 문서화된 질문을 내장 stub에 보내 검색과 이름 조회 및 법령 조회와 원래 질문의 재개를 확인합니다. HTTP 스키마는 0.3을 유지합니다.
 
-`supplier_chat_smoke.py`는 실제 Spring 서버와 Python HTTP 어댑터를 자식 프로세스로 시작해 공급사 조회와 메모리 대화를 검사합니다. 두 서버에 `AGENT_EXECUTION_MODE=stub`를 지정합니다. 마지막에는 `http_smoke.py`의 v0.1 회귀 검사도 실행합니다.
-
-이 검사는 [v0.1 HTTP 계약](../../docs/contracts/agent-http.md)과 [공급사 대화 계약](../../docs/contracts/supplier-chat.md)의 로컬 HTTP 연동을 확인합니다. Python live 환경이나 모델 인증 키 및 MCP 서버를 준비할 필요가 없습니다. 실제 모델과 MCP 및 DB를 호출하지 않으며 메일도 보내지 않습니다.
+이 검사들은 Python live 환경이나 모델 인증 키 및 MCP 서버를 준비할 필요가 없습니다. 실제 모델과 MCP 및 DB를 호출하지 않으며 메일도 보내지 않습니다.
 
 ## 새 체크아웃에서 준비
 
@@ -41,8 +41,6 @@ python3 -B scripts/integration/generation_smoke.py \
   --report /tmp/negopilot-generation-results.json
 python3 -B scripts/integration/direct_chat_smoke.py \
   --report /tmp/negopilot-direct-chat-results.json
-python3 -B scripts/integration/supplier_chat_smoke.py \
-  --report /tmp/negopilot-supplier-chat-results.json
 ```
 
 helper 단위 검사는 표준 라이브러리 `unittest`로 실행합니다. 통합 실행기는 준비된 `agent/.venv/bin/python`으로 Uvicorn을 직접 시작하며 현재 체크아웃의 `agent/src`와 `shared/src`를 사용합니다. 실행 중에는 의존성을 설치하거나 Spring을 빌드하지 않습니다.
@@ -50,12 +48,12 @@ helper 단위 검사는 표준 라이브러리 `unittest`로 실행합니다. �
 다른 Spring 실행 JAR을 선택하려면 `--jar`를 지정합니다.
 
 ```bash
-python3 -B scripts/integration/supplier_chat_smoke.py \
+python3 -B scripts/integration/generation_smoke.py \
   --jar backend/target/negopilot-backend-0.1.0-SNAPSHOT.jar \
-  --report /tmp/negopilot-supplier-chat-results.json
+  --report /tmp/negopilot-generation-results.json
 ```
 
-모든 검사가 통과하면 종료 코드는 0입니다. 검사 실패는 1입니다. JAR이나 해당 OpenAPI 명세 또는 `agent/.venv/bin/python`이 없으면 2입니다. 터미널에는 검사별 통과 여부를 출력합니다. 결과 JSON에는 검사 결과와 실행 시간 및 실행한 JAR의 SHA-256과 검증 한계를 기록합니다. 공급사 대화 실행기의 v0.1 회귀 결과는 같은 파일의 `v0_1_regression`에 포함합니다. 결과 JSON과 서버 로그 및 과거 실행 기록은 저장소에 추가하지 않습니다.
+모든 검사가 통과하면 종료 코드는 0입니다. 검사 실패는 1입니다. JAR이나 해당 OpenAPI 명세 또는 `agent/.venv/bin/python`이 없으면 2입니다. 터미널에는 검사별 통과 여부를 출력합니다. 결과 JSON에는 검사 결과와 실행 시간 및 실행한 JAR의 SHA-256과 검증 한계를 기록합니다. 결과 JSON과 서버 로그 및 과거 실행 기록은 저장소에 추가하지 않습니다.
 
 v0.1만 별도로 확인할 때는 다음 명령을 사용합니다.
 
@@ -117,11 +115,11 @@ Spring과 Python 사이의 로컬 HTTP 프록시는 정상 요청을 전달하�
 
 내부 키는 실행할 때 생성해 자식 프로세스 환경으로만 전달합니다. 자식 환경은 실행에 필요한 일부 변수만 상속하며 셸의 모델 인증 정보와 앱 설정은 제외합니다. stub 모드를 명시하고 모델과 MCP 주소를 로컬 검사 프록시로 지정해 호출 여부를 확인합니다. 요청과 응답 본문 및 서버 로그는 검사 중 메모리에서 수집합니다. Generation과 직접 질문 실행기의 증거 파일은 `/tmp`에 기록하며 내부 키 값은 기록하지 않습니다.
 
-공급사 통합 실행기는 준비된 JAR을 임시 디렉터리에 복사한 뒤 그 사본으로 검사를 진행합니다. JAR 빌드를 끝낸 후 실행하며 검사가 끝날 때까지 원본 JAR을 다시 빌드하지 않습니다. 종료할 때 이 실행이 만든 프로세스 그룹과 프록시 및 임시 JAR 사본만 정리합니다. 프로세스 그룹의 최초 프로세스가 먼저 끝나도 같은 그룹의 자식 프로세스를 정리합니다. 포트 번호로 기존 프로세스를 찾아 종료하지 않습니다.
+Generation과 직접 질문 실행기는 준비된 JAR을 임시 디렉터리에 복사한 뒤 그 사본으로 검사를 진행합니다. JAR 빌드를 끝낸 후 실행하며 검사가 끝날 때까지 원본 JAR을 다시 빌드하지 않습니다. 종료할 때 이 실행이 만든 프로세스 그룹과 프록시 및 임시 JAR 사본만 정리합니다. 프로세스 그룹의 최초 프로세스가 먼저 끝나도 같은 그룹의 자식 프로세스를 정리합니다. 포트 번호로 기존 프로세스를 찾아 종료하지 않습니다.
 
 ## 결과 해석의 한계
 
-공급사 v0.2 데이터의 단일 원본은 `docs/contracts/fixtures/supplier-chat.json`입니다. v0.2는 이 가상 데이터와 고정 템플릿으로 답합니다. 실제 기업 정보나 MCP 실행 결과가 아닙니다. 이 실행기의 `legacy-test` 대화는 Spring 메모리에만 저장되며 서버 종료와 함께 사라집니다. 기본 프로필의 개인 대화는 [이력 v0.4 계약](../../docs/contracts/history.md)에 따라 PostgreSQL에 저장됩니다.
+공급사 v0.2 데이터의 단일 원본은 `docs/contracts/fixtures/supplier-chat.json`입니다. v0.2는 이 가상 데이터와 고정 템플릿으로 답합니다. 실제 기업 정보나 MCP 실행 결과가 아닙니다. Spring의 v0.2 공급사 대화 API는 #130에서 제거됐습니다. 기본 프로필의 개인 대화는 [이력 v0.4 계약](../../docs/contracts/history.md)에 따라 PostgreSQL에 저장됩니다.
 
 v0.1의 세 고정 질문은 분해 fixture와 가짜 ToolCaller를 실제 Router에 연결합니다. 응답의 `routing.schema_version`과 각 outcome의 `referenced_articles`도 검사합니다. `spring.synthetic_boundary`로 표시한 네 검사는 프록시에서 일반 지식 상태와 범위 밖 상태 및 참조 조회 오류와 진단 문구를 주입해 Spring 응답을 확인합니다. 이 네 결과는 Python Router의 실제 실행 결과를 뜻하지 않습니다.
 

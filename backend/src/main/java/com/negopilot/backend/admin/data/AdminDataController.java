@@ -11,12 +11,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
-import org.springframework.context.annotation.Profile;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@Profile("!legacy-test")
 public final class AdminDataController {
     private final CurrentUser currentUser;
     private final AdminSupplierService suppliers;
