@@ -1,4 +1,4 @@
-"""v2 live supplier lookup routes. Always read business-mcp, independent of AGENT_EXECUTION_MODE."""
+"""Internal live supplier lookup routes. Always read business-mcp, independent of AGENT_EXECUTION_MODE."""
 
 import asyncio
 import re

@@ -108,7 +108,7 @@ async def test_health_matches_fixed_openapi_without_external_dependencies(mode):
     ("/internal/suppliers", {"process": "다이캐스팅", "iso14001_required": "true"}),
     ("/internal/suppliers/SUP-0001", None),
 ])
-async def test_v2_live_lookups_match_fixed_contract(mode, path, params):
+async def test_live_lookups_match_fixed_contract(mode, path, params):
     app = create_app(
         settings=ApiSettings(mode=mode, internal_api_key=API_KEY, request_timeout_seconds=1),
         supplier_lookup_service=BusinessSupplierService(session=FakeBusiness().session),
@@ -119,7 +119,7 @@ async def test_v2_live_lookups_match_fixed_contract(mode, path, params):
     assert (data["schema_version"], data["mode"]) == ("0.3", "live")
 
 
-async def test_v2_live_lookup_errors_match_fixed_contract():
+async def test_live_lookup_errors_match_fixed_contract():
     app = create_app(
         settings=ApiSettings(mode="live", internal_api_key=API_KEY, request_timeout_seconds=1),
         supplier_lookup_service=BusinessSupplierService(session=FakeBusiness(failure=RuntimeError("x")).session),

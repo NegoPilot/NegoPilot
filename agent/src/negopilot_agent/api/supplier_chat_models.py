@@ -1,4 +1,4 @@
-"""Strict supplier models shared by the v2 lookup and the Generation stub fixture."""
+"""Strict supplier models shared by the live lookup and the Generation stub fixture."""
 
 from datetime import date
 from typing import Annotated, Literal
