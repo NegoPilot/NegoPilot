@@ -8,14 +8,13 @@ Java 소스의 시작 패키지는 `com.negopilot.backend`다. HTTP 경로와 �
 | --- | --- |
 | `auth` | 로그인과 세션 및 회원 승인. [AuthController](../backend/src/main/java/com/negopilot/backend/auth/AuthController.java)와 [MembershipController](../backend/src/main/java/com/negopilot/backend/auth/MembershipController.java) |
 | `chat` | DB에 저장되는 대화와 메시지. [PersistentConversationController](../backend/src/main/java/com/negopilot/backend/chat/PersistentConversationController.java) |
-| `agent` | v1 질의와 v2 답변 생성의 요청 및 응답 계약. [AgentController](../backend/src/main/java/com/negopilot/backend/agent/AgentController.java)와 [GenerationGateway](../backend/src/main/java/com/negopilot/backend/agent/GenerationGateway.java) |
+| `agent` | v2 답변 생성의 요청 및 응답 계약과 `/health`. [GenerationGateway](../backend/src/main/java/com/negopilot/backend/agent/GenerationGateway.java)와 [HealthController](../backend/src/main/java/com/negopilot/backend/agent/HealthController.java) |
 | `supplier` | 실제 공급사 조회. [SupplierLookupController](../backend/src/main/java/com/negopilot/backend/supplier/SupplierLookupController.java) |
 | `admin.supplier` | 공급사 관리. [AdminSupplierController](../backend/src/main/java/com/negopilot/backend/admin/supplier/AdminSupplierController.java) |
 | `admin.law` | 법령 조회와 갱신 작업. [AdminLawController](../backend/src/main/java/com/negopilot/backend/admin/law/AdminLawController.java) |
 | `admin.data` | 공급사와 법령의 상태 요약. [AdminDataController](../backend/src/main/java/com/negopilot/backend/admin/data/AdminDataController.java) |
-| `common.api` | 공통 예외와 JSON 오류 응답. [ApiException](../backend/src/main/java/com/negopilot/backend/common/api/ApiException.java)과 [ApiErrorHandler](../backend/src/main/java/com/negopilot/backend/common/api/ApiErrorHandler.java) |
+| `common.api` | 공통 예외와 JSON 오류 응답 및 `request_id` 해석. [ApiException](../backend/src/main/java/com/negopilot/backend/common/api/ApiException.java)과 [ApiErrorHandler](../backend/src/main/java/com/negopilot/backend/common/api/ApiErrorHandler.java) 및 [RequestIds](../backend/src/main/java/com/negopilot/backend/common/api/RequestIds.java) |
 | `common.http` | 내부 API의 HTTP 전송. [AgentHttpTransport](../backend/src/main/java/com/negopilot/backend/common/http/AgentHttpTransport.java) |
-| `legacy` | `legacy-test`에서 사용하는 메모리 대화. [GenerationController](../backend/src/main/java/com/negopilot/backend/legacy/GenerationController.java)와 [SupplierChatController](../backend/src/main/java/com/negopilot/backend/legacy/SupplierChatController.java) |
 
 v2 직접 질의 경로인 `/api/v2/agent/queries`는 일반 실행에서 `PersistentConversationController`가 받는다. 이 경로는 회원 권한을 확인한 뒤 `GenerationGateway`로 전달하며 대화 이력을 저장하지 않는다. 대화에 메시지를 추가하는 경로는 대화 서비스를 거친다.
 
@@ -55,15 +54,11 @@ v2 직접 질의 경로인 `/api/v2/agent/queries`는 일반 실행에서 `Persi
 
 `AgentHttpTransport`는 설정된 내부 키와 요청 본문을 전송한다. 허용된 상태 코드와 JSON 미디어 타입을 확인하고 응답 본문을 읽는다. 연결 실패는 503으로 변환한다. 시간 초과는 504로 변환한다. 잘못된 응답은 502로 변환한다.
 
-각 Gateway는 성공 응답의 검증과 해당 API의 오류 계약을 유지한다. `request_id`의 null 허용 범위와 상태 코드 및 `retryable` 규칙은 Gateway마다 다르다. [AgentResponseSanitizer](../backend/src/main/java/com/negopilot/backend/agent/AgentResponseSanitizer.java)는 검증된 응답을 복사한 뒤 내부 진단 문구를 공개용 문구로 바꾼다. v1과 v2의 오류 문구 차이는 호출 인자로 전달한다.
+각 Gateway는 성공 응답의 검증과 해당 API의 오류 계약을 유지한다. `request_id`의 null 허용 범위와 상태 코드 및 `retryable` 규칙은 Gateway마다 다르다. [AgentResponseSanitizer](../backend/src/main/java/com/negopilot/backend/agent/AgentResponseSanitizer.java)는 검증된 응답을 복사한 뒤 내부 진단 문구를 공개용 문구로 바꾼다. 분해와 Routing 결과의 형태는 [DecompositionRoutingValidator](../backend/src/main/java/com/negopilot/backend/agent/DecompositionRoutingValidator.java)가 검사하고, Generation 응답의 봉투와 상태는 `GenerationResponseValidator`가 검사한다.
 
-실제 공급사 조회는 `SupplierLookupController`에서 [SupplierLookupGateway](../backend/src/main/java/com/negopilot/backend/supplier/SupplierLookupGateway.java)를 거쳐 `/internal/v2`로 전달된다. 응답은 `SupplierLookupResponseValidator`가 검사한다. [SupplierGatewayClient](../backend/src/main/java/com/negopilot/backend/supplier/SupplierGatewayClient.java)는 공급사 URI 인코딩과 오류 매핑을 공유한다.
+실제 공급사 조회는 `SupplierLookupController`에서 [SupplierLookupGateway](../backend/src/main/java/com/negopilot/backend/supplier/SupplierLookupGateway.java)를 거쳐 `/internal/v2`로 전달된다. 요청 파라미터와 기업 ID는 `SupplierLookupRequestValidator`가, 응답은 `SupplierLookupResponseValidator`가 검사한다. [SupplierGatewayClient](../backend/src/main/java/com/negopilot/backend/supplier/SupplierGatewayClient.java)는 공급사 URI 인코딩과 오류 매핑을 공유한다.
 
-`SupplierChatGateway`와 `SupplierChatConfiguration`은 `legacy-test`에서만 생성된다. 이 설정이 로드하는 `fixtures/supplier-chat.json`은 레거시 응답 검증에 사용한다. 일반 실행의 실제 공급사 조회는 fixture 빈에 의존하지 않는다.
-
-## 레거시 프로필과 호환 진입점
-
-`legacy`의 두 컨트롤러와 두 서비스는 기존 메모리 대화 계약을 테스트하기 위해 남겼다. [application-legacy-test.properties](../backend/src/main/resources/application-legacy-test.properties)는 DB와 JDBC 세션 자동 구성을 끈다. 이 프로필의 보안 체인은 요청을 허용하며 CSRF를 끈다. 운영 실행에서는 `legacy-test`를 활성화하지 않는다.
+## 호환 진입점
 
 [UserIdentity](../backend/src/main/java/com/negopilot/backend/UserIdentity.java)는 루트의 `com.negopilot.backend.UserIdentity`를 유지한다. Spring Session JDBC가 저장한 principal을 다시 읽을 수 있도록 클래스 이름과 직렬화 형태를 보존한다.
 
@@ -71,7 +66,7 @@ v2 직접 질의 경로인 `/api/v2/agent/queries`는 일반 실행에서 `Persi
 
 ## 테스트 위치
 
-[테스트 소스](../backend/src/test/java/com/negopilot/backend)는 기능 패키지와 같은 구조다. HTTP 계약은 각 Gateway의 HTTP 테스트에서 확인한다. 프로필별 공급사 의존성은 `SupplierGatewayProfileTest`에서 확인한다. 회원과 대화 및 공급사 변경의 트랜잭션은 PostgreSQL 테스트에서 확인한다.
+[테스트 소스](../backend/src/test/java/com/negopilot/backend)는 기능 패키지와 같은 구조다. HTTP 계약은 각 Gateway의 HTTP 테스트에서 확인한다. `SupplierLookupLiveHttpTest`와 `GenerationHttpIntegrationTest`는 [HttpSliceTestConfiguration](../backend/src/test/java/com/negopilot/backend/support/HttpSliceTestConfiguration.java)으로 DB와 회원 보안 없이 필요한 컨트롤러만 띄운다. 인증과 권한은 PostgreSQL 회원 테스트에서 확인한다. 회원과 대화 및 공급사 변경의 트랜잭션은 PostgreSQL 테스트에서 확인한다.
 
 DB 테스트에는 전용 임시 DB의 `TEST_DATABASE_URL`과 `TEST_DATABASE_USER` 및 `TEST_DATABASE_PASSWORD`를 설정한다. 운영 DB나 공유 서비스 DB를 사용하지 않는다. [CI](../.github/workflows/ci.yml)는 필수 PostgreSQL suite가 실제로 실행됐는지 확인하며 테스트 건너뜀을 성공으로 취급하지 않는다.
 

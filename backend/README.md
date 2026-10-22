@@ -58,7 +58,7 @@ java -jar backend/target/negopilot-backend-0.1.0-SNAPSHOT.jar
 
 [Python 실행 안내](../agent/README.md)에 따라 내부 API를 실행한다. 모델 없이 연결을 확인할 때는 Spring과 Python 모두 `AGENT_EXECUTION_MODE=stub`를 명시한다. stub에서도 회원과 세션 및 대화 저장을 위한 애플리케이션 PostgreSQL DB는 필요하다. 실제 모델을 연결할 때는 두 서버에 `live`를 설정하고 Python의 모델 공급자를 지정한다. 실패한 live 실행을 stub으로 대체하지 않는다.
 
-협력사 조회 v2는 위 채팅 모드와 관계없이 business-mcp를 조회한다. 모델을 호출하지 않으며 성공 응답은 `schema_version: "0.3"`과 `mode: "live"`다. 채팅이 stub이어도 v2 조회에는 Python과 business-mcp 및 business DB 연결이 필요하다. `/suppliers` 화면도 이 API로 검색과 상세를 조회한다. v1 조회는 `legacy-test` 프로필의 기존 stub 계약으로 유지한다.
+협력사 조회 v2는 위 채팅 모드와 관계없이 business-mcp를 조회한다. 모델을 호출하지 않으며 성공 응답은 `schema_version: "0.3"`과 `mode: "live"`다. 채팅이 stub이어도 v2 조회에는 Python과 business-mcp 및 business DB 연결이 필요하다. `/suppliers` 화면도 이 API로 검색과 상세를 조회한다. v1 조회와 메모리 대화 API는 #130에서 제거됐다.
 
 법령 조회에는 law-mcp가 필요하다. 법령 최신화에는 law-mcp의 `LAW_RUNTIME_DIR`과 별도 `LAW_ADMIN_API_KEY`가 필요하다. Python에도 같은 법령 관리 키와 `LAW_MCP_URL`을 설정한다. [법령 서버 실행 안내](../mcp-servers/law-mcp/README.md)를 따른다.
 
@@ -99,7 +99,7 @@ Vite는 `/api`와 `/health`를 위 Spring 주소로 전달한다. 로컬 HTTP �
 mvn -f backend/pom.xml -B -ntp test
 ```
 
-일반 검사에는 HTTP 스텁과 단위 테스트가 포함된다. 실제 DB 테스트는 `TEST_DATABASE_URL`과 `TEST_DATABASE_USER` 및 `TEST_DATABASE_PASSWORD`를 지정해야 실행된다. TEST_DATABASE_URL은 폐기 가능한 테스트 DB여야 한다. 전체 DB 검사는 DB명 `business_test`를 사용한다. 회원과 이력 테스트는 앱 테이블을 초기화한다. 협력사 테스트는 독립 스키마를 만들고 제거한다.
+일반 검사에는 HTTP 스텁과 단위 테스트가 포함된다. HTTP 스텁 테스트는 DB와 회원 보안 없이 필요한 컨트롤러만 띄우므로 DB 설정 없이도 실행된다. 실제 DB 테스트는 `TEST_DATABASE_URL`과 `TEST_DATABASE_USER` 및 `TEST_DATABASE_PASSWORD`를 지정해야 실행된다. TEST_DATABASE_URL은 폐기 가능한 테스트 DB여야 한다. 전체 DB 검사는 DB명 `business_test`를 사용한다. 회원과 이력 테스트는 앱 테이블을 초기화한다. 협력사 테스트는 독립 스키마를 만들고 제거한다.
 
 ```bash
 TEST_DATABASE_URL='jdbc:postgresql://127.0.0.1:5432/business_test' \
@@ -108,4 +108,3 @@ TEST_DATABASE_PASSWORD="$TEST_DB_PASSWORD" \
 mvn -f backend/pom.xml -B -ntp test
 ```
 
-기존 메모리 대화와 fixture API는 `legacy-test` 프로필에서만 등록된다. 이 프로필은 과거 계약의 회귀 테스트용이며 인증을 적용하지 않는다. 일반 실행에는 사용하지 않는다. 기본 실행의 회원 인증과 DB 저장 계약이 현재 공개 API다.
