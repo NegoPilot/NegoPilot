@@ -36,6 +36,11 @@ MONEY_UNIT_RE = re.compile(MONEY_UNIT)
 NON_MONEY_WITH_UNIT_RE = re.compile(r"(?<![\w.])(-?\d[\d,]*(?:\.\d+)?)\s*(일|%|퍼센트|개|곳|ppm|배)")
 NUMBER_RE = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
 ARTICLE_RE = re.compile(r"제\s*\d+\s*조(?:\s*의\s*\d+)?")
+# 조 + 항: "제13조 제1항", "제13조제1항", "제13조 1항", "제13조①". 원문자는 ①~⑳, ㉑~㉟, ㊱~㊿
+CIRCLED = "\u2460-\u2473\u3251-\u325f\u32b1-\u32bf"
+ARTICLE_PARAGRAPH_RE = re.compile(
+    rf"(제\s*\d+\s*조(?:\s*의\s*\d+)?)\s*(?:제\s*(\d+)\s*항|(\d+)\s*항|([{CIRCLED}]))")
+PARAGRAPH_LINE_RE = re.compile(rf"^\s*([{CIRCLED}])", re.MULTILINE)
 # business-mcp의 구조화된 금액 단위. 다른 숫자(연도/비율 등)는 금액 근거가 아니다.
 # Evidence는 길이 제한으로 JSON 끝이 잘릴 수 있어 완성된 숫자 필드만 읽는다.
 MONEY_FIELDS = {
@@ -120,6 +125,42 @@ def normalize_article(a: str) -> str:
     return re.sub(r"\s+", "", a)
 
 
+def paragraph_number(mark: str) -> int | None:
+    """원문자 항 표시(①, ⑱, ㉑ …)를 숫자로. 원문자가 아니면 None."""
+    code = ord(mark)
+    for start, first in ((0x2460, 1), (0x3251, 21), (0x32B1, 36)):
+        if start <= code < start + {0x2460: 20, 0x3251: 15, 0x32B1: 15}[start]:
+            return first + code - start
+    return None
+
+
+def cited_paragraph(match: re.Match) -> tuple[str, int]:
+    """ARTICLE_PARAGRAPH_RE 매치 → (정규화한 조, 항 번호)."""
+    article, written, bare, mark = match.groups()
+    return normalize_article(article), int(written or bare) if (written or bare) else paragraph_number(mark)
+
+
+def known_paragraphs(evidence: list[Evidence], allowed_texts: Iterable[str]) -> tuple[set[tuple[str, int]], set[str]]:
+    """근거에 실제로 있는 (조, 항)과, 항 정보가 하나라도 있는 조.
+
+    조문 근거는 본문의 항 줄과 생략한 항 번호(meta.omitted_paragraphs)가 그 조의 항이다.
+    검색 근거는 meta.paragraph 하나다. 인용 문구(label)나 질문에 적힌 "제13조①"도 인정한다.
+    """
+    pairs: set[tuple[str, int]] = set()
+    for e in evidence:
+        article = normalize_article(str(e.meta.get("article_no") or ""))
+        if article:
+            marks = [*PARAGRAPH_LINE_RE.findall(e.text), *(e.meta.get("omitted_paragraphs") or []),
+                     *([e.meta["paragraph"]] if isinstance(e.meta.get("paragraph"), str) else [])]
+            pairs |= {(article, n) for m in marks if isinstance(m, str) and len(m) == 1
+                      and (n := paragraph_number(m)) is not None}
+        for text in (e.label, e.text):
+            pairs |= {cited_paragraph(m) for m in ARTICLE_PARAGRAPH_RE.finditer(text)}
+    for text in allowed_texts:
+        pairs |= {cited_paragraph(m) for m in ARTICLE_PARAGRAPH_RE.finditer(text)}
+    return pairs, {article for article, _ in pairs}
+
+
 def cited_ids(text: str) -> list[str]:
     ids: list[str] = []
     for group in CITE_RE.findall(text):
@@ -148,10 +189,18 @@ def check(text: str, evidence: list[Evidence], allowed_texts: Iterable[str] = ()
                     or (unit in ("%", "퍼센트") and canon(number) in percentages))
         if not grounded:
             ungrounded_numbers.add(match.group(0))
+    ungrounded_articles = {a for a in ARTICLE_RE.findall(body) if normalize_article(a) not in articles}
+    # 조는 근거에 있어도 항이 다르면 근거 없음이다 ("제13조 제18항"). 항 정보가 없는 조는 항으로 판단하지 않는다.
+    # Spring 검증기가 verification 필드를 고정하므로 새 필드 없이 ungrounded_articles에 함께 담는다 (#160)
+    paragraphs, judged = known_paragraphs(evidence, allowed)
+    for match in ARTICLE_PARAGRAPH_RE.finditer(body):
+        article, number = cited_paragraph(match)
+        if article in judged and article in articles and (article, number) not in paragraphs:
+            ungrounded_articles.add(match.group(0))
     return VerificationReport(
         unknown_citations=[i for i in cited_ids(text) if i not in ids],
         ungrounded_numbers=sorted(ungrounded_numbers),
-        ungrounded_articles=sorted({a for a in ARTICLE_RE.findall(body) if normalize_article(a) not in articles}),
+        ungrounded_articles=sorted(ungrounded_articles),
     )
 
 
@@ -164,7 +213,8 @@ def feedback(report: VerificationReport) -> str:
         lines.append(f"- 근거·질문에 없는 숫자 또는 금액 단위: {', '.join(report.ungrounded_numbers)}")
         lines.append("  금액은 근거의 값과 단위를 그대로 써라. 원을 만원·억원·조원으로 환산하거나 반올림하지 마라.")
     if report.ungrounded_articles:
-        lines.append(f"- 근거에 없는 조문 번호: {', '.join(report.ungrounded_articles)}")
+        lines.append(f"- 근거에 없는 조문·항 번호: {', '.join(report.ungrounded_articles)}")
+        lines.append("  항 번호는 근거 조문에 실제로 있는 항만 써라. 다른 조의 항을 붙이지 마라.")
     return "\n".join(lines)
 
 
@@ -181,7 +231,8 @@ def mask(text: str, report: VerificationReport) -> str:
     # '0일'까지 바꿔 '6[확인 필요]'처럼 맞는 값을 깨뜨린다.
     numbers, articles = set(report.ungrounded_numbers), set(report.ungrounded_articles)
     spans = sorted({m.span() for m in number_tokens(text) if m.group(0) in numbers}
-                   | {m.span() for m in ARTICLE_RE.finditer(text) if m.group(0) in articles})
+                   | {m.span() for m in ARTICLE_RE.finditer(text) if m.group(0) in articles}
+                   | {m.span() for m in ARTICLE_PARAGRAPH_RE.finditer(text) if m.group(0) in articles})
     out, pos = [], 0
     for start, end in spans:
         if start < pos:          # 겹치는 토큰은 앞에서 이미 가렸다
