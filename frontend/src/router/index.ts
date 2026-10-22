@@ -16,7 +16,7 @@ declare module 'vue-router' {
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: { name: 'chat' } },
+    { path: '/', redirect: { name: 'home' } },
     {
       // AI 대화는 별도 화면 없이 오른쪽 패널로 연다. 예전 대화 링크와 홈 질문은 홈 위에 패널을 띄운다
       path: '/chat/:conversationId?',
@@ -134,13 +134,13 @@ export const router = createRouter({
 router.beforeEach(async (to) => {
   await ensureSession()
   if (to.meta.layout === 'public') {
-    if (session.value?.status === 'ACTIVE' && ['login', 'signup', 'signup-pending'].includes(String(to.name))) return { name: 'chat' }
+    if (session.value?.status === 'ACTIVE' && ['login', 'signup', 'signup-pending'].includes(String(to.name))) return { name: 'home' }
     if (session.value?.status === 'PENDING' && to.name !== 'signup-pending') return { name: 'signup-pending' }
     return true
   }
   if (!session.value) return { name: 'login', query: { redirect: to.fullPath } }
   if (session.value.status === 'PENDING') return { name: 'signup-pending' }
-  if (to.meta.layout === 'admin' && session.value.role !== 'ADMIN') return { name: 'chat' }
+  if (to.meta.layout === 'admin' && session.value.role !== 'ADMIN') return { name: 'home' }
   return true
 })
 

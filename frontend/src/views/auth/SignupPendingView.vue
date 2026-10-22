@@ -13,7 +13,7 @@ const notice = ref<string | null>(null)
 async function checkApproval() {
   busy.value = true
   const current = await refreshSession()
-  if (current?.status === 'ACTIVE') await router.push({ name: 'chat' })
+  if (current?.status === 'ACTIVE') await router.push({ name: 'home' })
   else notice.value = sessionError.value ? describeError(sessionError.value).message : current ? '아직 관리자 승인 대기 중입니다.' : '로그인 후 승인 상태를 확인해 주세요.'
   busy.value = false
 }
