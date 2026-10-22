@@ -139,64 +139,27 @@ async def test_offer_check_passes_entities_as_args():
                                 "payment_days": 75, "price_linkage": False})
 
 
-@pytest.mark.parametrize("energy_ratio", [0.0, 0.2])
-async def test_offer_check_forwards_energy_ratio_and_contract_date(energy_ratio):
+async def test_offer_check_passes_energy_ratio_and_contract_date():
+    """check_offer v2의 새 인자를 그대로 넘기고, 근거 조문은 계약 시점의 시행판으로 조회한다 (#129)."""
+    d = fixture("05_offer_check")
+    d.sub_queries[0].entities.energy_ratio = 0.15
+    d.sub_queries[0].entities.as_of = "2026-12-01"
     caller = FakeCaller()
-    decomposition = make([{
-        "id": "q1", "intent": "offer_check",
-        "entities": {"supplier": "SUP-0003", "rfq_id": "RFQ-2026-001", "unit_price": 12000,
-                     "payment_days": 75, "price_linkage": False, "raw_material_ratio": 0.4,
-                     "energy_ratio": energy_ratio, "as_of": "2026-08-10"},
-    }])
-    outcome = (await Router(caller).route(decomposition)).outcome("q1")
-    assert outcome.status == "ok"
-    assert outcome.calls[0].args["energy_ratio"] == energy_ratio
-    assert outcome.calls[0].args["raw_material_ratio"] == 0.4
-    assert outcome.calls[0].args["as_of"] == "2026-08-10"
-    # 이전 MCP 응답에 basis가 없어도 요청한 계약일로 조문을 조회한다.
-    assert all(call.args["as_of"] == "2026-08-10" for call in outcome.referenced_articles)
+    offer = (await Router(caller).route(d)).outcomes[0]
+    assert caller.calls[0][2] | {} == {"supplier": "SUP-0003", "rfq_id": "RFQ-2026-001", "unit_price": 12000,
+                                       "payment_days": 75, "price_linkage": False,
+                                       "energy_ratio": 0.15, "as_of": "2026-12-01"}
+    assert [c.args for c in offer.referenced_articles] == [
+        {"law": "subcontract_act", "article_no": "제13조", "as_of": "2026-12-01"},
+        {"law": "subcontract_act", "article_no": "제3조", "as_of": "2026-12-01"}]
 
 
-@pytest.mark.parametrize("requested_day", [None, "2026-08-10"])
-async def test_offer_references_use_the_actual_mcp_basis_date(requested_day):
-    caller = FakeCaller({"check_offer": {
-        "schema_version": "2", "basis": {"as_of": "2026-08-11"},
-        "law_refs": [{"law": "subcontract_act", "article_no": "제2조", "paragraph": "⑰"}],
-    }})
-    entities = {"supplier": "SUP-0003", "rfq_id": "RFQ-2026-001", "unit_price": 12000,
-                "payment_days": 45, "price_linkage": False}
-    if requested_day is not None:
-        entities["as_of"] = requested_day
-    outcome = (await Router(caller).route(make([
-        {"id": "q1", "intent": "offer_check", "entities": entities}]))).outcome("q1")
-    assert outcome.referenced_articles[0].args == {
-        "law": "subcontract_act", "article_no": "제2조", "as_of": "2026-08-11"}
-    assert outcome.calls[0].result["law_refs"][0]["paragraph"] == "⑰"
-
-
-@pytest.mark.parametrize("basis", [None, {}, {"as_of": None}, {"as_of": "2026-02-30"},
-                                    {"as_of": "20260811"}, {"as_of": ["2026-08-11"]}])
-async def test_offer_references_fall_back_to_requested_date_for_invalid_basis(basis):
-    caller = FakeCaller({"check_offer": {
-        "basis": basis, "law_refs": [{"law": "subcontract_act", "article_no": "제13조"}],
-    }})
-    entities = {"supplier": "SUP-0003", "rfq_id": "RFQ-2026-001", "unit_price": 12000,
-                "payment_days": 75, "price_linkage": False, "as_of": "2026-08-10"}
-    outcome = (await Router(caller).route(make([
-        {"id": "q1", "intent": "offer_check", "entities": entities}]))).outcome("q1")
-    assert outcome.status == "ok"
-    assert outcome.referenced_articles[0].args["as_of"] == "2026-08-10"
-
-
-async def test_references_deduplicate_within_the_same_date_but_keep_other_versions():
-    ref = {"law": "subcontract_act", "article_no": "제2조"}
-    checks = [ToolCall(server="business-mcp", tool="check_offer", args={}, result={
-        "basis": {"as_of": day}, "law_refs": [ref | {"paragraph": "⑯"}, ref | {"paragraph": "⑰"}],
-    }) for day in ("2026-08-10", "2026-08-11", "2026-08-10")]
-    caller = FakeCaller()
-    articles = await Router(caller)._referenced_articles(checks)
-    assert [call.args for call in articles] == [
-        ref | {"as_of": "2026-08-10"}, ref | {"as_of": "2026-08-11"}]
+async def test_same_article_cited_by_several_paragraphs_is_fetched_once():
+    """v2 law_refs는 (조문, 항)마다 나온다. 조문 전문은 한 번만 가져온다."""
+    refs = [{"law": "subcontract_act", "article_no": "제2조", "paragraph": p} for p in ("⑯", "⑰")]
+    caller = FakeCaller({"check_offer": {"verdict": "확인 필요", "violations": [], "law_refs": refs}})
+    offer = (await Router(caller).route(fixture("05_offer_check"))).outcomes[0]
+    assert [c.args["article_no"] for c in offer.referenced_articles] == ["제2조"]
 
 
 async def test_law_refs_are_prefetched():
@@ -204,11 +167,9 @@ async def test_law_refs_are_prefetched():
     offer = (await Router(caller).route(fixture("05_offer_check"))).outcomes[0]
     assert [c.args["article_no"] for c in offer.referenced_articles] == ["제13조", "제3조"]
     assert all(c.tool == "get_article" and c.server == "law-mcp" for c in offer.referenced_articles)
-    assert all("as_of" not in c.args for c in offer.referenced_articles)
     # 순위의 flags에 붙은 조문도 가져오고, 조문 조회는 inputs 값 꺼내기에 섞이지 않는다
     ranking = (await Router(caller).route(fixture("03_rank_then_law"))).outcome("q1")
     assert [c.args["article_no"] for c in ranking.referenced_articles] == ["제13조"]
-    assert all("as_of" not in c.args for c in ranking.referenced_articles)
     assert [c.tool for c in ranking.calls] == ["rank_suppliers"]
 
 

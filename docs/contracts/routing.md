@@ -26,7 +26,7 @@ for sq in decomposition.sub_queries:
 | 3 | 일부만 성공 | **된 부분은 답하고, 안 된 부분만 밝힌다.** 되묻기·안내는 답변 끝에 모은다 |
 | 4 | 도구 결과 | `calls[].result`는 **MCP 도구 반환값 그대로**. 프롬프트가 너무 길어지면 Routing이 intent별로 필드를 추리는 방식으로 바꾼다 |
 | 5 | 법 근거 인용 | `search_regulation` 결과는 항 단위 citation을 인용한다. 해당 항에 없는 설명은 출처와 본문을 확인한 `get_article` 조문 전문을 인용할 수 있다 |
-| 6 | 결과에 붙은 조문 | `rank_suppliers`(flags)·`check_offer`의 `law_refs`는 **Routing이 `get_article`로 미리 조회**해 `referenced_articles`에 넣는다 (최대 5개) |
+| 6 | 결과에 붙은 조문 | `rank_suppliers`(flags)·`check_offer`의 `law_refs`는 **Routing이 `get_article`로 미리 조회**해 `referenced_articles`에 넣는다 (최대 5개). `check_offer`에 `as_of`를 넘겼으면 같은 날 시행판을 조회하고, 같은 조문은 항이 달라도 한 번만 조회한다. `law_refs[].paragraph`로 지목된 항은 Generation이 근거에 먼저 넣는다 |
 | 7 | 사용자 문구 | 사용자에게 보일 문장은 **Generation이 쓴다.** `message`·`halt_reason`·`error`는 개발·로그용이라 그대로 보여 주지 않는다 |
 | 8 | 형식 버전 | `schema_version` 필드. 형식 변경은 PR + Routing·Generation 담당 승인 |
 
@@ -106,8 +106,6 @@ for sq in decomposition.sub_queries:
 `law_check`의 검색이 성공하면 후속 `get_article` 일부가 실패해도 성공한 검색 근거를 유지한다. outcome은 `ok`이며 실패한 호출에는 정제된 error가 남는다. Generation이 전문 조회 실패를 안내한다. 성공한 전문 조회에 비어 있지 않은 citation과 본문 및 호스트가 있는 HTTP(S) source_url이 있으면 전체 조문을 인용할 수 있다. 이 출처 조건을 충족하지 못한 참고 근거는 `citable=False`로 유지한다. 도구 전체 실패는 사용자 정보 부족으로 처리하지 않는다.
 
 `supplier_detail`의 여러 상세 호출 중 유효한 결과가 하나라도 있으면 그 근거로 답하고 실패한 상세를 안내한다. 유효한 상세가 전혀 없으면 `error`다. 기업명 확인에만 사용한 `find_suppliers`는 상세 근거와 후속 inputs 추출에서 제외한다.
-
-`offer_check`는 `energy_ratio`와 `as_of`를 `check_offer`에 전달한다. 근거 조문 조회의 기준일은 유효한 `result.basis.as_of`를 우선 사용한다. 이전 응답에 기준일이 없으면 `args.as_of`를 사용하며 둘 다 없으면 기존 조회 방식을 유지한다. `law_refs`는 법령과 조문 및 기준일 조합으로 중복을 제거한다. 항이 다른 같은 조문은 한 번 조회하고 기준일이 다른 조문은 각각 조회한다. 최대 5개 조회 제한은 유지한다.
 
 자세한 질문 예시와 HTTP 사용법은 [직접 질문 계약](direct-chat.md)에 있다.
 

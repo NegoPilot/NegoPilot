@@ -47,7 +47,7 @@ MONEY_FIELD_RE = re.compile(
     r'"(' + "|".join(MONEY_FIELDS) + r')"\s*:\s*(-?\d+(?:\.\d+)?)(?=\s*[,}\]])')
 # business-mcp의 비율 필드. 화면에서는 100을 곱해 %로 쓰는 게 자연스럽다 (부채비율 1.85 → 185%).
 # 0~1 비율은 아래 일반 규칙으로도 잡히지만, 부채비율처럼 1을 넘거나 반올림해 쓰는 경우는 필드로 읽어야 한다.
-RATIO_FIELDS = ("debt_ratio", "operating_margin", "on_time_rate", "raw_material_ratio")
+RATIO_FIELDS = ("debt_ratio", "operating_margin", "on_time_rate", "raw_material_ratio", "energy_ratio")
 RATIO_FIELD_RE = re.compile(
     r'"(' + "|".join(RATIO_FIELDS) + r')"\s*:\s*(-?\d+(?:\.\d+)?)(?=\s*[,}\]])')
 MASK = "[확인 필요]"

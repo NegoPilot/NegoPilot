@@ -103,7 +103,7 @@ class QueryDecomposer:
             # original_query는 사용자 원문이어야 한다. 모델이 다듬었으면 원문으로 되돌린다
             if result.original_query != query:
                 result = result.model_copy(update={"original_query": query})
-            return apply_named_law(drop_unused_dependencies(result))
+            return apply_named_law(drop_unused_dependencies(drop_invented_ids(result, query, history, context)))
         return failed_result(query)
 
 
@@ -307,6 +307,43 @@ def named_law(text: str) -> str | None:
         if pattern.search(text) and not any(f.split("_")[0] == family for f in found):
             found.append(key)
     return found[0] if len(found) == 1 else None
+
+
+_SUPPLIER_ID = re.compile(r"SUP-?0*(\d+)", re.IGNORECASE)
+_RFQ_ID = re.compile(r"RFQ-?(\d{4})-?(\d{3})", re.IGNORECASE)
+
+
+def drop_invented_ids(result: DecompositionResult, query: str, history: list[dict] | None = None,
+                      context: dict[str, list[str]] | None = None) -> DecompositionResult:
+    """질문·대화 이력·선택 기업 어디에도 없는 협력사 ID와 RFQ 번호를 엔티티에서 지운다 (#143).
+
+    모델이 "우리 협력사는 SUP-0001로 가정"처럼 대상을 지어내면, 사용자가 말하지 않은 협력사로 검사하고 답한다.
+    값은 질문에 있는 표기와 숫자로 비교한다 (SUP-1과 SUP-0001은 같다). 지운 값을 말하는 가정도 함께 지운다.
+    값이 비면 Routing이 missing_args로 되묻는다. 앞 결과에서 받는 값(inputs)은 엔티티가 아니라서 건드리지 않는다.
+    회사 이름은 표기가 다양해 비교하지 않는다.
+    """
+    seen = "\n".join([query, *(str(m.get("content", "")) for m in history or [] if isinstance(m, dict)),
+                      *(str(i) for i in (context or {}).get("selected_supplier_ids", []))])
+    suppliers = {int(n) for n in _SUPPLIER_ID.findall(seen)}
+    rfqs = set(_RFQ_ID.findall(seen))
+    dropped: list[str] = []
+    sub_queries = []
+    for sq in result.sub_queries:
+        update = {}
+        supplier = sq.entities.supplier
+        if supplier and (m := _SUPPLIER_ID.fullmatch(supplier.strip())) and int(m.group(1)) not in suppliers:
+            update["supplier"] = None
+        if sq.entities.rfq_id and (m := _RFQ_ID.fullmatch(sq.entities.rfq_id)) and m.groups() not in rfqs:
+            update["rfq_id"] = None
+        if update:
+            dropped += [getattr(sq.entities, k) for k in update]
+            log.info("%s의 질문에 없는 값 제거: %s", sq.id, {k: getattr(sq.entities, k) for k in update})
+            sq = sq.model_copy(update={"entities": sq.entities.model_copy(update=update)})
+        sub_queries.append(sq)
+    if not dropped:
+        return result
+    assumptions = [a for a in result.assumptions if not any(v in a for v in dropped)]
+    return result.model_copy(update={"sub_queries": sub_queries, "assumptions": assumptions})
 
 
 def apply_named_law(result: DecompositionResult) -> DecompositionResult:

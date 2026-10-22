@@ -32,6 +32,7 @@ def evidence(text: str) -> list[Evidence]:
     ('{"operating_margin":-1.25}', "영업이익률은 -125%입니다. [E1]"),
     ('{"on_time_rate":0.975}', "납기 준수율은 97.5%입니다. [E1]"),
     ('{"raw_material_ratio":0.4321}', "원재료 비중은 43%입니다. [E1]"),
+    ('{"energy_ratio":0.12}', "에너지 비용 비중은 12%입니다. [E1]"),          # check_offer v2 offer.energy_ratio
 ])
 def test_ratio_fields_can_be_written_as_percent(source, answer):
     report = verify.check(answer, evidence(source))
