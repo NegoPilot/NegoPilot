@@ -10,6 +10,7 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
+import server
 from server import mcp
 
 
@@ -91,6 +92,51 @@ def test_article_resource():
             return await client.read_resource("law://subcontract_act/제4조")
     contents = run(go())
     assert "부당한 하도급대금의 결정 금지" in contents[0].text
+
+
+def test_glossary_prefers_longer_wording():
+    # '1차 협력사' 안의 '협력사'로 수급사업자가 함께 붙지 않는다
+    assert server.expand_query("1차 협력사 의무") == "1차 협력사 의무 원사업자"
+    assert server.expand_query("2차협력사") == "2차협력사 수급사업자"
+    # '납품단가' 안의 '단가'는 다시 쓰지 않는다
+    assert server.expand_query("납품단가") == "납품단가 하도급대금 납품대금"
+
+
+def test_glossary_keeps_question_order_and_drops_duplicates():
+    expanded = server.expand_query("1차 협력사가 2차 협력사에 단가 인하 요구")
+    assert expanded.endswith(" 원사업자 수급사업자 하도급대금 단가 인하 하도급대금의 결정")
+    assert server.expand_query("하청 협력사") == "하청 협력사 수급사업자 하도급 수급사업자"
+    assert server.expand_query("관련 없는 질문") == "관련 없는 질문"
+
+
+def test_search_cache_is_keyed_by_version_in_force():
+    server._search_cache.clear()
+    keys = ("subcontract_act",)
+    first = server.search_units(keys, "2026-10-20", False)
+    # 같은 시행판이면 기준일이 달라도 색인을 다시 만들지 않는다
+    assert server.search_units(keys, "2026-10-21", False) is first
+    assert len(server._search_cache) == 1
+
+
+def test_search_cache_evicts_least_recently_used(monkeypatch):
+    monkeypatch.setattr(server, "SEARCH_CACHE_SIZE", 2)
+    server._search_cache.clear()
+    a = server.search_units(("subcontract_act",), "2026-10-20", False)
+    server.search_units(("winwin_act",), "2026-10-20", False)
+    assert server.search_units(("subcontract_act",), "2026-10-20", False) is a   # a를 최근 사용으로 올림
+    server.search_units(("sme_act",), "2026-10-20", False)                       # winwin_act가 밀려남
+    assert len(server._search_cache) == 2
+    assert [k[0] for k in server._search_cache] == [("subcontract_act",), ("sme_act",)]
+    server._search_cache.clear()
+
+
+def test_admin_tool_descriptions_are_korean():
+    async def go():
+        async with Client(mcp) as client:
+            return {t.name: t.description for t in await client.list_tools() if t.name.startswith("admin_law_")}
+    descriptions = run(go())
+    assert len(descriptions) == 4
+    assert all(d.startswith("관리자 화면용") for d in descriptions.values())
 
 
 def test_business_wording_is_mapped_to_legal_terms():
