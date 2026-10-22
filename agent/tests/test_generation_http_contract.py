@@ -451,6 +451,29 @@ async def test_routing_error_uses_final_answer_status_and_safe_generator_input(m
     assert len(harness.answer_backend.requests) == (1 if partial else 0)
 
 
+@pytest.mark.parametrize("code", ["RFQ_NOT_FOUND", "SUPPLIER_NOT_FOUND", "SUPPLIER_AMBIGUOUS",
+                                 "VALUE_OUT_OF_RANGE", "DB_UNAVAILABLE", "INTERNAL"])
+async def test_only_public_tool_error_codes_reach_http_response(monkeypatch, caplog, code):
+    class FailingCaller(SupplierCaller):
+        async def __call__(self, server, tool, args):
+            raise RuntimeError(f"[{code}] {PRIVATE} {API_KEY}")
+
+    harness = Harness(monkeypatch, decomposition(supplier_part()), FailingCaller())
+    body = payload()
+    data = assert_wire(await post(harness.app, body))
+    harness.assert_completed_graph(data, body)
+    assert data["execution_status"] == "COMPLETED"
+    assert data["answer"]["kind"] == "no_result"
+    call = data["routing"]["outcomes"][0]["calls"][0]
+    assert call["error"] == "Tool execution failed."
+    if code in {"DB_UNAVAILABLE", "INTERNAL"}:
+        assert "error_code" not in call
+        assert code not in json.dumps(data)
+    else:
+        assert call["error_code"] == code
+    assert PRIVATE not in caplog.text and API_KEY not in caplog.text
+
+
 @pytest.mark.parametrize("partial", [False, True])
 async def test_missing_args_is_clarify_only_when_no_answerable_result(monkeypatch, partial):
     parts = [{"id": "q1", "intent": "supplier_detail"}]

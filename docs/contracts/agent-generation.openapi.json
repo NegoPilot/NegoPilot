@@ -648,6 +648,20 @@
               }
             ],
             "description": "Null or a safe fixed error message at the HTTP boundary. Both calls and referenced_articles are sanitized in the public response copy after upstream validation."
+          },
+          "error_code": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "RFQ_NOT_FOUND",
+              "SUPPLIER_NOT_FOUND",
+              "SUPPLIER_AMBIGUOUS",
+              "VALUE_OUT_OF_RANGE",
+              null
+            ],
+            "description": "Optional public tool error code. Unset codes are omitted. Internal codes and diagnostic text are never exposed."
           }
         },
         "required": [
@@ -658,7 +672,28 @@
           "error"
         ],
         "additionalProperties": false,
-        "description": "Serialized shared ToolCall. result retains the original tool payload. HTTP error text must be sanitized in both calls and referenced_articles."
+        "description": "Serialized shared ToolCall. result retains the original tool payload. HTTP error text must be sanitized in both calls and referenced_articles.",
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "error_code"
+              ],
+              "properties": {
+                "error_code": {
+                  "type": "string"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ]
       },
       "SubQueryOutcome": {
         "type": "object",

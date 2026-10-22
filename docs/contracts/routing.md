@@ -68,6 +68,8 @@ for sq in decomposition.sub_queries:
 | `referenced_articles` | 결과의 `law_refs`를 미리 조회한 `get_article`. 조회가 실패해도 하위 질문은 `ok`이고 그 항목의 `error`만 채워진다 |
 | `missing` | `missing_args`일 때 확정되지 않은 엔티티 이름. 기업명 후보가 여러 곳이면 `supplier`이며 `calls`에 후보 조회 결과가 남는다 |
 
+`ToolCall.error_code`는 선택 필드입니다. 공개 코드 `RFQ_NOT_FOUND`와 `SUPPLIER_NOT_FOUND` 및 `SUPPLIER_AMBIGUOUS`와 `VALUE_OUT_OF_RANGE`만 전달합니다. 코드가 없으면 Agent는 필드를 생략하며 Spring은 생략과 명시적인 `null`을 모두 받습니다. 코드 값은 `error`가 있는 실패 호출에만 넣습니다. `DB_UNAVAILABLE`과 알 수 없는 코드는 공개하지 않습니다. 기존 5개 필드로 저장된 응답과 fixtures도 계속 유효합니다. 오류 원문은 `error_code` 유무와 관계없이 정제합니다.
+
 ## 3. status별 Generation 처리
 
 | status | 뜻 | Generation |
@@ -104,6 +106,8 @@ for sq in decomposition.sub_queries:
 `law_check`의 검색이 성공하면 후속 `get_article` 일부가 실패해도 성공한 검색 근거를 유지한다. outcome은 `ok`이며 실패한 호출에는 정제된 error가 남는다. Generation이 전문 조회 실패를 안내한다. 성공한 전문 조회에 비어 있지 않은 citation과 본문 및 호스트가 있는 HTTP(S) source_url이 있으면 전체 조문을 인용할 수 있다. 이 출처 조건을 충족하지 못한 참고 근거는 `citable=False`로 유지한다. 도구 전체 실패는 사용자 정보 부족으로 처리하지 않는다.
 
 `supplier_detail`의 여러 상세 호출 중 유효한 결과가 하나라도 있으면 그 근거로 답하고 실패한 상세를 안내한다. 유효한 상세가 전혀 없으면 `error`다. 기업명 확인에만 사용한 `find_suppliers`는 상세 근거와 후속 inputs 추출에서 제외한다.
+
+`offer_check`는 `energy_ratio`와 `as_of`를 `check_offer`에 전달한다. 근거 조문 조회의 기준일은 유효한 `result.basis.as_of`를 우선 사용한다. 이전 응답에 기준일이 없으면 `args.as_of`를 사용하며 둘 다 없으면 기존 조회 방식을 유지한다. `law_refs`는 법령과 조문 및 기준일 조합으로 중복을 제거한다. 항이 다른 같은 조문은 한 번 조회하고 기준일이 다른 조문은 각각 조회한다. 최대 5개 조회 제한은 유지한다.
 
 자세한 질문 예시와 HTTP 사용법은 [직접 질문 계약](direct-chat.md)에 있다.
 

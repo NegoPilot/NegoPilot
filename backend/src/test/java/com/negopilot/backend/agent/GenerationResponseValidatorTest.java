@@ -113,6 +113,45 @@ class GenerationResponseValidatorTest {
         assertEquals(contextBefore, CONTEXT);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"\"RFQ_NOT_FOUND\"", "\"SUPPLIER_NOT_FOUND\"", "\"SUPPLIER_AMBIGUOUS\"",
+            "\"VALUE_OUT_OF_RANGE\"", "null"})
+    void acceptsOptionalPublicToolErrorCodeOnCallsAndReferences(String codeJson) {
+        ObjectNode response = completed();
+        ObjectNode call = (ObjectNode) outcome(response).get("calls").get(0);
+        call.put("error", "private diagnostic").set("error_code", MAPPER.readTree(codeJson));
+        ((ArrayNode) outcome(response).get("referenced_articles")).add(call.deepCopy());
+        JsonNode before = response.deepCopy();
+        assertValid(response);
+        assertEquals(before, response);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\"DB_UNAVAILABLE\"", "\"UNKNOWN\"", "\"private diagnostic\"", "\"\"",
+            "42", "true", "{}", "[]"})
+    void rejectsNonpublicOrMalformedToolErrorCodes(String codeJson) {
+        for (boolean reference : new boolean[] {false, true}) {
+            ObjectNode response = completed();
+            ObjectNode call = (ObjectNode) outcome(response).get("calls").get(0);
+            if (reference) {
+                call = call.deepCopy();
+                ((ArrayNode) outcome(response).get("referenced_articles")).add(call);
+            }
+            call.put("error", "private diagnostic").set("error_code", MAPPER.readTree(codeJson));
+            assertInvalid(response);
+        }
+    }
+
+    @Test
+    void rejectsErrorCodeWithoutToolFailureAndUnrelatedExtraToolFields() {
+        ObjectNode response = completed();
+        ObjectNode call = (ObjectNode) outcome(response).get("calls").get(0);
+        call.put("error_code", "RFQ_NOT_FOUND");
+        assertInvalid(response);
+        call.put("error", "private diagnostic").put("unexpected", "private");
+        assertInvalid(response);
+    }
+
     @Test
     void allowsUncitedEvidenceAndNonConsecutiveCitationNumbers() {
         ObjectNode response = completed();

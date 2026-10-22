@@ -31,6 +31,7 @@ final class AgentResponseSanitizer {
 
     private static void sanitizeToolErrors(JsonNode calls) {
         for (JsonNode call : calls) {
+            // The validator allowlists error_code. Keep that code while masking the diagnostic text.
             if (!call.get("error").isNull()) {
                 ((ObjectNode) call).put("error", "Tool execution failed.");
             }

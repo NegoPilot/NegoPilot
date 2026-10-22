@@ -85,8 +85,26 @@ def test_public_error_code(message, code):
     assert public_error_code(message) == code
 
 
-def test_error_code_is_internal_only():
-    """Spring 검증기가 받지 않는 필드라 직렬화(HTTP 응답, 저장 JSON)에서 빠진다 (#129)."""
-    call = ToolCall(server="business-mcp", tool="check_offer", args={}, error="x", error_code="RFQ_NOT_FOUND")
-    assert call.error_code == "RFQ_NOT_FOUND"
-    assert "error_code" not in call.model_dump() and "error_code" not in call.model_dump_json()
+@pytest.mark.parametrize("code", ["RFQ_NOT_FOUND", "SUPPLIER_NOT_FOUND", "SUPPLIER_AMBIGUOUS", "VALUE_OUT_OF_RANGE"])
+def test_public_error_code_survives_http_and_stored_json(code):
+    call = ToolCall(server="business-mcp", tool="check_offer", args={}, error="Tool execution failed.", error_code=code)
+    assert call.model_dump()["error_code"] == code
+    assert ToolCall.model_validate_json(call.model_dump_json()) == call
+
+
+@pytest.mark.parametrize("error", [None, "Tool execution failed."])
+def test_legacy_tool_calls_keep_their_five_field_shape(error):
+    legacy = {"server": "business-mcp", "tool": "get_supplier", "args": {}, "result": None, "error": error}
+    assert ToolCall.model_validate(legacy).model_dump() == legacy
+    assert ToolCall.model_validate(legacy | {"error_code": None}).model_dump() == legacy
+
+
+@pytest.mark.parametrize("code", ["DB_UNAVAILABLE", "INTERNAL", "secret://private", "", 123, True, {}, []])
+def test_nonpublic_or_malformed_error_codes_are_rejected(code):
+    with pytest.raises(ValidationError):
+        ToolCall(server="business-mcp", tool="check_offer", args={}, error="x", error_code=code)
+
+
+def test_successful_tool_cannot_claim_an_error_code():
+    with pytest.raises(ValidationError, match="error_code"):
+        ToolCall(server="business-mcp", tool="check_offer", args={}, error_code="RFQ_NOT_FOUND")
