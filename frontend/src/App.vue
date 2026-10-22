@@ -166,7 +166,10 @@ const standalone = computed(() => route.meta.standalone === true)
   bottom: 16px;
   z-index: 50;
   display: flex;
-  width: min(420px, calc(100vw - 32px));
+  /* 대화 목록을 펼치면 패널 내용만큼 왼쪽으로 넓어진다 */
+  max-width: calc(100vw - 32px);
+  /* 그림자도 패널과 같은 모서리로 그려야 아래 모서리가 각져 보이지 않는다 */
+  border-radius: var(--radius);
   box-shadow: 0 8px 28px rgba(30, 50, 90, 0.22);
 }
 .ai-drawer :deep(.ai-panel) {
