@@ -20,18 +20,13 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from psycopg.rows import dict_row
 
+import rules
+from rules import finding, linkage_findings, payment_findings
+
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://agent:agent@localhost:5432/supplier_db")
 DEBT_RATIO_WARN = 2.0           # 부채비율 200% 초과 시 경고
 GRADE_SCORE = {"A": 1.0, "B": 0.67, "C": 0.33, "D": 0.0}
-
-# 협상안 검사 기준. 근거 조문은 law-mcp(law_key, 조문 번호)로 확인·인용한다.
-PAYMENT_DAYS_LIMIT = 60          # 하도급법 제13조①: 수령일부터 60일 이내 지급
-MAJOR_MATERIAL_RATIO = 0.10      # 하도급법 제2조⑯: 비용이 하도급대금의 10% 이상이면 주요 원재료
-LINKAGE_EXEMPT_DAYS = 90         # 하도급법 제3조④2: 거래 기간 90일 이내 (법률 상한, 시행령 값 확인)
-LINKAGE_EXEMPT_AMOUNT = 100_000_000   # 하도급법 제3조④3: 하도급대금 1억 원 이하 (법률 상한, 시행령 값 확인)
-MARKET_PRICE_FLOOR = 0.90        # 시장 중앙값의 90% 미만이면 제4조(부당한 하도급대금 결정) 위험으로 본다 (내부 기준)
-LAST_QUOTE_CUT = 0.05            # 직전 견적보다 5% 넘게 낮으면 인하 근거 확인 (내부 기준)
-SME_REVENUE_EOK = 1000           # 중소기업기본법 시행령 별표1 자동차 제조업 평균매출 기준(억 원). law-mcp 색인에 별표가 없어 확인 필요
+# 협상안 검사 기준과 법 규칙은 rules.py에 있다. 근거 조문은 law-mcp(law_key, 조문 번호)로 확인·인용한다.
 
 PROCESSES = ["다이캐스팅", "프레스", "사출", "단조", "CNC가공"]   # schema.sql의 CHECK와 같다
 
@@ -172,53 +167,6 @@ def get_rfq(rfq_id: str) -> dict:
         ids = [r["rfq_id"] for r in query("SELECT rfq_id FROM rfqs ORDER BY rfq_id")]
         raise ToolError(f"RFQ '{rfq_id}'가 없다. 사용 가능: {', '.join(ids)}")
     return rfq[0]
-
-
-def finding(code: str, severity: str, message: str, *refs: tuple[str, str]) -> dict:
-    """검사 결과 한 건. law_refs는 law-mcp get_article(law, article_no)로 그대로 넘길 수 있다."""
-    return {"code": code, "severity": severity, "message": message,
-            "law_refs": [{"law": law, "article_no": no} for law, no in refs]}
-
-
-def linkage_findings(raw_material_ratio: float | None, price_linkage: bool, contract_amount: int | None,
-                     contract_days: int | None, waived: bool = False, buyer_is_small_business: bool = False) -> list[dict]:
-    """주요 원재료 연동 약정(하도급법 제3조②3·④, 제2조⑯) 검사."""
-    if price_linkage:
-        return []
-    if raw_material_ratio is None:
-        return [finding("RAW_MATERIAL_RATIO_UNKNOWN", "warning",
-                        "원재료 비중을 몰라 연동 약정 대상인지 판단할 수 없다. 원재료 비용이 하도급대금의 10% 이상이면 "
-                        "연동 사항을 서면에 적어야 한다", ("subcontract_act", "제2조"), ("subcontract_act", "제3조"))]
-    if raw_material_ratio < MAJOR_MATERIAL_RATIO:
-        return []
-    pct = f"{raw_material_ratio * 100:.0f}%"
-    exemptions = []
-    if buyer_is_small_business:
-        exemptions.append("원사업자가 소기업")
-    if contract_days is not None and contract_days <= LINKAGE_EXEMPT_DAYS:
-        exemptions.append(f"거래 기간 {contract_days}일(90일 이내)")
-    if contract_amount is not None and contract_amount <= LINKAGE_EXEMPT_AMOUNT:
-        exemptions.append(f"하도급대금 {contract_amount:,}원(1억 원 이하)")
-    if exemptions:
-        return [finding("LINKAGE_EXEMPT", "info",
-                        f"원재료 비중 {pct}로 연동 대상이지만 예외에 해당할 수 있다: {', '.join(exemptions)}. "
-                        "기간·금액 기준은 시행령 값을 확인한다", ("subcontract_act", "제3조"))]
-    if waived:
-        return [finding("LINKAGE_WAIVED_NEEDS_WRITTEN_REASON", "warning",
-                        f"원재료 비중 {pct}로 연동 대상인데 연동하지 않기로 합의했다. 그 취지와 사유를 서면에 분명하게 "
-                        "적어야 하고, 거래상 지위를 남용해 합의를 유도하면 안 된다", ("subcontract_act", "제3조"))]
-    return [finding("LINKAGE_TERMS_MISSING", "violation",
-                    f"원재료 비중 {pct}로 주요 원재료(10% 이상)에 해당하는데 연동 약정이 없다. 연동 대상 원재료, 조정요건, "
-                    "기준 지표, 산식 등을 서면에 적어야 한다", ("subcontract_act", "제2조"), ("subcontract_act", "제3조"))]
-
-
-def payment_findings(payment_days: int) -> list[dict]:
-    if payment_days > PAYMENT_DAYS_LIMIT:
-        return [finding("PAYMENT_DAYS_OVER_60", "violation",
-                        f"지급 기한 {payment_days}일: 목적물 수령일부터 {PAYMENT_DAYS_LIMIT}일 이내로 정해야 한다 "
-                        "(대등한 지위에서 정했거나 업종 특수성이 인정되는 예외 제외). 초과 기간에는 지연이자가 붙는다",
-                        ("subcontract_act", "제13조"))]
-    return []
 
 
 def minmax(value, values, higher_is_better=True):
@@ -435,8 +383,9 @@ def rank_suppliers(rfq_id: str, w_price: float = 0.5, w_quality: float = 0.3,
             notes = []
             if c["years_dealing"] == 0:
                 notes.append("신규 후보(거래 이력 없음)")
-            if c["payment_days"] and c["payment_days"] > PAYMENT_DAYS_LIMIT:
-                notes.append(f"기존 계약 결제 {c['payment_days']}일: 하도급법 지급 기한 {PAYMENT_DAYS_LIMIT}일 초과, 점검 필요")
+            if rules.payment_days_exceeded(c["payment_days"]):
+                notes.append(f"기존 계약 결제 {c['payment_days']}일: 하도급법 지급 기한 "
+                             f"{rules.PAYMENT_DAYS_LIMIT.value}일 초과, 점검 필요")
             if c["operating_margin"] is not None and c["operating_margin"] < 0:
                 notes.append(f"{c['fin_year']}년 영업적자: 공급 안정성 확인 필요")
             if c["debt_ratio"] is not None and c["debt_ratio"] > DEBT_RATIO_WARN:
@@ -509,39 +458,9 @@ def check_offer(supplier: str, rfq_id: str, unit_price: int, payment_days: int, 
     findings += linkage_findings(ratio, price_linkage, contract_amount, contract_days,
                                  linkage_waived_by_agreement, buyer_is_small_business)
 
-    # 단가: 일반적으로 지급되는 대가보다 낮은지 (제4조①, ②5 일방적으로 낮은 단가, ②1 일률적 인하)
-    if market["median"] and unit_price < market["median"] * MARKET_PRICE_FLOOR:
-        findings.append(finding(
-            "PRICE_BELOW_MARKET", "warning",
-            f"단가 {unit_price:,}원이 같은 공정·소재 최근 견적 중앙값 {market['median']:,.0f}원({market['n']}곳)의 "
-            f"{unit_price / market['median'] * 100:.0f}%다. 일반적으로 지급되는 대가보다 낮게 정하면 부당한 하도급대금 "
-            "결정이 될 수 있으니 원가 근거와 협의 기록을 남긴다", ("subcontract_act", "제4조")))
-    if last and unit_price < last[0]["unit_price"] * (1 - LAST_QUOTE_CUT):
-        findings.append(finding(
-            "PRICE_CUT_FROM_LAST_QUOTE", "warning",
-            f"이 협력사의 직전 견적 {last[0]['unit_price']:,}원보다 {(1 - unit_price / last[0]['unit_price']) * 100:.1f}% 낮다. "
-            "정당한 사유 없는 일률적 인하나 일방적으로 낮은 단가 결정이 되지 않도록 인하 근거를 확인한다",
-            ("subcontract_act", "제4조")))
-    if unit_price > rfq["target_price"]:
-        findings.append(finding("ABOVE_TARGET_PRICE", "info",
-                                f"단가가 RFQ 목표 단가 {rfq['target_price']:,}원보다 "
-                                f"{(unit_price / rfq['target_price'] - 1) * 100:.1f}% 높다"))
-
-    # 하도급법 적용 대상(수급사업자 = 중소기업자)인지
-    if s["revenue_eok"] is None:
-        findings.append(finding("SME_STATUS_UNKNOWN", "info",
-                                "매출 정보가 없어 수급사업자(중소기업자) 해당 여부를 판단할 수 없다",
-                                ("subcontract_act", "제2조")))
-    elif s["revenue_eok"] <= SME_REVENUE_EOK:
-        findings.append(finding("SUBCONTRACT_ACT_APPLIES", "info",
-                                f"최근 매출 {s['revenue_eok']:,}억 원으로 중소기업일 가능성이 높아 하도급법상 수급사업자로 "
-                                "보고 검사했다 (중소기업 기준은 중소기업기본법 시행령 별표1로 확인)",
-                                ("subcontract_act", "제2조")))
-    else:
-        findings.append(finding("SME_STATUS_CHECK", "info",
-                                f"최근 매출 {s['revenue_eok']:,}억 원으로 중소기업이 아닐 수 있다. 수급사업자 해당 여부를 "
-                                "확인하고, 중견기업이면 지급 조항 확대 적용 대상인지 본다",
-                                ("subcontract_act", "제2조"), ("subcontract_act", "제13조")))
+    findings += rules.price_findings(unit_price, market["median"], market["n"],
+                                     last[0]["unit_price"] if last else None, rfq["target_price"])
+    findings += rules.sme_findings(s["revenue_eok"])
 
     # RFQ 요건 (법규가 아닌 거래 조건)
     if rfq["required_cert"] == "IATF16949" and not s["iatf16949"]:
