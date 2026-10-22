@@ -797,7 +797,7 @@
             "server": "law-mcp",
             "tool": "search_regulation",
             "args": {
-              "query": "원사업자가 수급사업자에게 하도급대금을 목적물 수령 후 90일에 지급하는 것의 하도급법상 허용 여부",
+              "query": "원사업자가 수급사업자에게 하도급대금을 목적물 수령 후 90일에 지급하는 것의 하도급법상 허용 여부 대금을 90일 뒤에 줘도 되는지",
               "laws": [
                 "subcontract_act"
               ]
@@ -814,7 +814,7 @@
                 "citation": "「하도급거래 공정화에 관한 법률」 제13조⑦(하도급대금의 지급 등) [시행 2026-10-02]",
                 "effective_date": "2026-10-02",
                 "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
-                "score": 43.35
+                "score": 53.07
               },
               {
                 "law_key": "subcontract_act",
@@ -827,7 +827,7 @@
                 "citation": "「하도급거래 공정화에 관한 법률」 제2조⑭(정의) [시행 2026-10-02]",
                 "effective_date": "2026-10-02",
                 "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
-                "score": 41.55
+                "score": 47.97
               },
               {
                 "law_key": "subcontract_act",
@@ -840,20 +840,7 @@
                 "citation": "「하도급거래 공정화에 관한 법률」 제13조⑧(하도급대금의 지급 등) [시행 2026-10-02]",
                 "effective_date": "2026-10-02",
                 "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
-                "score": 40.67
-              },
-              {
-                "law_key": "subcontract_act",
-                "law_name": "하도급거래 공정화에 관한 법률",
-                "type": "조문",
-                "article_no": "제13조",
-                "title": "하도급대금의 지급 등",
-                "paragraph": "④",
-                "text": "원사업자가 수급사업자에게 하도급대금을 지급할 때에는 원사업자가 발주자로부터 해당 제조등의 위탁과 관련하여 받은 현금비율 미만으로 지급하여서는 아니 된다.",
-                "citation": "「하도급거래 공정화에 관한 법률」 제13조④(하도급대금의 지급 등) [시행 2026-10-02]",
-                "effective_date": "2026-10-02",
-                "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
-                "score": 39.1
+                "score": 47.4
               },
               {
                 "law_key": "subcontract_act",
@@ -866,7 +853,20 @@
                 "citation": "「하도급거래 공정화에 관한 법률」 제13조⑥(하도급대금의 지급 등) [시행 2026-10-02]",
                 "effective_date": "2026-10-02",
                 "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
-                "score": 38.26
+                "score": 44.86
+              },
+              {
+                "law_key": "subcontract_act",
+                "law_name": "하도급거래 공정화에 관한 법률",
+                "type": "조문",
+                "article_no": "제13조",
+                "title": "하도급대금의 지급 등",
+                "paragraph": "④",
+                "text": "원사업자가 수급사업자에게 하도급대금을 지급할 때에는 원사업자가 발주자로부터 해당 제조등의 위탁과 관련하여 받은 현금비율 미만으로 지급하여서는 아니 된다.",
+                "citation": "「하도급거래 공정화에 관한 법률」 제13조④(하도급대금의 지급 등) [시행 2026-10-02]",
+                "effective_date": "2026-10-02",
+                "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률",
+                "score": 43.94
               }
             ],
             "error": null
