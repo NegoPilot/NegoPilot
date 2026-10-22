@@ -106,10 +106,17 @@ def summarize(ranks: list[int | None]) -> dict:
     return row
 
 
+def hit(rank: int | None, k: int = 5) -> bool:
+    return rank is not None and rank <= k
+
+
 def bootstrap_diff(a: list[int | None], b: list[int | None], k: int = 5, n: int = 10000) -> tuple:
     """Hit@k(b) - Hit@k(a) 의 95% 구간 (질문 단위 paired bootstrap)."""
-    ha = [r is not None and r <= k for r in a]
-    hb = [r is not None and r <= k for r in b]
+    return bootstrap_hits([hit(r, k) for r in a], [hit(r, k) for r in b], n)
+
+
+def bootstrap_hits(ha: list[float], hb: list[float], n: int = 10000) -> tuple:
+    """질문별 적중(0~1) 평균 차이 mean(hb) - mean(ha) 의 95% 구간."""
     rnd = random.Random(0)
     m = len(ha)
     diffs = sorted(sum(hb[j] - ha[j] for j in idx) / m
@@ -193,14 +200,16 @@ def run_decomposition(gold: dict, path: Path, units: list[dict], bm25) -> dict:
     부른 것으로 보고, 하위 질문 중 정답이 가장 높게 나온 순위를 그 질문의 순위로 쓴다.
     law_check 하위 질문이 없으면(다른 intent로 분해되면) 법령 검색을 하지 않으므로 놓친 것으로 센다.
     "+원문" 은 라우터가 question 뒤에 그 하위 질문의 원문(original_text)을 이어 붙여 검색한다고 가정한 경우다.
+    분해를 여러 번 돌린 결과(runs)면 실행마다 지표를 내 평균하고, 최저·최고를 함께 남긴다.
     """
     dec = json.loads(path.read_text(encoding="utf-8"))
+    runs = dec["runs"] if "runs" in dec else [dec["items"]]
     as_of = gold["as_of"]
     arts = [unit_article(u) for u in units]
 
-    def real_rank(it: dict, expand: bool, with_original: bool = False) -> int | None:
+    def real_rank(subs: list[dict], it: dict, expand: bool, with_original: bool = False) -> int | None:
         hits = []
-        for s in dec["items"].get(it["id"], {}).get("sub_queries", []):
+        for s in subs:
             if s["intent"] != "law_check":
                 continue
             law = s["entities"].get("law")
@@ -215,39 +224,52 @@ def run_decomposition(gold: dict, path: Path, units: list[dict], bm25) -> dict:
         return first_hit(rank_bm25(bm25, q, expand), arts, set(it["gold"]))
 
     items = gold["items"]
-    sets = {"전체": items, "새로 쓴 질문": [it for it in items if it["source"] == "new"],
+    sets = {"전체": items,
+            "개발용 (보면서 고치는 질문)": [it for it in items if it["split"] == "dev"],
+            "확인용 (점수만 보는 질문)": [it for it in items if it["split"] == "test"],
+            "새로 쓴 질문": [it for it in items if it["source"] == "new"],
             "보강 질문 (원문 BM25 약점)": [it for it in items if it["source"] == "new_hard"],
             "fixture (사람 분해 있음)": [it for it in items if "decomposed" in it]}
-    out = {"backend": dec.get("backend"), "model": dec.get("model"), "results": {}, "per_query": {}}
+    real = {"실제 분해": f"실제 분해 ({dec.get('model')})",
+            "실제 분해+원문": "실제 분해 + 하위 질문 원문 이어 붙이기"}
+    out = {"backend": dec.get("backend"), "model": dec.get("model"), "repeat": len(runs),
+           "results": {}, "per_query": {}}
     for expand in (True, False):
         tag = "BM25+확장 (현재)" if expand else "BM25"
         per = {it["id"]: {"원문": orig_rank(it, it["query"], expand),
                           "사람 분해": orig_rank(it, it["decomposed"], expand) if "decomposed" in it else None,
-                          "실제 분해": real_rank(it, expand),
-                          "실제 분해+원문": real_rank(it, expand, with_original=True)} for it in items}
+                          "실제 분해": [real_rank(r.get(it["id"], {}).get("sub_queries", []), it, expand)
+                                    for r in runs],
+                          "실제 분해+원문": [real_rank(r.get(it["id"], {}).get("sub_queries", []), it, expand, True)
+                                       for r in runs]} for it in items}
         out["per_query"][tag] = per
         for set_name, its in sets.items():
             rows = {"원문": summarize([per[it["id"]]["원문"] for it in its])}
             if all("decomposed" in it for it in its):
                 rows["사람 분해"] = summarize([per[it["id"]]["사람 분해"] for it in its])
-            rows[f"실제 분해 ({dec.get('model')})"] = summarize([per[it["id"]]["실제 분해"] for it in its])
-            rows["실제 분해 + 하위 질문 원문 이어 붙이기"] = summarize([per[it["id"]]["실제 분해+원문"] for it in its])
-            rows["_bootstrap_Hit@5_vs_원문"] = {m: bootstrap_diff(
-                [per[it["id"]]["원문"] for it in its], [per[it["id"]][m] for it in its])
-                for m in ("실제 분해", "실제 분해+원문")}
+            base = [hit(per[it["id"]]["원문"]) for it in its]
+            boot = {}
+            for key, name in real.items():
+                by_run = [summarize([per[it["id"]][key][j] for it in its]) for j in range(len(runs))]
+                rows[name] = {m: sum(r[m] for r in by_run) / len(by_run) for m in by_run[0]}
+                rows[name]["Hit@5 최저"] = min(r["Hit@5"] for r in by_run)
+                rows[name]["Hit@5 최고"] = max(r["Hit@5"] for r in by_run)
+                # 질문마다 실행 중 맞힌 비율로 paired bootstrap
+                boot[key] = bootstrap_hits(base, [sum(map(hit, per[it["id"]][key])) / len(runs) for it in its])
+            rows["_bootstrap_Hit@5_vs_원문"] = boot
             label = f"{set_name} / {tag}"
             out["results"][label] = rows
             print_table(label, len(its), rows)
 
     per = out["per_query"]["BM25+확장 (현재)"]
-    print("\n## 원문과 실제 분해가 갈린 질문 (BM25+확장, Hit@5 기준)")
+    print("\n## 원문과 실제 분해가 갈린 질문 (BM25+확장, Hit@5 기준, 분해 실행별 순위)")
     for it in items:
-        o, r = per[it["id"]]["원문"], per[it["id"]]["실제 분해"]
-        if (o is not None and o <= 5) != (r is not None and r <= 5):
+        o, rs = per[it["id"]]["원문"], per[it["id"]]["실제 분해"]
+        if any(hit(o) != hit(r) for r in rs):
             subs = [s["question"] if s["intent"] == "law_check" else f"[{s['intent']}]"
-                    for s in dec["items"].get(it["id"], {}).get("sub_queries", [])]
-            print(f"  {it['id']:<28} 원문 {o or '-':>2}위 → 분해 {r or '-':>2}위  {it['query']}\n"
-                  f"  {'':<28} 분해: {' | '.join(subs)}")
+                    for s in runs[0].get(it["id"], {}).get("sub_queries", [])]
+            print(f"  {it['id']:<28} 원문 {o or '-'}위 → 분해 {', '.join(str(r or '-') for r in rs)}위  "
+                  f"{it['query']}\n  {'':<28} 분해(1회차): {' | '.join(subs)}")
     return out
 
 
@@ -259,6 +281,8 @@ def print_table(label: str, n: int, rows: dict):
         if name.startswith("_"):
             continue
         print(f"{name:<44}" + "".join(f"{row[c]:>9.3f}" for c in cols))
+        if "Hit@5 최저" in row:
+            print(f"{'':<44}  Hit@5 실행별 {row['Hit@5 최저']:.3f} ~ {row['Hit@5 최고']:.3f}")
     base, diffs = next((k.removeprefix("_bootstrap_Hit@5_vs_"), v) for k, v in rows.items()
                        if k.startswith("_bootstrap"))
     for name, (lo, hi) in diffs.items():

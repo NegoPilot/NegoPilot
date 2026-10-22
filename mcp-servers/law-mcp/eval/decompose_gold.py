@@ -3,7 +3,7 @@
 eval_retrieval.py --decomposed 로 넘기면, 라우터처럼 law_check 하위 질문(question + law 엔티티)으로 검색해
 "원문 → 사람 분해 → 실제 분해" 검색 점수를 비교한다. 분해 프롬프트나 모델을 바꾸면 이 스크립트를 다시 돌린다.
 
-agent 가상환경에서 실행한다 (분해 API를 호출해 비용이 든다. gpt-4.1-mini 로 질문 60개 기준 1센트 안팎):
+agent 가상환경에서 실행한다 (분해 API를 호출해 비용이 든다. gpt-4.1-mini 로 질문 74개 × 3회 기준 몇 센트):
     cd agent && uv run python ../mcp-servers/law-mcp/eval/decompose_gold.py
     cd agent && uv run python ../mcp-servers/law-mcp/eval/decompose_gold.py --backend anthropic --model claude-haiku-5-5
 
@@ -54,6 +54,8 @@ async def main() -> None:
     p.add_argument("--backend", choices=["anthropic", "openai"], help="기본: agent 설정값 (openai)")
     p.add_argument("--model", help="기본: 백엔드별 기본 모델")
     p.add_argument("--concurrency", type=int, default=8)
+    p.add_argument("--repeat", type=int, default=3,
+                   help="같은 질문을 N번 분해한다. 실행마다 분해가 조금씩 달라 평균으로 비교한다")
     args = p.parse_args()
 
     load_dotenv(AGENT / ".env", skip=("NEGOPILOT_DECOMPOSER_MODEL",) if args.backend else ())
@@ -65,13 +67,16 @@ async def main() -> None:
     decomposer = QueryDecomposer(settings=settings)
 
     gold = json.loads((HERE / "retrieval_gold.json").read_text(encoding="utf-8"))
-    print(f"백엔드 {settings.backend} · 모델 {settings.model} · 질문 {len(gold['items'])}개")
-    results = await decompose_all(decomposer, gold["items"], args.concurrency)
+    print(f"백엔드 {settings.backend} · 모델 {settings.model} · 질문 {len(gold['items'])}개 × {args.repeat}회")
+    runs = []
+    for i in range(args.repeat):
+        print(f"\n[{i + 1}/{args.repeat}회]")
+        results = await decompose_all(decomposer, gold["items"], args.concurrency)
+        runs.append({it["id"]: results[it["id"]] for it in gold["items"]})
 
     out = HERE / "results" / f"decomposed_{settings.model}.json"
     out.parent.mkdir(exist_ok=True)
-    out.write_text(json.dumps({"backend": settings.backend, "model": settings.model,
-                               "items": {it["id"]: results[it["id"]] for it in gold["items"]}},
+    out.write_text(json.dumps({"backend": settings.backend, "model": settings.model, "runs": runs},
                               ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"저장: {out.relative_to(ROOT)}")
 
