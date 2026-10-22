@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router'
 import { createConversation, getConversation, getMessages, listConversations, sendMessage } from '@/api/conversations'
 import { ApiError } from '@/api/client'
 import type { ConversationSummary, GenerationResponse, StoredMessage } from '@/api/types'
-import { describeError } from '@/utils/errors'
+import { describeError, isApiError } from '@/utils/errors'
 import { parseSupplierEvidence, splitCitations } from '@/utils/evidence'
 import { NO_DATA, formatKrw, formatPercent, formatPpm } from '@/utils/format'
 import { provenanceLabel } from '@/utils/provenance'
@@ -142,8 +142,12 @@ async function loadConversation(id: string) {
     nextCursor.value = snapshot.next_cursor
     loaded.value = true
     scrollToEnd()
-  } catch (failure) { if (token === epoch) error.value = failure }
-  finally { if (token === epoch) loading.value = false }
+  } catch (failure) {
+    if (token !== epoch) return
+    // 지운 대화나 다른 회원의 대화면 입력창을 잠그지 않고 새 대화로 돌아간다
+    if (isApiError(failure, 'CONVERSATION_NOT_FOUND')) newConversation()
+    error.value = failure
+  } finally { if (token === epoch) loading.value = false }
 }
 function newConversation() {
   cancelView()

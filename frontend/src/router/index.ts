@@ -150,6 +150,12 @@ window.addEventListener('negopilot:unauthenticated', () => {
   }
 })
 
+// 다른 탭에서 계정이 바뀌면 지금 화면의 접근 조건을 새 회원으로 다시 확인한다
+window.addEventListener('negopilot:member-changed', () => {
+  const { path, query, hash } = router.currentRoute.value
+  void router.replace({ path, query, hash, force: true })
+})
+
 router.afterEach((to) => {
   document.title = to.meta.title ? `${to.meta.title} · NegoPilot` : 'NegoPilot'
 })

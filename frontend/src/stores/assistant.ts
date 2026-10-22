@@ -21,3 +21,10 @@ export function closeAssistant() {
 export function setAssistantConversation(id: string | null) {
   conversation.value = id
 }
+
+/** 회원이 바뀌면 패널을 닫고 이전 회원의 대화를 잊는다 */
+export function resetAssistant() {
+  open.value = false
+  question.value = ''
+  conversation.value = null
+}
