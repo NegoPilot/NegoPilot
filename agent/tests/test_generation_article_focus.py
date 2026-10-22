@@ -62,6 +62,33 @@ def test_single_paragraph_longer_than_budget_is_clipped_not_dropped():
     assert omitted == ["②"]
 
 
+def test_pinned_paragraph_is_kept_even_when_focus_points_elsewhere():
+    """check_offer v2가 law_refs[].paragraph로 지목한 항은 점수와 상관없이 먼저 넣는다 (#129)."""
+    ps = [para("①", "원재료 연동 " * 30), para("②", "원재료 연동 " * 30), para("⑰", "주요 에너지 정의 " * 20)]
+    kept, omitted = select_paragraphs(ps, "원재료 연동", budget=250, pinned=["⑰"])   # 항 하나만 들어가는 예산
+    assert [line.split()[0] for line in kept] == ["⑰"] and "⑰" not in omitted
+    kept, _ = select_paragraphs(ps, "원재료 연동", budget=250)
+    assert [line.split()[0] for line in kept] == ["①"]                              # 지목이 없으면 빠졌을 항
+
+
+def test_referenced_article_prefers_paragraph_named_by_check_offer():
+    """제2조는 항이 18개라 길다. check_offer가 ⑰(주요 에너지)을 지목하면 그 항이 근거에 남는다."""
+    dec, routing = load("05_offer_check")
+    offer = routing.outcomes[0]
+    check = next(c for c in offer.calls if c.tool == "check_offer")
+    check.result = dict(check.result) | {"warnings": [{
+        "code": "ENERGY_LINKAGE_TERMS_MISSING", "severity": "violation", "message": "에너지 연동 약정 없음",
+        "law_refs": [{"law": "subcontract_act", "article_no": "제2조", "paragraph": "⑰"}]}]}
+    article = next(c for c in offer.referenced_articles if c.args.get("article_no") == "제2조")
+    article.result = dict(article.result) | {"paragraphs": [
+        *({"no": n, "text": "원사업자가 수급사업자에게 제조등의 위탁을 하는 경우 서면 " * 8}
+          for n in ("①", "②", "③", "④", "⑤", "⑥")),
+        {"no": "⑰", "text": "이 법에서 \"주요 에너지\"란 그 비용이 하도급대금의 100분의 10 이상인 에너지를 말한다."}]}
+    article2 = next(e for e in build_evidence(routing, {sq.id: sq.question for sq in dec.sub_queries})
+                    if e.kind == "referenced_article" and "제2조" in e.label)
+    assert "주요 에너지" in article2.text and "⑰" not in article2.meta["omitted_paragraphs"]
+
+
 # ---------- 실제 fixture ----------
 
 def test_offer_check_keeps_major_raw_material_definition():

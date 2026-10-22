@@ -32,8 +32,8 @@ TOOL_PARAMS: dict[str, dict[str, str]] = {
     "get_supplier": {"supplier": "supplier"},
     "rank_suppliers": {"rfq_id": "rfq_id", "top_n": "top_n"},
     "check_offer": {k: k for k in ("supplier", "rfq_id", "unit_price", "payment_days", "price_linkage",
-                                   "raw_material_ratio", "contract_days", "linkage_waived_by_agreement",
-                                   "buyer_is_small_business")},
+                                   "raw_material_ratio", "energy_ratio", "contract_days",
+                                   "linkage_waived_by_agreement", "buyer_is_small_business", "as_of")},
     "get_article": {"law": "law", "article_no": "article_no", "as_of": "as_of"},
 }
 
@@ -265,26 +265,30 @@ class Router:
         """결과에 붙은 law_refs({law, article_no})를 get_article로 미리 조회한다.
 
         rank_suppliers: ranked[*].flags[*].law_refs, check_offer: law_refs.
+        check_offer에 계약 시점(as_of)을 넘겼으면 같은 날 시행판의 조문을 가져온다 (check_offer v2).
+        같은 조문이 항별로 여러 번 나와도 조문 전문은 한 번만 조회한다. 항은 Generation이 근거를 고를 때 쓴다.
         조회 실패는 하위 질문을 실패로 만들지 않고 그 ToolCall의 error로만 남긴다.
         """
-        refs: list[tuple[str, str]] = []
+        refs: list[tuple[str, str, str | None]] = []
 
-        def add(items) -> None:
+        def add(items, as_of: str | None) -> None:
             for r in items or []:
-                key = (r.get("law"), r.get("article_no"))
-                if all(key) and key not in refs:
+                key = (r.get("law"), r.get("article_no"), as_of)
+                if all(key[:2]) and key not in refs:
                     refs.append(key)
 
         for c in calls:
             if not isinstance(c.result, dict):
                 continue
-            add(c.result.get("law_refs"))
+            as_of = c.args.get("as_of")
+            add(c.result.get("law_refs"), as_of)
             for cand in c.result.get("ranked") or []:
                 for flag in cand.get("flags") or []:
-                    add(flag.get("law_refs"))
+                    add(flag.get("law_refs"), as_of)
         return list(await asyncio.gather(*(
-            self._call("law-mcp", "get_article", {"law": law, "article_no": no})
-            for law, no in refs[:REFERENCED_ARTICLES])))
+            self._call("law-mcp", "get_article",
+                       {"law": law, "article_no": no} | ({"as_of": as_of} if as_of else {}))
+            for law, no, as_of in refs[:REFERENCED_ARTICLES])))
 
     @staticmethod
     def _args(tool: str, ents: dict[str, Any]) -> dict[str, Any]:

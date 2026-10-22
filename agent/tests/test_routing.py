@@ -139,6 +139,29 @@ async def test_offer_check_passes_entities_as_args():
                                 "payment_days": 75, "price_linkage": False})
 
 
+async def test_offer_check_passes_energy_ratio_and_contract_date():
+    """check_offer v2의 새 인자를 그대로 넘기고, 근거 조문은 계약 시점의 시행판으로 조회한다 (#129)."""
+    d = fixture("05_offer_check")
+    d.sub_queries[0].entities.energy_ratio = 0.15
+    d.sub_queries[0].entities.as_of = "2026-12-01"
+    caller = FakeCaller()
+    offer = (await Router(caller).route(d)).outcomes[0]
+    assert caller.calls[0][2] | {} == {"supplier": "SUP-0003", "rfq_id": "RFQ-2026-001", "unit_price": 12000,
+                                       "payment_days": 75, "price_linkage": False,
+                                       "energy_ratio": 0.15, "as_of": "2026-12-01"}
+    assert [c.args for c in offer.referenced_articles] == [
+        {"law": "subcontract_act", "article_no": "제13조", "as_of": "2026-12-01"},
+        {"law": "subcontract_act", "article_no": "제3조", "as_of": "2026-12-01"}]
+
+
+async def test_same_article_cited_by_several_paragraphs_is_fetched_once():
+    """v2 law_refs는 (조문, 항)마다 나온다. 조문 전문은 한 번만 가져온다."""
+    refs = [{"law": "subcontract_act", "article_no": "제2조", "paragraph": p} for p in ("⑯", "⑰")]
+    caller = FakeCaller({"check_offer": {"verdict": "확인 필요", "violations": [], "law_refs": refs}})
+    offer = (await Router(caller).route(fixture("05_offer_check"))).outcomes[0]
+    assert [c.args["article_no"] for c in offer.referenced_articles] == ["제2조"]
+
+
 async def test_law_refs_are_prefetched():
     caller = FakeCaller()
     offer = (await Router(caller).route(fixture("05_offer_check"))).outcomes[0]

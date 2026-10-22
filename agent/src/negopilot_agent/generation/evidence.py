@@ -61,13 +61,16 @@ def _bigrams(text: str) -> set[str]:
     return {compact[i:i + 2] for i in range(len(compact) - 1)}
 
 
-def select_paragraphs(paragraphs: list[dict], focus: str, budget: int = MAX_TEXT) -> tuple[list[str], list[str]]:
+def select_paragraphs(paragraphs: list[dict], focus: str, budget: int = MAX_TEXT,
+                      pinned: Iterable[str] = ()) -> tuple[list[str], list[str]]:
     """조문의 항을 예산 안에서 고른다. 고른 항(원래 순서)과 생략한 항 번호를 돌려준다.
 
     앞에서부터 자르면 뒤쪽 항이 통째로 빠진다 (예: 제2조의 "주요 원재료" 정의는 16번째 항).
     그래서 focus(검사 항목 문구, 하위 질문, 검색된 항)와 겹치는 글자 쌍이 많은 항부터 넣는다.
     모든 항에 흔한 글자 쌍("하도", "급대" 등)은 덜 치도록 항 사이 희소도(idf)로 가중한다.
+    pinned: 도구가 근거로 지목한 항 번호(law_refs[].paragraph). 점수와 상관없이 먼저 넣는다.
     """
+    pinned = set(pinned)
     lines = [f"{p.get('no', '')} {p.get('text', '')}".strip() for p in paragraphs]
     nos = [str(p.get("no", "")) for p in paragraphs]
     if sum(len(line) + 1 for line in lines) <= budget:
@@ -80,7 +83,7 @@ def select_paragraphs(paragraphs: list[dict], focus: str, budget: int = MAX_TEXT
             df[b] = df.get(b, 0) + 1
     n = len(lines)
     scores = [sum(math.log((n + 1) / (df[b] + 0.5)) for b in g & focus_grams) for g in grams]
-    order = sorted(range(n), key=lambda i: (-scores[i], i))
+    order = sorted(range(n), key=lambda i: (nos[i] not in pinned, -scores[i], i))
     chosen: set[int] = set()
     used = 0
     for i in order:
@@ -94,8 +97,8 @@ def select_paragraphs(paragraphs: list[dict], focus: str, budget: int = MAX_TEXT
     return [lines[i] for i in sorted(chosen)], [nos[i] for i in range(n) if i not in chosen]
 
 
-def from_get_article(r: dict, focus: str = "", budget: int = MAX_TEXT) -> list[Draft]:
-    kept, omitted = select_paragraphs(r.get("paragraphs", []), focus, budget)
+def from_get_article(r: dict, focus: str = "", budget: int = MAX_TEXT, pinned: Iterable[str] = ()) -> list[Draft]:
+    kept, omitted = select_paragraphs(r.get("paragraphs", []), focus, budget, pinned)
     text = f"{r.get('citation')}\n" + "\n".join(kept)
     if omitted:
         text += f"\n[이 질문과 관련이 적어 생략한 항: {', '.join(omitted)}]"
@@ -228,24 +231,37 @@ def _citable_article(call: ToolCall, draft: Draft) -> bool:
 
 def _findings_for(outcome: SubQueryOutcome, law: str | None, article_no: str | None) -> list[str]:
     """이 조문을 law_refs로 건 검사 항목·flags 문구 (check_offer, rank_suppliers)."""
-    messages = []
+    return [str(f.get("message", "")) for f, _ in _refs_to(outcome, law, article_no)]
+
+
+def _paragraphs_for(outcome: SubQueryOutcome, law: str | None, article_no: str | None) -> list[str]:
+    """도구가 이 조문의 근거로 지목한 항 번호 (check_offer v2의 law_refs[].paragraph)."""
+    return list(dict.fromkeys(ref["paragraph"] for _, ref in _refs_to(outcome, law, article_no)
+                              if isinstance(ref.get("paragraph"), str) and ref["paragraph"]))
+
+
+def _refs_to(outcome: SubQueryOutcome, law: str | None, article_no: str | None) -> list[tuple[dict, dict]]:
+    """이 조문을 가리키는 (검사 항목, law_ref) 쌍."""
+    pairs = []
     for call in outcome.calls:
         r = call.result if call.error is None and isinstance(call.result, dict) else {}
         items = [*r.get("violations", []), *r.get("warnings", []), *r.get("info", [])] if call.tool == "check_offer" else []
         if call.tool == "rank_suppliers":
             items = [f for c in r.get("ranked", []) if isinstance(c, dict) for f in c.get("flags", [])]
         for f in items:
-            if isinstance(f, dict) and any(ref.get("law") == law and ref.get("article_no") == article_no
-                                           for ref in f.get("law_refs", []) if isinstance(ref, dict)):
-                messages.append(str(f.get("message", "")))
-    return messages
+            if not isinstance(f, dict):
+                continue
+            for ref in f.get("law_refs", []):
+                if isinstance(ref, dict) and ref.get("law") == law and ref.get("article_no") == article_no:
+                    pairs.append((f, ref))
+    return pairs
 
 
-def _article_drafts(call: ToolCall, focus: str, budget: int = MAX_TEXT) -> list[Draft]:
+def _article_drafts(call: ToolCall, focus: str, budget: int = MAX_TEXT, pinned: Iterable[str] = ()) -> list[Draft]:
     if call.error or not isinstance(call.result, dict):
         return []
     try:
-        return from_get_article(call.result, focus, budget)
+        return from_get_article(call.result, focus, budget, pinned)
     except (AttributeError, TypeError, KeyError):
         return from_call(call)
 
@@ -275,8 +291,10 @@ def from_outcome(outcome: SubQueryOutcome, question: str = "") -> list[Draft]:
         drafts += from_call(call)
     for ref in outcome.referenced_articles:        # 실패한 조회(error)는 건너뛴다
         args = ref.args or {}
-        focus = " ".join([question, *_findings_for(outcome, args.get("law"), args.get("article_no"))])
-        drafts += [d | {"kind": "referenced_article"} for d in _article_drafts(ref, focus)]
+        law, article_no = args.get("law"), args.get("article_no")
+        focus = " ".join([question, *_findings_for(outcome, law, article_no)])
+        drafts += [d | {"kind": "referenced_article"}
+                   for d in _article_drafts(ref, focus, pinned=_paragraphs_for(outcome, law, article_no))]
     return drafts
 
 

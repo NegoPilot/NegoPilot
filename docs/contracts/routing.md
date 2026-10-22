@@ -26,7 +26,7 @@ for sq in decomposition.sub_queries:
 | 3 | 일부만 성공 | **된 부분은 답하고, 안 된 부분만 밝힌다.** 되묻기·안내는 답변 끝에 모은다 |
 | 4 | 도구 결과 | `calls[].result`는 **MCP 도구 반환값 그대로**. 프롬프트가 너무 길어지면 Routing이 intent별로 필드를 추리는 방식으로 바꾼다 |
 | 5 | 법 근거 인용 | `search_regulation` 결과는 항 단위 citation을 인용한다. 해당 항에 없는 설명은 출처와 본문을 확인한 `get_article` 조문 전문을 인용할 수 있다 |
-| 6 | 결과에 붙은 조문 | `rank_suppliers`(flags)·`check_offer`의 `law_refs`는 **Routing이 `get_article`로 미리 조회**해 `referenced_articles`에 넣는다 (최대 5개) |
+| 6 | 결과에 붙은 조문 | `rank_suppliers`(flags)·`check_offer`의 `law_refs`는 **Routing이 `get_article`로 미리 조회**해 `referenced_articles`에 넣는다 (최대 5개). `check_offer`에 `as_of`를 넘겼으면 같은 날 시행판을 조회하고, 같은 조문은 항이 달라도 한 번만 조회한다. `law_refs[].paragraph`로 지목된 항은 Generation이 근거에 먼저 넣는다 |
 | 7 | 사용자 문구 | 사용자에게 보일 문장은 **Generation이 쓴다.** `message`·`halt_reason`·`error`는 개발·로그용이라 그대로 보여 주지 않는다 |
 | 8 | 형식 버전 | `schema_version` 필드. 형식 변경은 PR + Routing·Generation 담당 승인 |
 

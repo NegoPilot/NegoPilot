@@ -48,6 +48,7 @@ ENTITY_LABELS = {
     "payment_days": "결제 기간(일)",
     "price_linkage": "납품대금 연동 약정을 넣을지 여부",
     "raw_material_ratio": "단가 중 원재료 비중",
+    "energy_ratio": "단가 중 에너지 비용 비중",
     "contract_days": "거래 기간(일)",
     "law": "법령 이름",
     "article_no": "조문 번호(예: 제13조)",
