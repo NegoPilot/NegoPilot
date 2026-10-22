@@ -49,6 +49,15 @@ def cited_response():
     return body
 
 
+def stored(seq, role, content, response, *, message_id=None):
+    return {"seq": seq, "message_id": message_id or str(uuid.uuid4()), "role": role, "content": content,
+            "created_at": "2026-10-22T00:00:00Z", "response": response}
+
+
+def snapshot(messages, count, *, next_cursor=None):
+    return {"messages": messages, "message_count": count, "next_cursor": next_cursor}
+
+
 class GenerationHelpersTest(unittest.TestCase):
     def test_history_uses_latest_twenty_and_counts_unicode_code_points(self):
         text = "🙂" * 4100
@@ -173,14 +182,29 @@ class GenerationHelpersTest(unittest.TestCase):
         response = execution_response()
         response.update(conversation_id=str(uuid.uuid4()), response_id=str(uuid.uuid4()))
         response["answer"]["text"] = smoke.LONG_TEXT
-        messages = [{"message_id": str(uuid.uuid4()), "role": "user", "content": "질문", "response": None},
-                    {"message_id": response["response_id"], "role": "assistant", "content": smoke.LONG_TEXT,
-                     "response": response}]
-        runner.assert_saved({"messages": messages}, messages)
+        messages = [stored(1, "user", "질문", None),
+                    stored(2, "assistant", smoke.LONG_TEXT, response, message_id=response["response_id"])]
+        runner.assert_saved(snapshot(messages, 2), messages)
         changed = copy.deepcopy(messages)
         changed[-1]["content"] = smoke.LONG_TEXT[:4000]
         with self.assertRaises(AssertionError):
-            runner.assert_saved({"messages": changed}, changed)
+            runner.assert_saved(snapshot(changed, 2), changed)
+
+    def test_snapshot_shows_latest_fifty_of_all_kept_pairs_with_cursor(self):
+        runner = smoke.GenerationSmoke(Path("unused.jar"))
+        expected = []
+        for seq in range(1, 105, 2):
+            response = execution_response()
+            response.update(conversation_id=str(uuid.uuid4()), response_id=str(uuid.uuid4()))
+            expected += [stored(seq, "user", "질문", None),
+                         stored(seq + 1, "assistant", response["answer"]["text"], response,
+                                message_id=response["response_id"])]
+        window = expected[-50:]
+        runner.assert_saved(snapshot(window, 104, next_cursor="55"), expected)
+        with self.assertRaises(AssertionError):
+            runner.assert_saved(snapshot(window, 104, next_cursor=None), expected)
+        with self.assertRaises(AssertionError):
+            runner.assert_saved(snapshot(window, 100, next_cursor="55"), expected)
 
     def test_main_cancellation_closes_owned_runner_and_removes_jar_snapshot(self):
         runner = mock.Mock(results=[], responses=[])
@@ -198,6 +222,7 @@ class GenerationHelpersTest(unittest.TestCase):
             with mock.patch.object(smoke, "ROOT", root), mock.patch.object(smoke, "CONTRACT", contract), \
                     mock.patch.object(smoke, "GenerationSmoke", return_value=runner) as factory, \
                     mock.patch.object(sys, "argv", ["generation_smoke.py", "--jar", str(jar), "--report", str(report)]), \
+                    mock.patch.object(smoke.shutil, "which", return_value="/usr/bin/docker"), \
                     mock.patch("builtins.print"):
                 self.assertEqual(smoke.main(), 130)
             runner.close.assert_called_once_with()
@@ -212,11 +237,13 @@ class GenerationHelpersTest(unittest.TestCase):
         last.close.side_effect = RuntimeError("cleanup test " + runner.key)
         runner.processes = [first, last]
         runner.relay = mock.Mock()
+        runner.database = mock.Mock()
         runner.close()
         runner.close()
         first.close.assert_called_once_with()
         last.close.assert_called_once_with()
         runner.relay.close.assert_called_once_with()
+        runner.database.close.assert_called_once_with()
         self.assertEqual(len(runner.results), 1)
         self.assertEqual(runner.results[0]["name"], "cleanup.last")
         self.assertEqual(runner.results[0]["status"], "FAIL")

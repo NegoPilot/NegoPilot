@@ -2,8 +2,10 @@
 """Prepared Spring/Python Generation integration with fake model/tool boundaries.
 
 The fixture server executes QueryDecomposer, build_graph and AnswerGenerator.
-No dependency is installed and no existing process is discovered or stopped.
-Artifacts are restricted to /tmp. A separate live-model run is not implied.
+Spring runs its default profile against a disposable PostgreSQL container and
+the runner signs in as an approved member with a CSRF token. No dependency is
+installed and no existing process is discovered or stopped. Artifacts are
+restricted to /tmp. A separate live-model run is not implied.
 """
 from __future__ import annotations
 
@@ -27,7 +29,7 @@ import time
 from typing import Any
 import uuid
 
-from http_smoke import ROOT, Process, Smoke, child_environment, request, require, unused_port
+from smoke_common import ROOT, Process, Smoke, SpringSession, child_environment, request, require, unused_port
 
 INTERNAL = "/internal/v2/query-executions"
 PUBLIC = "/api/v2/agent/queries"
@@ -37,6 +39,8 @@ DEFAULT_REPORT = Path("/tmp/negopilot-generation-smoke-results.json")
 DIAGNOSTIC = "private-generation-tool-diagnostic"
 LONG_TEXT = "🙂" * 4105 + " 긴 테스트 본문입니다."
 LONG_BLANK_PREFIX_TEXT = " " * 4000 + "🙂" * 4105 + " 공백 접두부 뒤의 테스트 본문입니다."
+SNAPSHOT_WINDOW = 50
+STORED_FIELDS = {"seq", "message_id", "role", "content", "created_at", "response"}
 CASES = [
     ("GEN_LAW", "answer", "COMPLETED"),
     ("GEN_OFFER", "answer", "COMPLETED"),
@@ -181,7 +185,6 @@ class GenerationRelay:
         self.gate_query: str | None = None
         self.entered = threading.Event()
         self.release = threading.Event()
-        self.overlap = threading.Event()
         self.closed = False
         relay = self
 
@@ -205,8 +208,6 @@ class GenerationRelay:
                 if payload["query"] == relay.gate_query:
                     relay.entered.set()
                     relay.release.wait(8)
-                elif relay.gate_query and payload["query"] == "GEN_SECOND":
-                    relay.overlap.set()
                 mode = relay.mode
                 if mode == "invalid_json":
                     self.respond(200, b"invalid-json")
@@ -326,26 +327,6 @@ class GenerationSmoke(Smoke):
     def __init__(self, jar: Path):
         super().__init__(jar)
         self.used_ports.update({5173, 8080, 9200})
-        self.cleanup_started = False
-
-    def close(self):
-        if self.cleanup_started:
-            return
-        self.cleanup_started = True
-        # One failed child cleanup must not skip the other owned groups or the
-        # relay. Retain every cleanup failure in the final result.
-        for process in reversed(self.processes):
-            try:
-                process.close()
-            except Exception as error:
-                self.results.append({"name": "cleanup." + process.label, "status": "FAIL",
-                                     "detail": f"{type(error).__name__}: {str(error).replace(self.key, '[REDACTED]')}"})
-        if self.relay is not None:
-            try:
-                self.relay.close()
-            except Exception as error:
-                self.results.append({"name": "cleanup.relay", "status": "FAIL",
-                                     "detail": f"{type(error).__name__}: {str(error).replace(self.key, '[REDACTED]')}"})
 
     def start_fixture_python(self) -> int:
         port = unused_port(self.used_ports)
@@ -367,8 +348,14 @@ class GenerationSmoke(Smoke):
         require(self.key not in json.dumps(response[1]), "Response exposed the internal key")
         return response
 
-    def public(self, path, body=None, method="POST"):
-        return self.send(self.spring, path, body, method=method, timeout=10)
+    def public(self, path, body=None, method="POST", *, headers=None, record=True):
+        response = self.session.send(method, path, body, headers=headers, timeout=10)
+        # The Generation OpenAPI documents query and message responses. Stored v0.4
+        # snapshots are checked field by field in assert_saved instead.
+        if record and method == "POST" and path != CONVERSATIONS:
+            self.responses.append({"path": path, "method": method, "status": response[0], "body": response[1]})
+        require(self.key not in json.dumps(response[1]), "Response exposed the internal key")
+        return response
 
     def accepted(self, response, *, selected=None, kind=None):
         status, body = response
@@ -390,8 +377,9 @@ class GenerationSmoke(Smoke):
     def create(self, selected):
         status, body = self.public(CONVERSATIONS, {"context": selected})
         require(status == 201, "Conversation creation failed")
-        require(body["schema_version"] == "0.3" and body["storage"] == "memory"
-                and body["context"] == selected and body["messages"] == [], "Invalid initial snapshot")
+        require(body["schema_version"] == "0.4" and body["storage"] == "database" and body["title"] == "새 대화"
+                and body["message_count"] == 0 and body["context"] == selected and body["messages"] == []
+                and body["next_cursor"] is None, "Invalid initial snapshot")
         require(canonical_uuid(body["conversation_id"]), "Invalid conversation ID")
         return body
 
@@ -400,21 +388,33 @@ class GenerationSmoke(Smoke):
         require(status == 200, "Snapshot lookup failed")
         return body
 
-    def message(self, cid, query, selected=None):
+    def message(self, cid, query, selected=None, *, key=None, record=True):
         payload = {"query": query}
         if selected is not None:
             payload["context"] = selected
-        return self.public(f"{CONVERSATIONS}/{cid}/messages", payload)
+        headers = None if key is None else {"Idempotency-Key": key}
+        return self.public(f"{CONVERSATIONS}/{cid}/messages", payload, headers=headers, record=record)
+
+    def older_messages(self, cid, before_seq):
+        status, body = self.public(f"{CONVERSATIONS}/{cid}/messages?before_seq={before_seq}&size=100", method="GET")
+        require(status == 200 and body["schema_version"] == "0.4" and body["conversation_id"] == cid,
+                "Older message page lookup failed")
+        return body
 
     def assert_saved(self, snapshot, expected):
+        # v0.4 keeps every pair. The snapshot shows only the latest 50 messages.
         messages = snapshot["messages"]
-        require(messages == expected[-100:] and len(messages) <= 100 and len(messages) % 2 == 0,
-                "Stored messages or pair retention changed")
+        require(snapshot["message_count"] == len(expected) and len(expected) % 2 == 0
+                and messages == expected[-SNAPSHOT_WINDOW:], "Stored messages or snapshot window changed")
+        older = len(expected) > SNAPSHOT_WINDOW
+        require(snapshot["next_cursor"] == (str(messages[0]["seq"]) if older else None), "Snapshot cursor is wrong")
+        require([item["seq"] for item in messages] == list(range(len(expected) - len(messages) + 1, len(expected) + 1)),
+                "Stored seq is not contiguous")
         require(len({m["message_id"] for m in messages}) == len(messages), "Duplicate stored message IDs")
-        for index, item in enumerate(messages):
-            require(set(item) == {"message_id", "role", "content", "response"}, "Unexpected stored fields")
+        for item in messages:
+            require(set(item) == STORED_FIELDS, "Unexpected stored fields")
             require(canonical_uuid(item["message_id"]), "Invalid stored message ID")
-            require(item["role"] == ("user" if index % 2 == 0 else "assistant"), "Stored roles are unpaired")
+            require(item["role"] == ("user" if item["seq"] % 2 == 1 else "assistant"), "Stored roles are unpaired")
             if item["role"] == "user":
                 require(item["response"] is None, "User response must be null")
             else:
@@ -494,20 +494,21 @@ class GenerationSmoke(Smoke):
         cid = self.create(selected)["conversation_id"]
         body = self.accepted(self.message(cid, "GEN_LONG"), kind="answer")
         require(body["answer"]["text"] == LONG_TEXT, "Long generated text was truncated before storage")
-        previous = self.snapshot(cid)["messages"]
-        require(previous[-1]["content"] == LONG_TEXT, "Stored long Answer was truncated")
-        all_messages = previous[:]
+        stored = self.snapshot(cid)["messages"]
+        require(stored[-1]["content"] == LONG_TEXT, "Stored long Answer was truncated")
         for index in range(51):
             query = f"GEN_RETAIN_{index}"
             body = self.accepted(self.message(cid, query), kind="answer")
-            self.forwarded(body, query, selected, previous)
+            self.forwarded(body, query, selected, stored)
             snap = self.snapshot(cid)
             require(snap["messages"][-2]["content"] == query and snap["messages"][-1]["response"] == body,
                     "Retention stored the wrong response")
-            all_messages.extend(snap["messages"][-2:])
-            self.assert_saved(snap, all_messages)
-            previous = snap["messages"]
-        require(len(previous) == 100 and previous[0]["content"] == "GEN_RETAIN_1", "Oldest complete pairs not evicted")
+            stored = stored + snap["messages"][-2:]
+            self.assert_saved(snap, stored)
+        require(len(stored) == 104 and stored[0]["content"] == "GEN_LONG", "Earlier pairs were not kept")
+        page = self.older_messages(cid, snap["next_cursor"])
+        require(page["messages"] == stored[:-SNAPSHOT_WINDOW] and page["next_cursor"] is None,
+                "Older message page differs from the stored pairs")
         first = next(r for r in self.relay.records if r["body"]["query"] == "GEN_RETAIN_0")
         require(first["body"]["history"][1]["content"] == LONG_TEXT[:4000], "Unicode history was not truncated to 4000 code points")
 
@@ -530,38 +531,54 @@ class GenerationSmoke(Smoke):
         require(after["messages"][:2] == before["messages"], "Sending history changed the stored Answer")
         self.assert_saved(after, after["messages"])
 
-    def serialized_requests(self):
+    def busy_conversation(self):
         selected = context(None)
         cid = self.create(selected)["conversation_id"]
         other = self.create(selected)["conversation_id"]
         self.relay.gate_query = "GEN_FIRST"
-        second_started = threading.Event()
-
-        def second_request():
-            second_started.set()
-            return self.message(cid, "GEN_SECOND")
-
-        with ThreadPoolExecutor(max_workers=3) as pool:
+        with ThreadPoolExecutor(max_workers=1) as pool:
             first = pool.submit(self.message, cid, "GEN_FIRST")
             try:
                 require(self.relay.entered.wait(2), "First request never reached relay")
-                second = pool.submit(second_request)
-                require(second_started.wait(1), "Second request was not dispatched")
-                require(not self.relay.overlap.wait(0.25), "Same conversation reached Python concurrently")
-                independent = pool.submit(self.message, other, "GEN_OTHER")
-                self.accepted(independent.result(timeout=1.5), kind="answer")
-                require(not first.done(), "Blocked request ended before independent request")
+                # The 409 status is part of the history contract, not the Generation OpenAPI.
+                self.error(self.message(cid, "GEN_SECOND", record=False), 409, "CONVERSATION_BUSY",
+                           retryable=True, exact_id=False)
+                self.accepted(self.message(other, "GEN_OTHER"), kind="answer")
+                require(not first.done(), "Blocked request ended before the independent request")
             finally:
                 self.relay.release.set()
                 self.relay.gate_query = None
             self.accepted(first.result(timeout=5), kind="answer")
-            self.accepted(second.result(timeout=5), kind="answer")
+        require(not any(record["body"]["query"] == "GEN_SECOND" for record in self.relay.records),
+                "A busy conversation request reached Python")
         snap = self.snapshot(cid)
-        require(len(snap["messages"]) == 4, "Concurrent requests lost messages")
+        require([item["content"] for item in snap["messages"]][:1] == ["GEN_FIRST"], "Busy request was stored")
         self.assert_saved(snap, snap["messages"])
-        for offset in (0, 2):
-            user, assistant = snap["messages"][offset:offset + 2]
-            self.forwarded(assistant["response"], user["content"], selected, snap["messages"][:offset])
+
+    def idempotent_retry(self):
+        cid = self.create(context(None))["conversation_id"]
+        key = str(uuid.uuid4())
+        first = self.accepted(self.message(cid, "GEN_LAW", key=key), kind="answer")
+        forwarded = len(self.relay.records)
+        again = self.accepted(self.message(cid, "GEN_LAW", key=key), kind="answer")
+        require(again == first and len(self.relay.records) == forwarded,
+                "Retry with the same key called Python again or changed the saved response")
+        self.error(self.message(cid, "GEN_OFFER", key=key, record=False), 409, "IDEMPOTENCY_CONFLICT", exact_id=False)
+        snap = self.snapshot(cid)
+        require(snap["message_count"] == 2, "Retry stored duplicate messages")
+        self.assert_saved(snap, snap["messages"])
+
+    def authentication_and_csrf(self):
+        forwarded = len(self.relay.records)
+        anonymous = SpringSession(self.spring)
+        self.error(anonymous.send("GET", CONVERSATIONS), 401, "UNAUTHENTICATED", exact_id=False)
+        anonymous.refresh_csrf()
+        self.error(anonymous.send("POST", PUBLIC, {"query": "GEN_LAW"}), 401, "UNAUTHENTICATED", exact_id=False)
+        self.error(self.session.send("POST", PUBLIC, {"query": "GEN_LAW"}, csrf=False), 403, "CSRF_INVALID",
+                   exact_id=False)
+        self.error(self.session.send("POST", CONVERSATIONS, {"context": context(None)}, csrf=False), 403,
+                   "CSRF_INVALID", exact_id=False)
+        require(len(self.relay.records) == forwarded, "A rejected request reached Python")
 
     def invalid_inputs(self):
         for body in ({"query": " "}, {"query": "x", "context": None},
@@ -592,12 +609,15 @@ class GenerationSmoke(Smoke):
         self.python = self.start_fixture_python()
         self.relay.upstream = self.python
         self.spring = self.start_spring(self.key, "Spring Generation gateway")
+        self.session = self.sign_in(self.spring)
         for name, fn in [("graph_answer_kinds_and_partial_results", self.execution_cases),
                          ("context_history_and_successful_storage", self.context_and_storage),
                          ("failed_and_invalid_response_rollback", self.rollback),
-                         ("long_history_20_window_and_100_retention", self.long_history_retention),
+                         ("long_history_20_window_and_full_storage", self.long_history_retention),
                          ("blank_prefix_history_preserves_full_stored_answer", self.blank_prefix_history),
-                         ("same_conversation_serialization", self.serialized_requests),
+                         ("busy_conversation_is_rejected", self.busy_conversation),
+                         ("idempotent_retry_reuses_saved_response", self.idempotent_retry),
+                         ("membership_authentication_and_csrf", self.authentication_and_csrf),
                          ("input_and_internal_authentication", self.invalid_inputs)]:
             self.check(name, fn)
         self.check("no_live_model_or_tool_requests", lambda: require(not self.relay.unexpected_paths,
@@ -605,7 +625,8 @@ class GenerationSmoke(Smoke):
 
     def check_logs(self):
         self.check("logs.no_secrets_or_private_diagnostics", lambda: require(all(
-            self.key not in "".join(p.log) and DIAGNOSTIC not in "".join(p.log) for p in self.processes),
+            self.key not in "".join(p.log) and self.member_password not in "".join(p.log)
+            and DIAGNOSTIC not in "".join(p.log) for p in self.processes),
             "A process logged private diagnostic data"))
 
 
@@ -623,6 +644,9 @@ def main():
     if not args.jar.is_file() or not CONTRACT.is_file() or not (ROOT / "agent/.venv/bin/python").is_file():
         print("Prepare Python environment, final Spring JAR and Generation OpenAPI before running.")
         return 2
+    if shutil.which("docker") is None:
+        print("Docker is required for the disposable PostgreSQL DB.")
+        return 2
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="negopilot-generation-smoke-", dir="/tmp") as temporary:
         jar = Path(temporary) / "backend.jar"
@@ -636,7 +660,7 @@ def main():
             return 130
         except Exception as error:
             runner.results.append({"name": "runner", "status": "FAIL", "detail":
-                                   f"{type(error).__name__}: {str(error).replace(runner.key, '[REDACTED]')}"})
+                                   f"{type(error).__name__}: {runner.redact(str(error))}"})
         finally:
             runner.close()
         runner.check_logs()
@@ -647,12 +671,13 @@ def main():
                   "spring_jar_sha256": jar_hash, "duration_seconds": round(time.monotonic() - started, 2),
                   "passed": passed, "total": len(runner.results), "http_responses_checked": len(runner.responses),
                   "checks": runner.results, "responses": runner.responses, "forwarded": runner.relay.records if runner.relay else [],
-                  "limitations": ["Real graph and AnswerGenerator with fake model/tool IO", "No real LLM/MCP/DB calls",
-                                  "Fault modes only test gateway rollback", "Memory ends when owned Spring exits"]}
+                  "limitations": ["Real graph and AnswerGenerator with fake model/tool IO", "No real LLM/MCP calls",
+                                  "Fault modes only test gateway rollback",
+                                  "Conversations use a disposable PostgreSQL container removed after the run"]}
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
         logs_path = require_tmp_output(report_path.with_suffix(".logs.txt"))
-        logs_path.write_text("\n".join(p.label + "\n" + "".join(p.log).replace(runner.key, "[REDACTED]") for p in runner.processes))
+        logs_path.write_text("\n".join(p.label + "\n" + runner.redact("".join(p.log)) for p in runner.processes))
         print(f"Result: {passed}/{len(runner.results)} checks passed. Owned processes cleaned up.")
         return 0 if passed == len(runner.results) else 1
 
