@@ -349,7 +349,7 @@ cd agent
 uv run --locked python -m pytest tests/test_api.py tests/test_supplier_lookup_live.py tests/test_http_openapi_contract.py -q
 ```
 
-위 명령은 앱 공통 동작과 협력사 조회 및 고정 OpenAPI 명세를 검사합니다. 실제 LLM 연결과 실제 MCP 서버 및 메일 발송과 DB seed를 검증하지 않습니다. v2 전체 그래프 검사는 아래 안내를 따릅니다. 로그인과 승인 및 영구 대화 저장은 이 HTTP 범위에 포함하지 않습니다.
+위 명령은 앱 공통 동작과 협력사 조회 및 고정 OpenAPI 명세를 검사합니다. 실제 LLM 연결과 실제 MCP 서버 및 메일 발송과 DB seed를 검증하지 않습니다. 전체 그래프 검사는 아래 안내를 따릅니다. 로그인과 승인 및 영구 대화 저장은 이 HTTP 범위에 포함하지 않습니다.
 
 실제 Spring과 Python을 임시 포트에서 함께 실행하는 검사는 [HTTP 통합 검증 안내](../scripts/integration/README.md)를 따릅니다. 이 검사도 stub 응답을 사용합니다.
 
