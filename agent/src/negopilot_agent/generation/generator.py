@@ -304,7 +304,7 @@ class AnswerGenerator:
         if draft is None:
             return Answer(kind="failed", text=GENERATION_FAILED_TEXT, evidence=evidence)
 
-        body = draft.answer
+        body = verify.fix_digit_grouping(draft.answer)
         if report and not report.ok:
             body = verify.mask(body, report)
             report.masked = True
