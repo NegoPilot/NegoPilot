@@ -4,6 +4,7 @@ import com.negopilot.backend.admin.law.AdminLawGateway;
 import com.negopilot.backend.admin.supplier.AdminSupplierService;
 import com.negopilot.backend.common.api.ApiException;
 import com.negopilot.backend.common.api.ApiPaths;
+import com.negopilot.backend.common.http.InternalPaths;
 import com.negopilot.backend.auth.CurrentUser;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -32,7 +33,7 @@ public final class AdminDataController {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("checked_at", Instant.now().toString());
         result.put("suppliers", sourceSummary(suppliers::summary));
-        result.put("laws", sourceSummary(() -> laws.read("/internal/v1/admin/laws", id)));
+        result.put("laws", sourceSummary(() -> laws.read(InternalPaths.ADMIN_LAWS, id)));
         return result;
     }
     private Map<String, Object> sourceSummary(Supplier<?> source) {

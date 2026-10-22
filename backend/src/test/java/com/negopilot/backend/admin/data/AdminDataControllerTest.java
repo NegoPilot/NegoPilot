@@ -48,7 +48,7 @@ class AdminDataControllerTest {
         var order = inOrder(currentUser, suppliers, laws);
         order.verify(currentUser).requireAdmin();
         order.verify(suppliers).summary();
-        order.verify(laws).read("/internal/v1/admin/laws", (UUID) request.getAttribute("request_id"));
+        order.verify(laws).read("/internal/admin/laws", (UUID) request.getAttribute("request_id"));
     }
 
     @Test void availableSourcesHaveNoErrorCode() {

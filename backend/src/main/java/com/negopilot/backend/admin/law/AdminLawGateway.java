@@ -2,6 +2,7 @@ package com.negopilot.backend.admin.law;
 
 import com.negopilot.backend.common.api.ApiException;
 import com.negopilot.backend.common.http.AgentHttpTransport;
+import com.negopilot.backend.common.http.InternalPaths;
 
 import java.net.URI;
 import java.time.Instant;
@@ -15,7 +16,7 @@ import tools.jackson.databind.JsonNode;
 
 @Service
 public final class AdminLawGateway {
-    private static final String ROOT = "/internal/v1/admin/laws";
+    private static final String ROOT = InternalPaths.ADMIN_LAWS;
     private static final String JOBS = ROOT + "/refresh-jobs";
     private static final String UUID_PATTERN = "[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}";
     private final AgentHttpTransport transport;
@@ -82,7 +83,8 @@ public final class AdminLawGateway {
 
     private void validateRead(String path, JsonNode data) {
         URI uri = URI.create(path);
-        String[] parts = uri.getPath().split("/");
+        // Segments after ROOT: ["", law_key, "versions", version_id, "articles", article_no]
+        String[] parts = uri.getPath().substring(ROOT.length()).split("/");
         if (path.equals(ROOT)) {
             fields(data, "dataset_id", "loaded_at", "collected_at", "law_count", "version_count", "article_count", "items");
             nonblank(data, "dataset_id"); instant(data, "loaded_at"); nullableInstant(data, "collected_at");
@@ -100,9 +102,9 @@ public final class AdminLawGateway {
             check(count(data, "version_count") == versions && count(data, "article_count") == articles);
             return;
         }
-        check(parts.length >= 7 && parts[6].equals("versions"));
-        check(parts[5].equals(text(data, "law_key")));
-        if (parts.length == 7) {
+        check(path.startsWith(ROOT + "/") && parts.length >= 3 && parts[2].equals("versions"));
+        check(parts[1].equals(text(data, "law_key")));
+        if (parts.length == 3) {
             fields(data, "law_key", "law_name", "items");
             nonblank(data, "law_name"); array(data, "items");
             Set<String> ids = new HashSet<>();
@@ -112,9 +114,9 @@ public final class AdminLawGateway {
             }
             return;
         }
-        check((parts.length == 9 || parts.length == 10) && parts[8].equals("articles"));
-        version(data); check(parts[7].equals(text(data, "version_id")));
-        if (parts.length == 9) {
+        check((parts.length == 5 || parts.length == 6) && parts[4].equals("articles"));
+        version(data); check(parts[3].equals(text(data, "version_id")));
+        if (parts.length == 5) {
             fields(data, "law_key", "version_id", "effective_date", "promulgation_date", "promulgation_no", "source_url", "source_commit", "article_count", "total", "offset", "limit", "items");
             String[] page = uri.getQuery().split("&");
             check(page.length == 2 && page[0].startsWith("offset=") && page[1].startsWith("limit="));
@@ -136,7 +138,7 @@ public final class AdminLawGateway {
             for (JsonNode paragraph : article.get("paragraphs")) {
                 fields(paragraph, "no", "text"); nullableText(paragraph, "no"); text(paragraph, "text");
             }
-            var number = java.util.regex.Pattern.compile("제?([0-9]+)(?:조)?(?:의([0-9]+))?").matcher(parts[9]);
+            var number = java.util.regex.Pattern.compile("제?([0-9]+)(?:조)?(?:의([0-9]+))?").matcher(parts[5]);
             check(number.matches());
             check(("제" + number.group(1) + "조" + (number.group(2) == null ? "" : "의" + number.group(2))).equals(text(article, "no")));
         }

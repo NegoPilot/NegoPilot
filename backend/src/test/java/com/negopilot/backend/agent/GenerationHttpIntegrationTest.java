@@ -112,7 +112,7 @@ class GenerationHttpIntegrationTest {
         assertThat(body.path("request_id")).isEqualTo(LAST_REQUEST.get().path("request_id"));
         assertThat(LAST_REQUEST.get().path("history").isEmpty()).isTrue();
         assertThat(LAST_REQUEST.get().path("context")).isEqualTo(context(null));
-        assertThat(LAST_PATH.get()).isEqualTo("POST /internal/v2/query-executions");
+        assertThat(LAST_PATH.get()).isEqualTo("POST /internal/query-executions");
         assertThat(LAST_KEY.get()).isEqualTo(TEST_KEY);
         assertThat(LAST_AUTHORIZATION.get()).isNull();
         assertThat(LAST_COOKIE.get()).isNull();

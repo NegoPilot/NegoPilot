@@ -2,6 +2,7 @@ package com.negopilot.backend.admin.law;
 
 import com.negopilot.backend.common.api.ApiException;
 import com.negopilot.backend.common.api.ApiPaths;
+import com.negopilot.backend.common.http.InternalPaths;
 import com.negopilot.backend.auth.CurrentUser;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -29,7 +30,7 @@ final class AdminLawController {
     @GetMapping
     JsonNode list(HttpServletRequest request) {
         UUID id = begin(request, Set.of());
-        return laws.read("/internal/v1/admin/laws", id);
+        return laws.read(InternalPaths.ADMIN_LAWS, id);
     }
     @GetMapping("/refresh-jobs")
     JsonNode latestRefresh(HttpServletRequest request) {
@@ -80,7 +81,7 @@ final class AdminLawController {
     }
     private String base(String key, UUID id) {
         if (!key.matches("[a-z_]{1,80}")) throw ApiException.validation(id);
-        return "/internal/v1/admin/laws/" + key;
+        return InternalPaths.ADMIN_LAWS + "/" + key;
     }
     private String versionPath(String key, String version, UUID id) {
         if (!version.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}_[a-f0-9]{40}")) throw ApiException.validation(id);

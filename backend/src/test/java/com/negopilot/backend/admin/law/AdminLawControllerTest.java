@@ -109,8 +109,8 @@ class AdminLawControllerTest {
         mvc.perform(get(ROOT + "/subcontract_act/versions").with(admin())).andExpect(status().isOk());
         mvc.perform(get(ROOT + "/subcontract_act/versions/" + VERSION + "/articles").with(admin())).andExpect(status().isOk());
         mvc.perform(get(ROOT + "/subcontract_act/versions/" + VERSION + "/articles/제16조의2").with(admin())).andExpect(status().isOk());
-        verify(laws).read(eq("/internal/v1/admin/laws/subcontract_act/versions/" + VERSION + "/articles?offset=0&limit=50"), any());
-        verify(laws).read(eq("/internal/v1/admin/laws/subcontract_act/versions/" + VERSION + "/articles/%EC%A0%9C16%EC%A1%B0%EC%9D%982"), any());
+        verify(laws).read(eq("/internal/admin/laws/subcontract_act/versions/" + VERSION + "/articles?offset=0&limit=50"), any());
+        verify(laws).read(eq("/internal/admin/laws/subcontract_act/versions/" + VERSION + "/articles/%EC%A0%9C16%EC%A1%B0%EC%9D%982"), any());
     }
     @Test void rejectsBadReadArgumentsBeforeProxy() throws Exception {
         for (String path : new String[]{
