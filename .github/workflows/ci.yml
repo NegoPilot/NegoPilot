@@ -124,10 +124,10 @@ jobs:
               for key in ("tests", "failures", "errors", "skipped")
           }
           required = {
-              "com.negopilot.backend.AuthMembershipPostgresTest",
-              "com.negopilot.backend.AuthBootstrapLocalUserPostgresTest",
-              "com.negopilot.backend.PersistentConversationServiceTest",
-              "com.negopilot.backend.AdminSupplierPostgresTest",
+              "com.negopilot.backend.auth.AuthMembershipPostgresTest",
+              "com.negopilot.backend.auth.AuthBootstrapLocalUserPostgresTest",
+              "com.negopilot.backend.chat.PersistentConversationServiceTest",
+              "com.negopilot.backend.admin.supplier.AdminSupplierPostgresTest",
           }
           executed = {
               suite.get("name") for suite in suites

@@ -1,5 +1,7 @@
 package com.negopilot.backend;
 
+import com.negopilot.backend.agent.AgentProperties;
+
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
