@@ -311,6 +311,9 @@ def named_law(text: str) -> str | None:
 
 _SUPPLIER_ID = re.compile(r"SUP-?0*(\d+)", re.IGNORECASE)
 _RFQ_ID = re.compile(r"RFQ-?(\d{4})-?(\d{3})", re.IGNORECASE)
+# 질문 원문에서 찾을 때는 띄어 쓴 표기(SUP 34, RFQ 2026-001)와 RFQ 접두어를 뺀 번호(2026-001)도 같은 값으로 본다
+_SUPPLIER_ID_IN_TEXT = re.compile(r"SUP[\s_-]*0*(\d+)", re.IGNORECASE)
+_RFQ_ID_IN_TEXT = re.compile(r"RFQ[\s_-]*(\d{4})[\s_-]*(\d{3})|(?<!\d)(\d{4})[\s_-](\d{3})(?!\d)", re.IGNORECASE)
 
 
 def drop_invented_ids(result: DecompositionResult, query: str, history: list[dict] | None = None,
@@ -324,8 +327,8 @@ def drop_invented_ids(result: DecompositionResult, query: str, history: list[dic
     """
     seen = "\n".join([query, *(str(m.get("content", "")) for m in history or [] if isinstance(m, dict)),
                       *(str(i) for i in (context or {}).get("selected_supplier_ids", []))])
-    suppliers = {int(n) for n in _SUPPLIER_ID.findall(seen)}
-    rfqs = set(_RFQ_ID.findall(seen))
+    suppliers = {int(n) for n in _SUPPLIER_ID_IN_TEXT.findall(seen)}
+    rfqs = {(m[0], m[1]) if m[0] else (m[2], m[3]) for m in _RFQ_ID_IN_TEXT.findall(seen)}
     dropped: list[str] = []
     sub_queries = []
     for sq in result.sub_queries:

@@ -489,10 +489,21 @@ async def test_invented_rfq_id_is_dropped():
     ("2번 업체로 RFQ-2026-001 단가 12,000원, 결제 75일, 연동 없이 괜찮아?",
      [{"role": "assistant", "content": "어느 업체인가요?\n1. 가상금속 (SUP-0097)\n2. 가상정밀 (SUP-0003)"}], None),
     ("이 회사에 RFQ-2026-001 단가 12,000원, 결제 75일, 연동 없이 괜찮아?", None, {"selected_supplier_ids": ["SUP-0003"]}),
-], ids=["same_id_other_notation", "from_history_options", "from_selected_context"])
+    ("SUP 3에 RFQ 2026-001 단가 12,000원, 결제 75일, 연동 없이 괜찮아?", None, None),          # 띄어 쓴 표기
+    ("2026-001 RFQ 건으로 sup_0003에 단가 12,000원, 결제 75일, 연동 없이 괜찮아?", None, None),  # RFQ 접두어 없는 번호
+], ids=["same_id_other_notation", "from_history_options", "from_selected_context", "spaced_notation",
+        "rfq_number_without_prefix"])
 async def test_ids_the_user_gave_are_kept(query, history, context):
     fake = FakeClaude(message_json(offer_output("SUP-0003", assumptions=["SUP-0003 기준"])))
     result = await fake.decomposer().decompose(query, history, **({"context": context} if context else {}))
     assert result.sub_queries[0].entities.supplier == "SUP-0003"
+    assert result.sub_queries[0].entities.rfq_id == "RFQ-2026-001"
     assert result.assumptions == ["SUP-0003 기준"]
+
+
+async def test_numbers_that_only_look_like_an_rfq_do_not_keep_an_invented_rfq():
+    """접두어 없는 번호는 '2026-001'처럼 구분자가 있을 때만 RFQ 번호로 본다. 금액·수량 숫자는 아니다."""
+    fake = FakeClaude(message_json(offer_output("SUP-0003", rfq_id="RFQ-1200-000")))
+    result = await fake.decomposer().decompose("SUP-0003에 연간 1200000개, 단가 12,000원, 결제 75일, 연동 없이 괜찮아?")
+    assert result.sub_queries[0].entities.rfq_id is None
 
