@@ -12,6 +12,8 @@ server.py 가 쓰는 항 단위 색인을 그대로 가져와, 같은 질문 세
 --decomposed 는 eval/decompose_gold.py 가 저장한 실제 분해 결과다. 라우터처럼 law_check 하위 질문을
 question 으로, law 엔티티가 있으면 그 법령만 검색해 "원문 → 사람 분해 → 실제 분해" 를 비교하고
 eval/results/decomposition_eval.json 에 저장한다.
+    uv run --with numpy python eval/eval_retrieval.py --decomposed eval/results/decomposed_gpt-4.1-mini.json \
+        --stepback eval/results/stepback_gpt-4.1-mini.json     # 검색어 확장 비교 (eval/stepback_queries.py)
 
 --retrievers(환경 변수 RETRIEVERS)로 평가할 방식만 고를 수 있고, --min-hit-at-5(MIN_HIT_AT_5)를 주면
 고른 방식 중 하나라도 "원문 질문 (전체) / 전체 법령" Hit@5 가 기준보다 낮을 때 종료 코드 1로 끝난다.
@@ -223,7 +225,7 @@ def run(args):
 
     if args.decomposed:
         dec_out = HERE / "results" / "decomposition_eval.json"
-        dec_out.write_text(json.dumps(run_decomposition(gold, args.decomposed, units, bm25),
+        dec_out.write_text(json.dumps(run_decomposition(gold, args.decomposed, units, bm25, args.stepback),
                                       ensure_ascii=False, indent=1), encoding="utf-8")
         print(f"\n분해 비교 질문별 순위: {dec_out.relative_to(HERE.parent)}")
 
@@ -267,7 +269,7 @@ def env_float(name: str) -> float | None:
 
 # ---------- 실제 분해 비교 ----------
 
-def run_decomposition(gold: dict, path: Path, units: list[dict], bm25) -> dict:
+def run_decomposition(gold: dict, path: Path, units: list[dict], bm25, stepback: Path | None = None) -> dict:
     """원문 / 사람 분해 / 실제 분해 질문으로 BM25 검색 점수를 비교한다.
 
     실제 분해는 agent 라우터(_law_check)처럼 law_check 하위 질문마다 search_regulation(question, laws=[law])을
@@ -275,13 +277,31 @@ def run_decomposition(gold: dict, path: Path, units: list[dict], bm25) -> dict:
     law_check 하위 질문이 없으면(다른 intent로 분해되면) 법령 검색을 하지 않으므로 놓친 것으로 센다.
     "+원문" 은 라우터가 question 뒤에 그 하위 질문의 원문(original_text)을 이어 붙여 검색한다고 가정한 경우다.
     분해를 여러 번 돌린 결과(runs)면 실행마다 지표를 내 평균하고, 최저·최고를 함께 남긴다.
+    stepback(eval/stepback_queries.py 결과)을 주면 하위 질문마다 검색어 여러 개(질문·원문·step-back)를
+    이어 붙이거나 각각 검색해 RRF로 합치는 검색어 확장 방식도 비교한다 (#191).
     """
     dec = json.loads(path.read_text(encoding="utf-8"))
     runs = dec["runs"] if "runs" in dec else [dec["items"]]
     as_of = gold["as_of"]
     arts = [unit_article(u) for u in units]
 
-    def real_rank(subs: list[dict], it: dict, expand: bool, with_original: bool = False) -> int | None:
+    sb = json.loads(stepback.read_text(encoding="utf-8"))["queries"] if stepback else {}
+
+    def step_back(s: dict) -> str:
+        return sb[f"{s['question']}\n{s['original_text']}"]
+
+    # 방식 이름 → (하위 질문에서 검색어 목록 만들기, 합치는 법). concat: 이어 붙여 한 번 검색, rrf: 각각 검색해 RRF
+    variants = {"실제 분해": (lambda s: [s["question"]], "concat"),
+                "실제 분해+원문": (lambda s: [s["question"], s["original_text"]], "concat")}
+    if sb:
+        variants |= {"step-back": (lambda s: [step_back(s)], "concat"),
+                     "질문+원문+step-back 이어 붙이기":
+                         (lambda s: [s["question"], s["original_text"], step_back(s)], "concat"),
+                     "질문·원문 RRF": (lambda s: [s["question"], s["original_text"]], "rrf"),
+                     "질문·원문·step-back RRF": (lambda s: [s["question"], s["original_text"], step_back(s)], "rrf")}
+
+    def real_rank(subs: list[dict], it: dict, expand: bool, variant: str = "실제 분해") -> int | None:
+        make, mode = variants[variant]
         hits = []
         for s in subs:
             if s["intent"] != "law_check":
@@ -289,9 +309,10 @@ def run_decomposition(gold: dict, path: Path, units: list[dict], bm25) -> dict:
             law = s["entities"].get("law")
             keys = (server.resolve_law(law)["law_key"],) if law else tuple(server.LAWS)
             us, bm = server.search_units(keys, as_of, False)   # 서버처럼 법령 필터면 그 법령만으로 색인한다
-            q = f"{s['question']} {s['original_text']}" if with_original else s["question"]
-            hits.append(first_hit(rank_bm25(bm, q, expand), [unit_article(u) for u in us],
-                                  set(it["gold"])))
+            qs = make(s)
+            ranking = (rank_bm25(bm, " ".join(qs), expand) if mode == "concat"
+                       else rank_rrf(*(rank_bm25(bm, q, expand) for q in qs)))
+            hits.append(first_hit(ranking, [unit_article(u) for u in us], set(it["gold"])))
         return min((h for h in hits if h), default=None)
 
     def orig_rank(it: dict, q: str, expand: bool) -> int | None:
@@ -304,18 +325,16 @@ def run_decomposition(gold: dict, path: Path, units: list[dict], bm25) -> dict:
             "새로 쓴 질문": [it for it in items if it["source"] == "new"],
             "보강 질문 (원문 BM25 약점)": [it for it in items if it["source"] == "new_hard"],
             "fixture (사람 분해 있음)": [it for it in items if "decomposed" in it]}
-    real = {"실제 분해": f"실제 분해 ({dec.get('model')})",
-            "실제 분해+원문": "실제 분해 + 하위 질문 원문 이어 붙이기"}
+    real = {v: v for v in variants} | {"실제 분해": f"실제 분해 ({dec.get('model')})",
+                                       "실제 분해+원문": "실제 분해 + 하위 질문 원문 이어 붙이기"}
     out = {"backend": dec.get("backend"), "model": dec.get("model"), "repeat": len(runs),
            "results": {}, "per_query": {}}
     for expand in (True, False):
         tag = "BM25+확장 (현재)" if expand else "BM25"
         per = {it["id"]: {"원문": orig_rank(it, it["query"], expand),
                           "사람 분해": orig_rank(it, it["decomposed"], expand) if "decomposed" in it else None,
-                          "실제 분해": [real_rank(r.get(it["id"], {}).get("sub_queries", []), it, expand)
-                                    for r in runs],
-                          "실제 분해+원문": [real_rank(r.get(it["id"], {}).get("sub_queries", []), it, expand, True)
-                                       for r in runs]} for it in items}
+                          **{v: [real_rank(r.get(it["id"], {}).get("sub_queries", []), it, expand, v)
+                                 for r in runs] for v in variants}} for it in items}
         out["per_query"][tag] = per
         for set_name, its in sets.items():
             rows = {"원문": summarize([per[it["id"]]["원문"] for it in its])}
@@ -369,6 +388,8 @@ if __name__ == "__main__":
                    help="함께 평가할 임베딩 모델")
     p.add_argument("--embed-python", default="python3",
                    help="embed.py 를 실행할 파이썬 (torch·transformers 또는 openai 필요)")
+    p.add_argument("--stepback", type=Path,
+                   help="eval/stepback_queries.py 결과. --decomposed 와 함께 주면 검색어 확장 방식을 비교한다")
     p.add_argument("--decomposed", type=Path,
                    help="eval/decompose_gold.py 가 저장한 실제 분해 결과. 주면 원문/사람 분해/실제 분해 비교를 더한다")
     p.add_argument("--retrievers", type=parse_retrievers,
