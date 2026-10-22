@@ -62,6 +62,10 @@ Docker의 Agent 시작기는 서버를 열기 전에 선택한 공급자의 모�
 | `OLLAMA_TIMEOUT_SECONDS` | `300` | Ollama 모델 호출 제한 시간 |
 | `OLLAMA_NUM_CTX` | `32768` | Ollama 문맥 크기 |
 | `OLLAMA_NUM_PREDICT` | `4096` | Ollama 출력 토큰 상한 |
+| `LANGSMITH_TRACING` | `false` | LangSmith 추적. `true`이고 `LANGSMITH_API_KEY`도 있을 때만 켜짐. 켜면 질문과 협력사 데이터, 법령 근거가 LangSmith로 전송됨 |
+| `LANGSMITH_API_KEY` | 빈 값 | LangSmith API 키. 각자 발급해 `.env`에만 넣음 |
+| `LANGSMITH_PROJECT` | `negopilot` | 추적을 모을 LangSmith 프로젝트 이름. 팀이 같은 이름을 쓰면 한 프로젝트에 모임 |
+| `LANGSMITH_HIDE_INPUTS`, `LANGSMITH_HIDE_OUTPUTS` | `false` | `true`면 입력·출력 내용 없이 실행 구조와 시간·토큰만 남김 |
 
 Docker 시작기는 MODEL 값이 미설정이거나 빈 문자열이면 기존 코어의 공급자 기본값을 사용합니다. OpenAI는 `gpt-4.1-mini`입니다. Anthropic은 `claude-opus-5-5`이며 Ollama는 `qwen3:8b`입니다. 공백만 입력한 모델 값은 설정 오류입니다. 공급자를 바꿀 때 이전 공급자의 MODEL 값도 함께 바꾸거나 비워야 합니다. FALLBACKS는 stub 전환 설정이 아닙니다.
 
