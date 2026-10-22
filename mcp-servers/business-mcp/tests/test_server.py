@@ -178,7 +178,8 @@ def test_v2_fields_and_basis():
     out = offer(as_of="2026-10-22")
     assert out["schema_version"] == "2"
     assert out["basis"] == {"as_of": "2026-10-22",
-                            "law_versions": {"subcontract_act": "2026-10-02", "subcontract_decree": "2026-08-11"}}
+                            "law_versions": {"subcontract_act": "2026-10-02", "subcontract_decree": "2026-08-11",
+                                             "sme_decree": "2026-01-02"}}
     assert out["offer"]["energy_ratio"] is None
 
 
