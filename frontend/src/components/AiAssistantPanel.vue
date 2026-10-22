@@ -281,7 +281,7 @@ function supplierSummary(res: GenerationResponse) {
               :disabled="sending"
               @click="selectConversation(item.conversation_id)"
             >
-              <span class="history-title">{{ item.title }}</span>
+              <span class="history-title" :title="item.title">{{ item.title }}</span>
               <span class="history-meta">{{ updatedFormatter.format(new Date(item.updated_at)) }} · 메시지 {{ item.message_count }}개</span>
             </button>
           </li>
@@ -561,7 +561,11 @@ function supplierSummary(res: GenerationResponse) {
   opacity: 0.5;
   cursor: not-allowed;
 }
+/* 제목이 한 줄을 넘으면 말줄임으로 자른다. 버튼 안 flex 항목이라 너비를 명시해야 잘린다 */
 .history-title {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
   font-size: 12px;
   font-weight: 600;
   overflow: hidden;
