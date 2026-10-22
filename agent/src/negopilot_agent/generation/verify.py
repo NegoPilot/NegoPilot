@@ -177,9 +177,18 @@ def mask(text: str, report: VerificationReport) -> str:
         return f"[{', '.join(keep)}]" if keep else ""
 
     text = CITE_RE.sub(drop_bad, text)
-    for token in sorted(report.ungrounded_numbers + report.ungrounded_articles, key=len, reverse=True):
-        text = text.replace(token, MASK)
-    return text
+    # check()와 같은 규칙으로 토큰을 다시 찾아 그 위치만 가린다. 문자열 치환은 근거 있는 '60일' 안의
+    # '0일'까지 바꿔 '6[확인 필요]'처럼 맞는 값을 깨뜨린다.
+    numbers, articles = set(report.ungrounded_numbers), set(report.ungrounded_articles)
+    spans = sorted({m.span() for m in number_tokens(text) if m.group(0) in numbers}
+                   | {m.span() for m in ARTICLE_RE.finditer(text) if m.group(0) in articles})
+    out, pos = [], 0
+    for start, end in spans:
+        if start < pos:          # 겹치는 토큰은 앞에서 이미 가렸다
+            continue
+        out += [text[pos:start], MASK]
+        pos = end
+    return "".join(out) + text[pos:]
 
 
 def render_citations(text: str, evidence: list[Evidence]) -> tuple[str, list[Citation]]:

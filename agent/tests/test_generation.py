@@ -225,6 +225,34 @@ async def test_ungrounded_number_is_masked_after_retry():
     assert "93일" not in answer.text and verify.MASK in answer.text
 
 
+@pytest.mark.parametrize(("answer", "masked"), [
+    # 근거 없는 '0일'을 가려도 근거 있는 '60일'은 그대로 둔다
+    ("대금은 60일 이내에 지급해야 하고 [E1], 지연 시 0일 유예는 없습니다.",
+     "대금은 60일 이내에 지급해야 하고 [E1], 지연 시 [확인 필요] 유예는 없습니다."),
+    ("15일과 5일 기준이 있습니다.", "15일과 [확인 필요] 기준이 있습니다."),
+    ("1,500원이 아니라 500원입니다.", "1,500원이 아니라 [확인 필요]입니다."),
+    ("제13조와 제3조가 적용됩니다.", "제13조와 [확인 필요]가 적용됩니다."),
+    # 같은 근거 없는 값이 여러 번 나오면 모두 가린다
+    ("5일 뒤, 다시 5일 뒤", "[확인 필요] 뒤, 다시 [확인 필요] 뒤"),
+])
+def test_mask_replaces_only_whole_ungrounded_tokens(answer, masked):
+    ev = [Evidence(id="E1", sub_query="q1", source="law", kind="article", label="하도급법 제13조",
+                   text="목적물 수령일부터 60일 이내, 15일, 1,500원")]
+    report = verify.check(answer, ev)
+    assert not report.ok
+    assert verify.mask(answer, report) == masked
+
+
+async def test_masking_keeps_grounded_number_end_to_end():
+    _, r = load("07_number_needs_grounding")
+    hit = next(e for e in build_evidence(r) if e.citable)
+    text = f"지급 기한은 수령일부터 60일입니다. [{hit.id}] 유예는 0일입니다."
+    answer, _ = await run("07_number_needs_grounding", backend=FakeBackend(draft(text)))
+    assert answer.verification.masked
+    assert "60일" in answer.text and "6[확인 필요]" not in answer.text
+    assert "유예는 [확인 필요]입니다." in answer.text
+
+
 async def test_general_knowledge_cannot_state_articles_or_numbers():
     backend = FakeBackend(draft("RFQ 회신은 보통 14일 안에 하며 하도급법 제3조가 적용됩니다."))
     answer, _ = await run("06_general_knowledge", backend=backend)
