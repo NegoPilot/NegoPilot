@@ -1,16 +1,19 @@
 import type { Capability, Evidence, Financial, GenerationResponse, Quality, ToolCall } from '@/api/types'
 
-/** 본문의 [1] 같은 인용 번호를 나눈다. 화면에서 번호를 근거 링크로 바꿀 때 쓴다 */
+/** 단일 인용과 묶음 인용을 각각의 번호로 나눈다. 저장된 답변도 같은 방식으로 표시한다. */
 export type TextPart = { type: 'text'; value: string } | { type: 'cite'; n: number }
 
 export function splitCitations(text: string): TextPart[] {
   const parts: TextPart[] = []
-  const pattern = /\[(\d+)\]/g
+  const pattern = /\[\s*(\d+(?:\s*,\s*\d+)*)\s*\]/g
   let last = 0
   for (const match of text.matchAll(pattern)) {
     const index = match.index ?? 0
     if (index > last) parts.push({ type: 'text', value: text.slice(last, index) })
-    parts.push({ type: 'cite', n: Number(match[1]) })
+    for (const [offset, number] of match[1]!.split(/\s*,\s*/).entries()) {
+      if (offset > 0) parts.push({ type: 'text', value: ' ' })
+      parts.push({ type: 'cite', n: Number(number) })
+    }
     last = index + match[0].length
   }
   if (last < text.length) parts.push({ type: 'text', value: text.slice(last) })
