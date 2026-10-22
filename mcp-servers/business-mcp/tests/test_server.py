@@ -127,6 +127,7 @@ def codes(result, key):
 def test_clean_offer_has_no_violation():
     out = offer()
     assert out["verdict"] == "문제 없음"
+    assert out["verdict_code"] == "OK"
     assert out["violations"] == [] and out["warnings"] == []
     assert out["offer"]["contract_amount"] == 120000 * 3800
 
@@ -134,13 +135,14 @@ def test_clean_offer_has_no_violation():
 def test_payment_over_60_days_is_a_violation_with_law_ref():
     out = offer(payment_days=75)
     assert "PAYMENT_DAYS_OVER_60" in codes(out, "violations")
-    assert {"law": "subcontract_act", "article_no": "제13조"} in out["law_refs"]
+    assert {"law": "subcontract_act", "article_no": "제13조", "paragraph": "①"} in out["law_refs"]
 
 
 def test_missing_linkage_for_major_material_is_a_violation():
     out = offer(price_linkage=False)
     assert "LINKAGE_TERMS_MISSING" in codes(out, "violations")
-    assert {"law": "subcontract_act", "article_no": "제3조"} in out["law_refs"]
+    assert {"law": "subcontract_act", "article_no": "제3조", "paragraph": "②"} in out["law_refs"]
+    assert out["verdict_code"] == "VIOLATION"
 
 
 def test_linkage_waived_by_agreement_needs_written_reason():
@@ -163,12 +165,69 @@ def test_short_contract_is_linkage_exempt():
 def test_price_far_below_market_is_a_warning():
     out = offer(unit_price=2500)
     assert "PRICE_BELOW_MARKET" in codes(out, "warnings")
-    assert {"law": "subcontract_act", "article_no": "제4조"} in out["law_refs"]
+    assert {"law": "subcontract_act", "article_no": "제4조", "paragraph": "①"} in out["law_refs"]
+    assert out["verdict_code"] == "CHECK_NEEDED"
 
 
 def test_invalid_ratio_is_a_clear_error():
     with pytest.raises(ToolError, match="0~1"):
         offer(raw_material_ratio=40)
+
+
+def test_v2_fields_and_basis():
+    out = offer(as_of="2026-10-22")
+    assert out["schema_version"] == "2"
+    assert out["basis"] == {"as_of": "2026-10-22",
+                            "law_versions": {"subcontract_act": "2026-10-02", "subcontract_decree": "2026-08-11"}}
+    assert out["offer"]["energy_ratio"] is None
+
+
+def test_missing_energy_linkage_is_a_violation():
+    out = offer(price_linkage=False, raw_material_ratio=0.05, energy_ratio=0.12, as_of="2026-10-22")
+    assert codes(out, "violations") == ["ENERGY_LINKAGE_TERMS_MISSING"]
+    assert {"law": "subcontract_act", "article_no": "제2조", "paragraph": "⑰"} in out["law_refs"]
+    assert out["offer"]["energy_ratio"] == 0.12
+
+
+def test_energy_linkage_exempt_and_waived():
+    out = offer(price_linkage=False, raw_material_ratio=0.05, energy_ratio=0.12, contract_days=60, as_of="2026-10-22")
+    assert "ENERGY_LINKAGE_EXEMPT" in codes(out, "info") and out["violations"] == []
+    out = offer(price_linkage=False, raw_material_ratio=0.05, energy_ratio=0.12, linkage_waived_by_agreement=True,
+                as_of="2026-10-22")
+    assert out["violations"] == []
+    assert "LINKAGE_WAIVED_NEEDS_WRITTEN_REASON" in codes(out, "warnings")
+
+
+def test_unknown_energy_ratio_is_info_only():
+    out = offer(price_linkage=False, raw_material_ratio=0.05, as_of="2026-10-22")
+    assert "ENERGY_RATIO_UNKNOWN" in codes(out, "info")
+    assert out["verdict_code"] == "OK"
+
+
+def test_energy_rule_does_not_apply_before_it_took_effect():
+    out = offer(price_linkage=False, raw_material_ratio=0.05, energy_ratio=0.12, as_of="2026-08-10")
+    assert out["violations"] == []
+    assert "ENERGY_RATIO_UNKNOWN" not in codes(out, "info")
+    assert out["basis"]["law_versions"]["subcontract_act"] == "2025-12-17"
+
+
+@pytest.mark.parametrize("kw, code", [
+    ({"rfq_id": "RFQ-2026-999"}, "RFQ_NOT_FOUND"),
+    ({"supplier": "SUP-9999"}, "SUPPLIER_NOT_FOUND"),
+    ({"supplier": "없는회사이름"}, "SUPPLIER_NOT_FOUND"),
+    ({"unit_price": 0}, "VALUE_OUT_OF_RANGE"),
+    ({"energy_ratio": 1.5}, "VALUE_OUT_OF_RANGE"),
+    ({"as_of": "2026/10/22"}, "VALUE_OUT_OF_RANGE"),
+])
+def test_input_errors_start_with_code(kw, code):
+    with pytest.raises(ToolError, match=rf"^\[{code}\] "):
+        offer(**kw)
+
+
+def test_ambiguous_supplier_error_code():
+    with pytest.raises(ToolError, match=r"^\[SUPPLIER_AMBIGUOUS\] "):
+        run(call("check_offer", {"supplier": "다이캐스팅", "rfq_id": "RFQ-2026-001", "unit_price": 3800,
+                                 "payment_days": 60, "price_linkage": True}))
 
 
 def test_rank_suppliers_flags_have_law_refs():
