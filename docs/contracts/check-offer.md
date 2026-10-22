@@ -85,6 +85,7 @@ v1과 비교해 **기존 필드는 이름도 뜻도 바꾸지 않고, 새 필드
 | `ENERGY_LINKAGE_TERMS_MISSING` | violation | 에너지 비중 10% 이상인데 연동 약정 없음 (제2조⑰, 제3조②3) | **추가** |
 | `ENERGY_LINKAGE_EXEMPT` | info | 에너지 연동 대상이지만 예외 해당 가능 (제3조④1~3) | **추가** |
 | `ENERGY_RATIO_UNKNOWN` | info | 에너지 비중을 입력하지 않아 에너지 검사를 건너뜀 | **추가** |
+| `ENERGY_RULE_NOT_IN_FORCE` | info | 에너지 비중을 받았지만 `as_of`가 주요 에너지 연동 규정 시행일(2026-08-11) 전이라 에너지 검사를 하지 않음. 그 시점 시행판에 근거 조문이 없어 `law_refs`는 빈 목록 | **추가** |
 | `PRICE_BELOW_MARKET` | warning | 단가가 같은 공정·소재 최근 견적 중앙값의 90% 미만 (제4조) | |
 | `PRICE_CUT_FROM_LAST_QUOTE` | warning | 이 협력사의 직전 견적보다 5% 넘게 낮음 (제4조) | |
 | `ABOVE_TARGET_PRICE` | info | 단가가 RFQ 목표 단가보다 높음 | |

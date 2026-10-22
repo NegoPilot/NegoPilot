@@ -81,6 +81,7 @@
 | `LINKAGE_WAIVED_NEEDS_WRITTEN_REASON` | warning | 원재료·에너지 연동 대상인데 연동하지 않기로 합의함 → 취지·사유를 서면에 기재 | 제3조④4 |
 | `LINKAGE_EXEMPT` / `ENERGY_LINKAGE_EXEMPT` | info | 원재료·에너지 연동 대상이지만 원사업자 소기업, 거래 90일 이내, 하도급대금 1억 원 이하 | 제3조④1~3, 시행령 제3조③④ |
 | `ENERGY_RATIO_UNKNOWN` | info | 에너지 비중을 입력하지 않아 에너지 검사를 건너뜀 | 제2조⑰ |
+| `ENERGY_RULE_NOT_IN_FORCE` | info | 계약 시점(`as_of`)이 에너지 규정 시행일(2026-08-11) 전이라 에너지 연동을 검사하지 않음 | 제2조⑰ 시행 부칙 |
 | `RAW_MATERIAL_RATIO_UNKNOWN` | warning | 원재료 비중을 몰라 연동 대상 판단 불가 | 제2조⑯, 제3조② |
 | `PRICE_BELOW_MARKET` | warning | 같은 공정·소재 최근 견적 중앙값의 90% 미만 | 제4조① |
 | `PRICE_CUT_FROM_LAST_QUOTE` | warning | 그 협력사 직전 견적보다 5% 넘게 낮음 | 제4조②1·5 |

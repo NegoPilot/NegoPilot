@@ -108,9 +108,17 @@ def test_energy_linkage_exemptions_and_agreements():
 
 
 def test_energy_rule_starts_on_2026_08_11():
-    assert energy(0.12, as_of=BEFORE_ENERGY) == []
+    assert energy(0.12, as_of=BEFORE_ENERGY) == ["ENERGY_RULE_NOT_IN_FORCE"]
     assert energy(None, as_of=BEFORE_ENERGY) == []
+    assert energy(0.12, as_of=BEFORE_ENERGY, linkage=True) == []
     assert energy(0.12, as_of=date(2026, 8, 11)) == ["ENERGY_LINKAGE_TERMS_MISSING"]
+
+
+def test_skipped_energy_check_explains_why_without_citing_a_later_law():
+    [skipped] = rules.energy_linkage_findings(0.15, False, 500_000_000, 365, date(2026, 7, 1))
+    assert skipped["severity"] == "info" and skipped["law_refs"] == []
+    assert "2026년 7월 1일" in skipped["message"] and "2026년 8월 11일" in skipped["message"]
+    assert "15%" in skipped["message"]
 
 
 def test_verdict_code():
