@@ -53,7 +53,7 @@ class LatestRoutingContractTest {
                 new FixtureCase("04_business_wording.json", "ok", "routed",
                         List.of("ok"), List.of(0), "COMPLETED", null),
                 new FixtureCase(OFFER_FIXTURE, "ok", "routed",
-                        List.of("ok"), List.of(3), "COMPLETED", null),
+                        List.of("ok"), List.of(4), "COMPLETED", null),
                 new FixtureCase("06_general_knowledge.json", "ok", "routed",
                         List.of("general_knowledge"), List.of(0), "COMPLETED", null),
                 new FixtureCase("07_number_needs_grounding.json", "ok", "routed",
@@ -94,13 +94,18 @@ class LatestRoutingContractTest {
         ObjectNode response = envelope(OFFER_FIXTURE);
         JsonNode lawRefs = outcome(response).path("calls").get(0).path("result").path("law_refs");
         ArrayNode articles = references(response);
-        assertEquals(3, articles.size());
-        assertEquals(3, lawRefs.size());
+        // check_offer v2의 law_refs는 (조문, 항)마다 나온다. Router는 조문 전문을 조문마다 한 번만 조회한다.
+        List<String> expected = nodes(lawRefs)
+                .map(ref -> ref.path("law").stringValue() + " " + ref.path("article_no").stringValue())
+                .distinct().toList();
+        assertEquals(4, articles.size());
+        assertEquals(expected.size(), articles.size());
         for (int index = 0; index < articles.size(); index++) {
             JsonNode call = articles.get(index);
             assertEquals("law-mcp", call.path("server").stringValue());
             assertEquals("get_article", call.path("tool").stringValue());
-            assertEquals(lawRefs.get(index), call.path("args"));
+            assertEquals(expected.get(index),
+                    call.path("args").path("law").stringValue() + " " + call.path("args").path("article_no").stringValue());
             assertTrue(call.path("result").path("citation").isString());
             assertFalse(call.path("result").path("citation").stringValue().isBlank());
             assertTrue(call.path("error").isNull());
