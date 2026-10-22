@@ -22,7 +22,7 @@ from tests.test_supplier_lookup_live import FakeBusiness
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_DIR = ROOT / "docs" / "contracts"
-V1 = "agent-http.openapi.json"
+GENERATION = "agent-generation.openapi.json"
 LOOKUP_V2 = "supplier-lookup.openapi.json"
 API_KEY = "test-only-openapi-key"
 HEADERS = {"X-Internal-Api-Key": API_KEY}
@@ -99,7 +99,7 @@ async def request(app, method, path, *, headers=None, **kwargs):
 @pytest.mark.parametrize("mode", ["stub", "live"])
 async def test_health_matches_fixed_openapi_without_external_dependencies(mode):
     response = await request(app_for(mode=mode), "GET", "/health", headers={})
-    assert assert_wire(response, V1, "/health", "GET") == {"status": "ok"}
+    assert assert_wire(response, GENERATION, "/health", "GET") == {"status": "ok"}
 
 
 @pytest.mark.parametrize("mode", ["stub", "live"])

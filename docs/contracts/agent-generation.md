@@ -1,8 +1,8 @@
 # 최신 Agent Generation HTTP 계약 v0.3
 
-기준 main은 `4cad84287086f83f5a858ee9084f005557b81bff`이다. Spring과 Python 사이에서 최신 `build_graph`의 분해와 Routing 및 Generation을 한 번 실행한다. 기존 v0.1 질의 실행과 v0.2 fixture 대화 경로는 호환성 검사용으로 유지한다. 생성 답변을 사용할 클라이언트는 아래 v2 공개 경로를 호출한다. 기본 실행 모드는 live이며 실패할 때 stub으로 전환하지 않는다.
+기준 main은 `4cad84287086f83f5a858ee9084f005557b81bff`이다. Spring과 Python 사이에서 최신 `build_graph`의 분해와 Routing 및 Generation을 한 번 실행한다. 생성 답변을 사용할 클라이언트는 아래 v2 공개 경로를 호출한다. 과거 v0.1 질의 실행과 v0.2 fixture 대화 경로는 #130과 #141에서 제거됐다. 기본 실행 모드는 live이며 실패할 때 stub으로 전환하지 않는다.
 
-Agent 요청과 실행 응답의 정적 스키마는 [OpenAPI v0.3](agent-generation.openapi.json)에 있다. 해당 파일의 메모리 대화 스냅샷은 `legacy-test` 호환 계약이다. 기본 실행의 로그인과 CSRF는 [회원 계약](membership.md)을 따른다. 영속 대화의 v0.4 스냅샷과 추가 경로는 [개인 이력 계약](history.md)을 따른다.
+Agent 요청과 실행 응답 및 `/health`의 정적 스키마는 [OpenAPI v0.3](agent-generation.openapi.json)에 있다. 대화 생성과 조회 응답은 이 파일에 두지 않는다. 기본 실행의 로그인과 CSRF는 [회원 계약](membership.md)을 따른다. 영속 대화의 v0.4 스냅샷과 추가 경로는 [개인 이력 계약](history.md)을 따른다.
 
 기업 선택 없이 채팅에서 질문하는 흐름과 필요한 정보만 추가로 묻는 기준은 [직접 질문 계약](direct-chat.md)에 있다. 기존 schema 0.3의 요청과 응답을 그대로 사용한다.
 
@@ -15,7 +15,7 @@ Agent 요청과 실행 응답의 정적 스키마는 [OpenAPI v0.3](agent-genera
 | POST /api/v2/agent/queries | Spring의 상태 없는 생성 답변 API |
 | POST /internal/v2/query-executions | Python의 전체 Agent 실행 |
 | POST /api/v2/conversations | 기본 실행은 PostgreSQL 대화 생성. 상세는 이력 v0.4 계약 |
-| GET /api/v2/conversations/{conversation_id} | 대화 문맥과 저장 메시지 조회 |
+| GET /api/v2/conversations/{conversation_id} | 대화 문맥과 저장 메시지 조회. 상세는 이력 v0.4 계약 |
 | POST /api/v2/conversations/{conversation_id}/messages | 저장 문맥과 이력으로 생성 답변 요청 |
 
 질의 요청은 `request_id`와 `query` 및 `history`와 `context`다. 내부 API의 request_id는 필수 UUID다. 공개 질의 API에서는 생략하면 Spring이 만든다. query는 1..4000 code point이며 공백만 있는 문자열은 거절한다. 원문은 보존한다. history는 생략 시 빈 배열이며 최대 20개다. 항목은 user 또는 assistant role과 1..4000자의 content만 갖는다. context는 생략 시 `{selected_supplier_ids:[]}`다. 응답의 decomposition.original_query는 전달된 query와 일치해야 한다. 정의되지 않은 필드와 명시적인 null은 거절한다.
@@ -57,19 +57,11 @@ Answer는 kind와 text 및 citations와 options 및 grounded와 notices 및 evid
 
 인용 번호와 evidence ID는 고유해야 한다. citation.evidence_id는 citable=true인 evidence를 가리키며 label과 source_url도 일치해야 한다. verification.masked=true이면서 오류 목록이 남는 것은 코어의 정상적인 보정 결과다. 이를 실패로 바꾸지 않는다. clarify 같은 고정 안내에는 인용 없이 grounded=true가 올 수 있다.
 
-Routing 진단 필드는 v0.1의 고정 문구로 정제한 사본을 Generator에 전달한다. HTTP 응답의 Routing도 같은 규칙을 적용한다. 도구 result와 업무 데이터 및 인용은 보존한다. 모델 출력 문자열을 정해진 테스트 문장으로 교체하지 않는다.
+Routing 진단 필드는 고정 문구로 정제한 사본을 Generator에 전달한다. 도구 오류는 `Tool execution failed.`, outcome 메시지는 `Routing details are unavailable.`, 중단 사유는 `Routing halted because a dependency returned no results.`로 바꾼다. HTTP 응답의 Routing도 같은 규칙을 적용한다. 도구 result와 업무 데이터 및 인용은 보존한다. 모델 출력 문자열을 정해진 테스트 문장으로 교체하지 않는다.
 
-## 기존 메모리 대화 저장 계약
+## 대화 메시지 응답
 
-이 절은 `legacy-test` 프로필에만 적용한다. 기본 실행에서는 [이력 v0.4](history.md)에 따라 모든 메시지를 PostgreSQL에 보존한다.
-
-대화 생성 요청은 `{context:Context}`다. 기업 정보는 fixture와 비교하지 않는다. snapshot은 schema_version="0.3"과 conversation_id 및 context와 storage="memory" 및 messages를 갖는다. 대화 ID는 기존 API와 같은 표준 UUID 형식이며 대소문자를 구분한다.
-
-메시지 요청은 `{query:string,context?:Context}`다. query는 앞뒤 공백을 제거한 뒤 검사한다. context를 생략하면 저장된 문맥을 쓴다. request_id와 history는 클라이언트가 지정하지 않는다. Spring이 최신 저장 메시지 20개를 전달한다. 생성된 긴 assistant 본문은 저장할 때 보존하며 모델 이력으로 보낼 때만 최대 4000 code point로 제한한다. 앞부분을 자른 결과가 공백만 남으면 전송용 이력에서 앞 공백을 제외한 뒤 다시 제한한다. 추가 질문의 선택지는 다음 입력의 번호를 해석할 수 있도록 전송용 assistant 이력에 번호와 함께 포함한다. 저장된 본문은 바꾸지 않는다. 전체 전송 길이 제한을 지키며 선택지 블록을 일부만 잘라 잘못된 번호를 만들지 않는다.
-
-메시지 응답은 실행 응답에 conversation_id와 response_id를 추가한다. response_id는 Spring이 생성한다. 저장 메시지는 message_id와 role 및 content와 response를 갖는다. user의 response는 null이며 assistant의 response에는 전체 메시지 응답을 저장한다. assistant.message_id는 response_id와 같다.
-
-같은 대화는 직렬로 처리한다. COMPLETED와 NEEDS_INPUT일 때 user와 assistant를 함께 저장하고 새 context를 확정한다. HTTP 오류와 잘못된 응답 및 execution_status=FAILED에서는 메시지와 문맥을 보존한다. 대화별 최대 100개 메시지를 쌍 단위로 유지한다. 재시작하면 초기화된다.
+`POST /api/v2/conversations/{conversation_id}/messages`의 성공 응답은 위 실행 응답에 Spring이 발급한 `conversation_id`와 `response_id`를 더한 객체다. 저장과 실패 처리, 이력 전달, 중복 방지 규칙은 [이력 v0.4 계약](history.md)을 따른다.
 
 ## 오류와 검증 모드
 

@@ -3,7 +3,7 @@
   "info": {
     "title": "NegoPilot Agent Generation HTTP contract",
     "version": "0.3.0",
-    "description": "Spring and Python execute the latest decomposition → Routing → Generation graph once. Live is the default. Stub substitutes model and tool I/O while keeping the real graph and AnswerGenerator. Existing v1 and fixture APIs retain their contracts. See agent-generation.md for runtime invariants. Production Spring authentication and CSRF are specified in membership.md. Production persistent conversation snapshots use v0.4 as specified in history.md. ConversationSnapshot here is the legacy-test profile contract only; GenerationExecutionResponse remains v0.3 in all profiles."
+    "description": "Spring and Python execute the latest decomposition → Routing → Generation graph once. Live is the default. Stub substitutes model and tool I/O while keeping the real graph and AnswerGenerator. See agent-generation.md for runtime invariants. Production Spring authentication and CSRF are specified in membership.md. Conversation creation, snapshots and lists use v0.4 as specified in history.md; the message response here is the v0.3 GenerationExecutionResponse with conversation_id and response_id."
   },
   "paths": {
     "/api/v2/agent/queries": {
@@ -176,123 +176,6 @@
         }
       ]
     },
-    "/api/v2/conversations": {
-      "post": {
-        "operationId": "createGenerationConversation",
-        "security": [],
-        "responses": {
-          "201": {
-            "description": "Conversation created.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConversationSnapshot"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        },
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateConversationRequest"
-              }
-            }
-          }
-        }
-      },
-      "servers": [
-        {
-          "url": "http://127.0.0.1:8080"
-        }
-      ]
-    },
-    "/api/v2/conversations/{conversation_id}": {
-      "get": {
-        "operationId": "getGenerationConversation",
-        "security": [],
-        "responses": {
-          "200": {
-            "description": "Successful response. Inspect execution_status for Agent execution results.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConversationSnapshot"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Conversation not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      },
-      "servers": [
-        {
-          "url": "http://127.0.0.1:8080"
-        }
-      ],
-      "parameters": [
-        {
-          "name": "conversation_id",
-          "in": "path",
-          "required": true,
-          "schema": {
-            "type": "string",
-            "format": "uuid"
-          }
-        }
-      ]
-    },
     "/api/v2/conversations/{conversation_id}/messages": {
       "post": {
         "operationId": "generateConversationMessage",
@@ -396,6 +279,32 @@
           }
         }
       ]
+    },
+    "/health": {
+      "servers": [
+        {
+          "url": "http://127.0.0.1:9200"
+        },
+        {
+          "url": "http://127.0.0.1:8080"
+        }
+      ],
+      "get": {
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "Process is accepting HTTP requests. Not dependency readiness.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        },
+        "description": "Spring and Python process liveness. This does not check external dependency readiness."
+      }
     }
   },
   "components": {
@@ -1723,18 +1632,6 @@
         ],
         "description": "Final Answer determines status. Cross-object citation identities and decomposition/routing correspondence are checked at runtime. See agent-generation.md."
       },
-      "CreateConversationRequest": {
-        "type": "object",
-        "properties": {
-          "context": {
-            "$ref": "#/components/schemas/Context"
-          }
-        },
-        "required": [
-          "context"
-        ],
-        "additionalProperties": false
-      },
       "MessageRequest": {
         "type": "object",
         "properties": {
@@ -1753,96 +1650,18 @@
         ],
         "additionalProperties": false
       },
-      "StoredMessage": {
+      "Health": {
         "type": "object",
         "properties": {
-          "message_id": {
+          "status": {
             "type": "string",
-            "format": "uuid"
-          },
-          "role": {
             "enum": [
-              "user",
-              "assistant"
-            ]
-          },
-          "content": {
-            "type": "string"
-          },
-          "response": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/GenerationMessageResponse"
-              },
-              {
-                "type": "null"
-              }
+              "ok"
             ]
           }
         },
         "required": [
-          "message_id",
-          "role",
-          "content",
-          "response"
-        ],
-        "additionalProperties": false,
-        "allOf": [
-          {
-            "if": {
-              "properties": {
-                "role": {
-                  "const": "user"
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "response": {
-                  "type": "null"
-                }
-              }
-            },
-            "else": {
-              "properties": {
-                "response": {
-                  "$ref": "#/components/schemas/GenerationMessageResponse"
-                }
-              }
-            }
-          }
-        ]
-      },
-      "ConversationSnapshot": {
-        "type": "object",
-        "properties": {
-          "schema_version": {
-            "const": "0.3"
-          },
-          "conversation_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "context": {
-            "$ref": "#/components/schemas/Context"
-          },
-          "storage": {
-            "const": "memory"
-          },
-          "messages": {
-            "type": "array",
-            "maxItems": 100,
-            "items": {
-              "$ref": "#/components/schemas/StoredMessage"
-            }
-          }
-        },
-        "required": [
-          "schema_version",
-          "conversation_id",
-          "context",
-          "storage",
-          "messages"
+          "status"
         ],
         "additionalProperties": false
       }

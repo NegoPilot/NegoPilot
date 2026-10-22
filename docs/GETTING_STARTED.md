@@ -216,7 +216,7 @@ mvn -f backend/pom.xml -B -ntp test
 (cd frontend && npm ci && npm run build)
 ```
 
-실제 DB 회귀 테스트에는 폐기 가능한 전용 DB가 필요합니다. 환경변수와 초기화 범위는 [백엔드 검증 안내](../backend/README.md#검증)를 확인합니다. 기본 서비스 실행에 인증을 없애는 `legacy-test` 프로필을 사용하지 않습니다.
+실제 DB 회귀 테스트에는 폐기 가능한 전용 DB가 필요합니다. 환경변수와 초기화 범위는 [백엔드 검증 안내](../backend/README.md#검증)를 확인합니다.
 
 ## 6. 계약을 바꾸고 싶을 때
 
