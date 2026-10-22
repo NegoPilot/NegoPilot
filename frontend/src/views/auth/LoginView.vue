@@ -51,7 +51,7 @@ async function login() {
     const user = await signIn(form.email.trim(), form.password)
     writeRemembered(form.remember ? form.email.trim() : null)
     const redirect = safeRedirect(route.query.redirect)
-    await router.push(user.status === 'PENDING' ? { name: 'signup-pending' } : redirect ?? { name: 'chat' })
+    await router.push(user.status === 'PENDING' ? { name: 'signup-pending' } : redirect ?? { name: 'home' })
   } catch (error) {
     notice.value = describeError(error).message
   } finally {
