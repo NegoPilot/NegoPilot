@@ -72,11 +72,11 @@ class AuthMembershipPostgresTest {
 
     @Test void csrfIsRequiredEvenForSignupAndLogin() throws Exception {
         try (var browser = new Browser()) {
-            assertError(browser.send("POST", "/api/v1/auth/signup", signup("new@example.com"), false), 403, "CSRF_INVALID");
-            assertError(browser.send("POST", "/api/v1/auth/login", credentials("admin@example.com", PASSWORD), false), 403, "CSRF_INVALID");
+            assertError(browser.send("POST", "/api/auth/signup", signup("new@example.com"), false), 403, "CSRF_INVALID");
+            assertError(browser.send("POST", "/api/auth/login", credentials("admin@example.com", PASSWORD), false), 403, "CSRF_INVALID");
             browser.csrf();
             ObjectNode body = signup("  New@Example.com  ");
-            var response = browser.send("POST", "/api/v1/auth/signup", body, true);
+            var response = browser.send("POST", "/api/auth/signup", body, true);
             assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
             JsonNode created = json(response).get("user");
             assertPublicMember(created);
@@ -84,8 +84,8 @@ class AuthMembershipPostgresTest {
             assertThat(created.get("role").stringValue()).isEqualTo("USER");
             assertThat(created.get("status").stringValue()).isEqualTo("PENDING");
             assertThat(response.body()).doesNotContain(PASSWORD, "password_hash", "$2a$");
-            assertError(browser.send("POST", "/api/v1/auth/signup", signup("NEW@example.com"), true), 409, "EMAIL_ALREADY_REGISTERED");
-            assertError(browser.send("POST", "/api/v1/auth/signup", signup("x@example.com").put("role", "ADMIN"), true), 400, "VALIDATION_ERROR");
+            assertError(browser.send("POST", "/api/auth/signup", signup("NEW@example.com"), true), 409, "EMAIL_ALREADY_REGISTERED");
+            assertError(browser.send("POST", "/api/auth/signup", signup("x@example.com").put("role", "ADMIN"), true), 400, "VALIDATION_ERROR");
             String hash = jdbc.queryForObject("SELECT password_hash FROM app_users WHERE email='new@example.com'", String.class);
             assertThat(new BCryptPasswordEncoder().matches(PASSWORD, hash)).isTrue();
         }
@@ -93,30 +93,30 @@ class AuthMembershipPostgresTest {
 
     @Test void sessionsRotateAndPendingIsLimitedUntilAdminApproval() throws Exception {
         try (var applicant = new Browser(); var administrator = new Browser()) {
-            assertError(applicant.get("/api/v2/business/catalog"), 401, "UNAUTHENTICATED");
+            assertError(applicant.get("/api/business/catalog"), 401, "UNAUTHENTICATED");
             applicant.csrf();
             String before = applicant.cookie();
             String oldCsrf = applicant.token;
-            assertThat(applicant.send("POST", "/api/v1/auth/login", credentials("pending@example.com", PASSWORD), true).statusCode()).isEqualTo(200);
+            assertThat(applicant.send("POST", "/api/auth/login", credentials("pending@example.com", PASSWORD), true).statusCode()).isEqualTo(200);
             assertThat(applicant.cookie()).isNotEqualTo(before);
-            assertThat(applicant.get("/api/v1/auth/me").statusCode()).isEqualTo(200);
-            assertError(applicant.get("/api/v1/admin/members"), 403, "FORBIDDEN");
-            assertError(applicant.get("/api/v2/business/catalog"), 403, "FORBIDDEN");
+            assertThat(applicant.get("/api/auth/me").statusCode()).isEqualTo(200);
+            assertError(applicant.get("/api/admin/members"), 403, "FORBIDDEN");
+            assertError(applicant.get("/api/business/catalog"), 403, "FORBIDDEN");
             applicant.token = oldCsrf;
-            assertError(applicant.send("POST", "/api/v1/auth/logout", null, true), 403, "CSRF_INVALID");
+            assertError(applicant.send("POST", "/api/auth/logout", null, true), 403, "CSRF_INVALID");
             applicant.csrf();
-            assertError(applicant.send("POST", "/api/v2/conversations", context(), true), 403, "FORBIDDEN");
+            assertError(applicant.send("POST", "/api/conversations", context(), true), 403, "FORBIDDEN");
             administrator.login("admin@example.com");
             String beforeApproval = applicant.cookie();
-            var approval = administrator.send("PATCH", "/api/v1/admin/members/" + pending + "/status", JSON.createObjectNode().put("status", "ACTIVE"), true);
+            var approval = administrator.send("PATCH", "/api/admin/members/" + pending + "/status", JSON.createObjectNode().put("status", "ACTIVE"), true);
             assertThat(approval.statusCode()).as(approval.body()).isEqualTo(200);
             assertPublicMember(json(approval).get("user"));
-            var me = applicant.get("/api/v1/auth/me");
+            var me = applicant.get("/api/auth/me");
             assertThat(me.statusCode()).as(me.body()).isEqualTo(200);
             assertPublicMember(json(me).get("user"));
             assertThat(json(me).at("/user/status").stringValue()).isEqualTo("ACTIVE");
             assertThat(applicant.cookie()).isNotEqualTo(beforeApproval);
-            assertThat(applicant.send("POST", "/api/v2/conversations", context(), true).statusCode()).isEqualTo(201);
+            assertThat(applicant.send("POST", "/api/conversations", context(), true).statusCode()).isEqualTo(201);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM spring_session WHERE principal_name=?", Integer.class, pending.toString())).isEqualTo(1);
         }
     }
@@ -125,28 +125,28 @@ class AuthMembershipPostgresTest {
         try (var first = new Browser(); var second = new Browser(); var administrator = new Browser()) {
             first.login("user@example.com"); second.login("user@example.com"); administrator.login("admin@example.com");
             assertThat(jdbc.queryForObject("SELECT count(*) FROM spring_session WHERE principal_name=?", Integer.class, user.toString())).isEqualTo(2);
-            assertThat(administrator.send("PATCH", "/api/v1/admin/members/" + user + "/status", JSON.createObjectNode().put("status", "DISABLED"), true).statusCode()).isEqualTo(200);
-            assertError(first.get("/api/v1/auth/me"), 401, "UNAUTHENTICATED");
-            assertError(second.get("/api/v1/auth/me"), 401, "UNAUTHENTICATED");
+            assertThat(administrator.send("PATCH", "/api/admin/members/" + user + "/status", JSON.createObjectNode().put("status", "DISABLED"), true).statusCode()).isEqualTo(200);
+            assertError(first.get("/api/auth/me"), 401, "UNAUTHENTICATED");
+            assertError(second.get("/api/auth/me"), 401, "UNAUTHENTICATED");
             assertThat(jdbc.queryForObject("SELECT count(*) FROM app_users WHERE id=?", Integer.class, user)).isEqualTo(1);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM app_membership_audit WHERE target_id=?", Integer.class, user)).isEqualTo(1);
             first.csrf();
-            assertError(first.send("POST", "/api/v1/auth/login", credentials("user@example.com", PASSWORD), true), 401, "INVALID_CREDENTIALS");
-            assertThat(administrator.send("PATCH", "/api/v1/admin/members/" + user + "/status", JSON.createObjectNode().put("status", "ACTIVE"), true).statusCode()).isEqualTo(200);
-            assertThat(first.send("POST", "/api/v1/auth/login", credentials("user@example.com", PASSWORD), true).statusCode()).isEqualTo(200);
+            assertError(first.send("POST", "/api/auth/login", credentials("user@example.com", PASSWORD), true), 401, "INVALID_CREDENTIALS");
+            assertThat(administrator.send("PATCH", "/api/admin/members/" + user + "/status", JSON.createObjectNode().put("status", "ACTIVE"), true).statusCode()).isEqualTo(200);
+            assertThat(first.send("POST", "/api/auth/login", credentials("user@example.com", PASSWORD), true).statusCode()).isEqualTo(200);
         }
     }
 
     @Test void rejectsPendingAllowsAdminReapprovalAndNeverAllowsSelfChange() throws Exception {
         try (var administrator = new Browser(); var applicant = new Browser()) {
             administrator.login("admin@example.com"); applicant.login("pending@example.com");
-            assertThat(administrator.send("PATCH", "/api/v1/admin/members/" + pending + "/status", JSON.createObjectNode().put("status", "REJECTED"), true).statusCode()).isEqualTo(200);
-            assertError(applicant.get("/api/v1/auth/me"), 401, "UNAUTHENTICATED");
+            assertThat(administrator.send("PATCH", "/api/admin/members/" + pending + "/status", JSON.createObjectNode().put("status", "REJECTED"), true).statusCode()).isEqualTo(200);
+            assertError(applicant.get("/api/auth/me"), 401, "UNAUTHENTICATED");
             applicant.csrf();
-            assertError(applicant.send("POST", "/api/v1/auth/login", credentials("pending@example.com", PASSWORD), true), 401, "INVALID_CREDENTIALS");
-            assertThat(administrator.send("PATCH", "/api/v1/admin/members/" + pending + "/status", JSON.createObjectNode().put("status", "ACTIVE"), true).statusCode()).isEqualTo(200);
-            assertError(administrator.send("PATCH", "/api/v1/admin/members/" + admin + "/role", JSON.createObjectNode().put("role", "USER"), true), 409, "SELF_CHANGE_FORBIDDEN");
-            assertError(administrator.send("PATCH", "/api/v1/admin/members/" + admin + "/status", JSON.createObjectNode().put("status", "DISABLED"), true), 409, "SELF_CHANGE_FORBIDDEN");
+            assertError(applicant.send("POST", "/api/auth/login", credentials("pending@example.com", PASSWORD), true), 401, "INVALID_CREDENTIALS");
+            assertThat(administrator.send("PATCH", "/api/admin/members/" + pending + "/status", JSON.createObjectNode().put("status", "ACTIVE"), true).statusCode()).isEqualTo(200);
+            assertError(administrator.send("PATCH", "/api/admin/members/" + admin + "/role", JSON.createObjectNode().put("role", "USER"), true), 409, "SELF_CHANGE_FORBIDDEN");
+            assertError(administrator.send("PATCH", "/api/admin/members/" + admin + "/status", JSON.createObjectNode().put("status", "DISABLED"), true), 409, "SELF_CHANGE_FORBIDDEN");
         }
     }
 
@@ -165,7 +165,7 @@ class AuthMembershipPostgresTest {
             var before = members.byId(user);
             var sessionsBefore = sessionIds(user);
             assertThat(sessionsBefore).hasSize(1);
-            var response = administrator.send("PATCH", "/api/v1/admin/members/" + user + "/status",
+            var response = administrator.send("PATCH", "/api/admin/members/" + user + "/status",
                     JSON.createObjectNode().put("status", to), true);
             if (!allowed) {
                 assertError(response, 409, "INVALID_STATUS_TRANSITION");
@@ -198,13 +198,13 @@ class AuthMembershipPostgresTest {
             var before = members.byId(user);
             var sessionsBefore = sessionIds(user);
             assertThat(sessionsBefore).hasSize(1);
-            var response = administrator.send("PATCH", "/api/v1/admin/members/" + user + "/role",
+            var response = administrator.send("PATCH", "/api/admin/members/" + user + "/role",
                     JSON.createObjectNode().put("role", "USER"), true);
             assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
             assertPublicMember(json(response).get("user"));
             assertThat(json(response).at("/user/role").stringValue()).isEqualTo("USER");
             if (!status.equals("ACTIVE")) {
-                assertError(administrator.send("PATCH", "/api/v1/admin/members/" + user + "/role",
+                assertError(administrator.send("PATCH", "/api/admin/members/" + user + "/role",
                         JSON.createObjectNode().put("role", "ADMIN"), true), 409, "MEMBER_NOT_ACTIVE");
             }
             assertThat(members.byId(user)).isEqualTo(before);
@@ -240,7 +240,7 @@ class AuthMembershipPostgresTest {
             assertThat(members.byId(user)).isEqualTo(before);
             assertThat(sessionIds(user)).isEqualTo(sessionsBefore);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM app_membership_audit WHERE target_id=?", Integer.class, user)).isZero();
-            var me = target.get("/api/v1/auth/me");
+            var me = target.get("/api/auth/me");
             assertThat(me.statusCode()).as(me.body()).isEqualTo(200);
             assertThat(json(me).at("/user/id").stringValue()).isEqualTo(user.toString());
         }
@@ -250,55 +250,55 @@ class AuthMembershipPostgresTest {
         UUID otherAdmin = seed("other@example.com", "ADMIN", "ACTIVE");
         try (var administrator = new Browser(); var target = new Browser()) {
             administrator.login("admin@example.com"); target.login("other@example.com");
-            assertThat(administrator.send("PATCH", "/api/v1/admin/members/" + otherAdmin + "/role", JSON.createObjectNode().put("role", "USER"), true).statusCode()).isEqualTo(200);
-            assertError(target.get("/api/v1/admin/members"), 401, "UNAUTHENTICATED");
+            assertThat(administrator.send("PATCH", "/api/admin/members/" + otherAdmin + "/role", JSON.createObjectNode().put("role", "USER"), true).statusCode()).isEqualTo(200);
+            assertError(target.get("/api/admin/members"), 401, "UNAUTHENTICATED");
             target.login("other@example.com");
-            assertError(target.get("/api/v1/admin/members"), 403, "FORBIDDEN");
+            assertError(target.get("/api/admin/members"), 403, "FORBIDDEN");
             // Simulate an external status update without relying on session deletion.
             jdbc.update("UPDATE app_users SET status='DISABLED' WHERE id=?", admin);
-            assertError(administrator.get("/api/v1/admin/members"), 401, "UNAUTHENTICATED");
+            assertError(administrator.get("/api/admin/members"), 401, "UNAUTHENTICATED");
         }
     }
 
     @Test void memberAndLogQueriesAreAdminOnlyAndNeverExposePasswords() throws Exception {
         try (var administrator = new Browser(); var standard = new Browser()) {
             administrator.login("admin@example.com"); standard.login("user@example.com");
-            assertError(standard.get("/api/v1/admin/members"), 403, "FORBIDDEN");
-            assertError(standard.get("/api/v1/admin/access-logs"), 403, "FORBIDDEN");
-            var response = administrator.get("/api/v1/admin/members?search=pending&role=USER&page=0&size=1");
+            assertError(standard.get("/api/admin/members"), 403, "FORBIDDEN");
+            assertError(standard.get("/api/admin/access-logs"), 403, "FORBIDDEN");
+            var response = administrator.get("/api/admin/members?search=pending&role=USER&page=0&size=1");
             assertThat(response.statusCode()).isEqualTo(200);
             assertThat(json(response).get("total").intValue()).isEqualTo(1);
             assertThat(json(response).at("/items/0/id").stringValue()).isEqualTo(pending.toString());
             assertPublicMember(json(response).at("/items/0"));
             assertThat(response.body()).doesNotContain("password", HASH);
-            var detail = administrator.get("/api/v1/admin/members/" + pending);
+            var detail = administrator.get("/api/admin/members/" + pending);
             assertThat(detail.statusCode()).as(detail.body()).isEqualTo(200);
             assertPublicMember(json(detail).get("user"));
             assertThat(json(detail).get("user")).isEqualTo(json(response).at("/items/0"));
-            assertError(administrator.get("/api/v1/admin/members?size=101"), 400, "VALIDATION_ERROR");
-            assertError(administrator.get("/api/v1/admin/members?role=TEAM_LEADER"), 400, "VALIDATION_ERROR");
-            assertError(administrator.get("/api/v1/admin/members?page=0&page=1"), 400, "VALIDATION_ERROR");
-            assertError(administrator.get("/api/v1/admin/access-logs?from=2026-01-02T00:00:00Z&to=2026-01-01T00:00:00Z"), 400, "VALIDATION_ERROR");
-            assertError(administrator.get("/api/v1/admin/access-logs?success=yes"), 400, "VALIDATION_ERROR");
+            assertError(administrator.get("/api/admin/members?size=101"), 400, "VALIDATION_ERROR");
+            assertError(administrator.get("/api/admin/members?role=TEAM_LEADER"), 400, "VALIDATION_ERROR");
+            assertError(administrator.get("/api/admin/members?page=0&page=1"), 400, "VALIDATION_ERROR");
+            assertError(administrator.get("/api/admin/access-logs?from=2026-01-02T00:00:00Z&to=2026-01-01T00:00:00Z"), 400, "VALIDATION_ERROR");
+            assertError(administrator.get("/api/admin/access-logs?success=yes"), 400, "VALIDATION_ERROR");
         }
     }
 
     @Test void recordsOnlyLoginOutcomesAndLogoutAndPurgesOnlyExpiredAccessLogs() throws Exception {
         try (var browser = new Browser(); var administrator = new Browser()) {
             browser.csrf();
-            assertError(browser.send("POST", "/api/v1/auth/login", credentials("unknown@example.com", "WrongPass1!"), true), 401, "INVALID_CREDENTIALS");
+            assertError(browser.send("POST", "/api/auth/login", credentials("unknown@example.com", "WrongPass1!"), true), 401, "INVALID_CREDENTIALS");
             browser.login("user@example.com");
-            browser.get("/api/v1/auth/me");
-            assertThat(browser.send("POST", "/api/v1/auth/logout", null, true).statusCode()).isEqualTo(204);
-            assertError(browser.get("/api/v1/auth/me"), 401, "UNAUTHENTICATED");
+            browser.get("/api/auth/me");
+            assertThat(browser.send("POST", "/api/auth/logout", null, true).statusCode()).isEqualTo(204);
+            assertError(browser.get("/api/auth/me"), 401, "UNAUTHENTICATED");
             assertThat(jdbc.queryForList("SELECT event FROM app_access_logs ORDER BY occurred_at", String.class))
                     .containsExactly("LOGIN_FAILURE", "LOGIN_SUCCESS", "LOGOUT");
             administrator.login("admin@example.com");
-            var logs = administrator.get("/api/v1/admin/access-logs?user_id=" + user + "&size=100");
+            var logs = administrator.get("/api/admin/access-logs?user_id=" + user + "&size=100");
             assertThat(logs.statusCode()).isEqualTo(200);
             assertThat(json(logs).get("total").intValue()).isEqualTo(2);
             assertThat(logs.body()).doesNotContain("password", PASSWORD, "WrongPass1!", "unknown@example.com");
-            var failed = administrator.get("/api/v1/admin/access-logs?success=false");
+            var failed = administrator.get("/api/admin/access-logs?success=false");
             assertThat(json(failed).get("total").intValue()).isEqualTo(1);
             assertThat(json(failed).at("/items/0/event").stringValue()).isEqualTo("LOGIN_FAILURE");
             jdbc.update("UPDATE app_access_logs SET occurred_at=current_timestamp-interval '91 days' WHERE event='LOGIN_FAILURE'");
@@ -325,9 +325,9 @@ class AuthMembershipPostgresTest {
     @Test void authenticatedSessionsCannotSwitchIdentityOrRegisterAnotherMember() throws Exception {
         try (var browser = new Browser()) {
             browser.login("user@example.com");
-            assertError(browser.send("POST", "/api/v1/auth/login", credentials("admin@example.com", PASSWORD), true), 403, "FORBIDDEN");
-            assertError(browser.send("POST", "/api/v1/auth/signup", signup("another@example.com"), true), 403, "FORBIDDEN");
-            assertThat(json(browser.get("/api/v1/auth/me")).at("/user/id").stringValue()).isEqualTo(user.toString());
+            assertError(browser.send("POST", "/api/auth/login", credentials("admin@example.com", PASSWORD), true), 403, "FORBIDDEN");
+            assertError(browser.send("POST", "/api/auth/signup", signup("another@example.com"), true), 403, "FORBIDDEN");
+            assertThat(json(browser.get("/api/auth/me")).at("/user/id").stringValue()).isEqualTo(user.toString());
             assertThat(jdbc.queryForObject("SELECT count(*) FROM app_access_logs WHERE event='LOGIN_SUCCESS'", Integer.class)).isEqualTo(1);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM app_users", Integer.class)).isEqualTo(3);
         }
@@ -459,13 +459,13 @@ class AuthMembershipPostgresTest {
         String header;
         HttpResponse<String> get(String path) throws Exception { return send("GET", path, null, false); }
         void csrf() throws Exception {
-            var response = get("/api/v1/auth/csrf");
+            var response = get("/api/auth/csrf");
             assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
             token = json(response).get("token").stringValue(); header = json(response).get("header_name").stringValue();
         }
         void login(String email) throws Exception {
             csrf();
-            var response = send("POST", "/api/v1/auth/login", credentials(email, PASSWORD), true);
+            var response = send("POST", "/api/auth/login", credentials(email, PASSWORD), true);
             assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
             assertPublicMember(json(response).get("user"));
             csrf();

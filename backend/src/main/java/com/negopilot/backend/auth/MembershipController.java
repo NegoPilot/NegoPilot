@@ -1,5 +1,6 @@
 package com.negopilot.backend.auth;
 
+import com.negopilot.backend.common.api.ApiPaths;
 import java.util.Set;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -11,7 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.json.JsonMapper;
 
 @RestController
-@RequestMapping(value = "/api/v1/admin", produces = "application/json")
+@RequestMapping(value = ApiPaths.ADMIN, produces = "application/json")
 final class MembershipController {
     private final MembershipService service;
     private final JsonMapper mapper;

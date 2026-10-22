@@ -28,7 +28,7 @@ class SecurityUserRefreshFilterTest {
     private final MembershipRepository members = mock(MembershipRepository.class);
     private final HttpSessionSecurityContextRepository contexts = new HttpSessionSecurityContextRepository();
     private final SecurityUserRefreshFilter filter = new SecurityUserRefreshFilter(members, mapper, contexts);
-    private final MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/auth/me");
+    private final MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/auth/me");
     private final MockHttpServletResponse response = new MockHttpServletResponse();
     private final FilterChain chain = mock(FilterChain.class);
     private final UUID userId = UUID.randomUUID();

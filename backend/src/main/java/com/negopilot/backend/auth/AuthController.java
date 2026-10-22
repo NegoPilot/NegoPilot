@@ -1,5 +1,6 @@
 package com.negopilot.backend.auth;
 
+import com.negopilot.backend.common.api.ApiPaths;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.Set;
@@ -13,7 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.json.JsonMapper;
 
 @RestController
-@RequestMapping(value = "/api/v1/auth", produces = "application/json")
+@RequestMapping(value = ApiPaths.AUTH, produces = "application/json")
 final class AuthController {
     record CsrfResponse(String header_name, String token) { }
     private final AuthService auth;

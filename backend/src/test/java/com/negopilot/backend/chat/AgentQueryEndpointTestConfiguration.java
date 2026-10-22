@@ -11,7 +11,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 
-/** Exposes /api/v2/agent/queries for HTTP slice tests. Stored conversations are mocked because the query path never uses them. */
+/** Exposes /api/agent/queries for HTTP slice tests. Stored conversations are mocked because the query path never uses them. */
 @TestConfiguration(proxyBeanMethods = false)
 @Import(PersistentConversationController.class)
 public class AgentQueryEndpointTestConfiguration {

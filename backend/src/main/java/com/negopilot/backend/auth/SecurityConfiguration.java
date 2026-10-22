@@ -1,6 +1,7 @@
 package com.negopilot.backend.auth;
 
 import com.negopilot.backend.UserIdentity;
+import com.negopilot.backend.common.api.ApiPaths;
 
 import jakarta.servlet.DispatcherType;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
@@ -27,15 +28,15 @@ public class SecurityConfiguration {
                 .csrf(csrf -> csrf.csrfTokenRepository(new HttpSessionCsrfTokenRepository()))
                 .authorizeHttpRequests(access -> access
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
-                        .requestMatchers(HttpMethod.GET, "/health", "/api/v1/auth/csrf").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/signup", "/api/v1/auth/login").anonymous()
-                        .requestMatchers("/api/v1/auth/me", "/api/v1/auth/logout").hasAnyAuthority("STATUS_ACTIVE", "STATUS_PENDING")
-                        .requestMatchers("/api/v1/admin/**").access((authentication, context) -> {
+                        .requestMatchers(HttpMethod.GET, "/health", ApiPaths.AUTH + "/csrf").permitAll()
+                        .requestMatchers(HttpMethod.POST, ApiPaths.AUTH + "/signup", ApiPaths.AUTH + "/login").anonymous()
+                        .requestMatchers(ApiPaths.AUTH + "/me", ApiPaths.AUTH + "/logout").hasAnyAuthority("STATUS_ACTIVE", "STATUS_PENDING")
+                        .requestMatchers(ApiPaths.ADMIN + "/**").access((authentication, context) -> {
                             var principal = authentication.get().getPrincipal();
                             return new AuthorizationDecision(principal instanceof UserIdentity identity
                                     && MembershipPolicy.isActiveAdmin(identity.role(), identity.status()));
                         })
-                        .requestMatchers("/api/**").hasAuthority("STATUS_ACTIVE")
+                        .requestMatchers(ApiPaths.ROOT + "/**").hasAuthority("STATUS_ACTIVE")
                         .anyRequest().denyAll())
                 .exceptionHandling(errors -> errors
                         .authenticationEntryPoint((request, response, failure) -> SecurityJsonErrors.write(request, response,

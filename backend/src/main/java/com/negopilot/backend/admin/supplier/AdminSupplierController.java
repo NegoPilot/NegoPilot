@@ -1,6 +1,7 @@
 package com.negopilot.backend.admin.supplier;
 
 import com.negopilot.backend.common.api.ApiException;
+import com.negopilot.backend.common.api.ApiPaths;
 import com.negopilot.backend.auth.CurrentUser;
 import com.negopilot.backend.UserIdentity;
 
@@ -12,7 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping(value = "/api/v1/admin/suppliers", produces = MediaType.APPLICATION_JSON_VALUE)
+@RequestMapping(value = ApiPaths.ADMIN + "/suppliers", produces = MediaType.APPLICATION_JSON_VALUE)
 final class AdminSupplierController {
     private final CurrentUser currentUser;
     private final AdminSupplierValidator validator;

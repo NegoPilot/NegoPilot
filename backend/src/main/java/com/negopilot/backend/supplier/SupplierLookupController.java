@@ -1,6 +1,7 @@
 package com.negopilot.backend.supplier;
 
 import com.negopilot.backend.common.api.ApiException;
+import com.negopilot.backend.common.api.ApiPaths;
 
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.UUID;
@@ -23,20 +24,20 @@ final class SupplierLookupController {
         this.validator = validator;
     }
 
-    @GetMapping("/api/v2/business/catalog")
+    @GetMapping(ApiPaths.BUSINESS_CATALOG)
     JsonNode catalog(HttpServletRequest request) {
         UUID id = begin(request);
         noParameters(request, id);
         return gateway.catalog(id);
     }
 
-    @GetMapping("/api/v2/suppliers")
+    @GetMapping(ApiPaths.SUPPLIERS)
     JsonNode search(HttpServletRequest request) {
         UUID id = begin(request);
         return gateway.search(validator.search(request.getParameterMap()), id);
     }
 
-    @GetMapping("/api/v2/suppliers/{supplierId}")
+    @GetMapping(ApiPaths.SUPPLIERS + "/{supplierId}")
     JsonNode detail(@PathVariable String supplierId, HttpServletRequest request) {
         UUID id = begin(request);
         noParameters(request, id);

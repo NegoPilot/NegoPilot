@@ -1,6 +1,7 @@
 package com.negopilot.backend.chat;
 
 import com.negopilot.backend.common.api.ApiException;
+import com.negopilot.backend.common.api.ApiPaths;
 import com.negopilot.backend.auth.CurrentUser;
 import com.negopilot.backend.agent.GenerationGateway;
 import com.negopilot.backend.agent.GenerationRequestValidator;
@@ -33,7 +34,7 @@ final class PersistentConversationController {
         this.mapper = mapper;
     }
 
-    @PostMapping(value = "/api/v2/agent/queries", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PostMapping(value = ApiPaths.AGENT_QUERIES, consumes = MediaType.APPLICATION_JSON_VALUE)
     JsonNode query(@RequestBody(required = false) String raw, HttpServletRequest request) {
         currentUser.requireActive();
         UUID requestId = begin(request, Set.of());
@@ -42,28 +43,28 @@ final class PersistentConversationController {
         return gateway.execute(input.requestId(), input.body());
     }
 
-    @PostMapping(value = "/api/v2/conversations", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PostMapping(value = ApiPaths.CONVERSATIONS, consumes = MediaType.APPLICATION_JSON_VALUE)
     ResponseEntity<JsonNode> create(@RequestBody(required = false) String raw, HttpServletRequest request) {
         UUID owner = currentUser.requireActive().userId();
         UUID requestId = begin(request, Set.of());
         return ResponseEntity.status(201).body(conversations.create(owner, validator.create(parse(raw, requestId)), requestId));
     }
 
-    @GetMapping("/api/v2/conversations")
+    @GetMapping(ApiPaths.CONVERSATIONS)
     JsonNode list(HttpServletRequest request) {
         UUID owner = currentUser.requireActive().userId();
         UUID requestId = begin(request, Set.of("cursor", "size"));
         return conversations.list(owner, request.getParameter("cursor"), size(request, 20, requestId), requestId);
     }
 
-    @GetMapping("/api/v2/conversations/{conversationId}")
+    @GetMapping(ApiPaths.CONVERSATIONS + "/{conversationId}")
     JsonNode get(@PathVariable String conversationId, HttpServletRequest request) {
         UUID owner = currentUser.requireActive().userId();
         UUID requestId = begin(request, Set.of());
         return conversations.get(owner, id(conversationId), requestId);
     }
 
-    @PatchMapping(value = "/api/v2/conversations/{conversationId}", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PatchMapping(value = ApiPaths.CONVERSATIONS + "/{conversationId}", consumes = MediaType.APPLICATION_JSON_VALUE)
     JsonNode rename(@PathVariable String conversationId, @RequestBody(required = false) String raw,
                     HttpServletRequest request) {
         UUID owner = currentUser.requireActive().userId();
@@ -77,7 +78,7 @@ final class PersistentConversationController {
         return conversations.rename(owner, id(conversationId), title, requestId);
     }
 
-    @DeleteMapping("/api/v2/conversations/{conversationId}")
+    @DeleteMapping(ApiPaths.CONVERSATIONS + "/{conversationId}")
     ResponseEntity<Void> delete(@PathVariable String conversationId, HttpServletRequest request) {
         UUID owner = currentUser.requireActive().userId();
         UUID requestId = begin(request, Set.of());
@@ -85,7 +86,7 @@ final class PersistentConversationController {
         return ResponseEntity.noContent().build();
     }
 
-    @GetMapping("/api/v2/conversations/{conversationId}/messages")
+    @GetMapping(ApiPaths.CONVERSATIONS + "/{conversationId}/messages")
     JsonNode messages(@PathVariable String conversationId, HttpServletRequest request) {
         UUID owner = currentUser.requireActive().userId();
         UUID requestId = begin(request, Set.of("before_seq", "size"));
@@ -100,14 +101,14 @@ final class PersistentConversationController {
         return conversations.messages(owner, id(conversationId), before, size(request, 50, requestId), requestId);
     }
 
-    @GetMapping("/api/v2/conversations/{conversationId}/responses/{responseId}")
+    @GetMapping(ApiPaths.CONVERSATIONS + "/{conversationId}/responses/{responseId}")
     JsonNode response(@PathVariable String conversationId, @PathVariable String responseId, HttpServletRequest request) {
         UUID owner = currentUser.requireActive().userId();
         UUID requestId = begin(request, Set.of());
         return conversations.response(owner, id(conversationId), id(responseId), requestId);
     }
 
-    @PostMapping(value = "/api/v2/conversations/{conversationId}/messages", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PostMapping(value = ApiPaths.CONVERSATIONS + "/{conversationId}/messages", consumes = MediaType.APPLICATION_JSON_VALUE)
     JsonNode message(@PathVariable String conversationId, @RequestBody(required = false) String raw,
                      HttpServletRequest request) {
         UUID owner = currentUser.requireActive().userId();
