@@ -242,6 +242,19 @@ def mask(text: str, report: VerificationReport) -> str:
     return "".join(out) + text[pos:]
 
 
+# 금액 앞의 쉼표 숫자. "7,050,030,985,05원"처럼 모델이 쉼표 간격을 틀리면 값은 같아도 다른 금액으로 읽힌다
+GROUPED_MONEY_RE = re.compile(rf"(?<![\d.,])(\d[\d,]*,\d+)(?=\s*{MONEY_UNIT})")
+CORRECT_GROUPING_RE = re.compile(r"^\d{1,3}(?:,\d{3})+$")
+
+
+def fix_digit_grouping(text: str) -> str:
+    """금액 숫자의 쉼표를 세 자리 간격으로 바로잡는다. 숫자 자체는 바꾸지 않는다 (근거 검사는 쉼표를 무시하고 통과시킨다)."""
+    def fix(m: re.Match) -> str:
+        token = m.group(1)
+        return token if CORRECT_GROUPING_RE.match(token) else f"{int(token.replace(',', '')):,}"
+    return GROUPED_MONEY_RE.sub(fix, text)
+
+
 def render_citations(text: str, evidence: list[Evidence]) -> tuple[str, list[Citation]]:
     """[E3] → [1]. 번호는 본문에 처음 나온 순서로 붙이고, 인용 목록을 만든다."""
     by_id = {e.id: e for e in evidence if e.citable}
