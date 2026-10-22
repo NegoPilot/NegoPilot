@@ -3,12 +3,10 @@ package com.negopilot.backend.auth;
 import com.negopilot.backend.common.api.ApiException;
 
 import java.util.UUID;
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
-@Profile("!legacy-test")
 final class MembershipService {
     private enum Field { STATUS, ROLE }
 

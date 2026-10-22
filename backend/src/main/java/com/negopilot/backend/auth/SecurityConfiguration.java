@@ -6,7 +6,6 @@ import jakarta.servlet.DispatcherType;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -21,7 +20,6 @@ import tools.jackson.databind.json.JsonMapper;
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 public class SecurityConfiguration {
     @Bean
-    @Profile("!legacy-test")
     SecurityFilterChain applicationSecurity(HttpSecurity http, MembershipRepository members, JsonMapper mapper) throws Exception {
         var contexts = new HttpSessionSecurityContextRepository();
         return http
@@ -50,13 +48,5 @@ public class SecurityConfiguration {
                 .requestCache(cache -> cache.disable())
                 .addFilterAfter(new SecurityUserRefreshFilter(members, mapper, contexts), SecurityContextHolderFilter.class)
                 .build();
-    }
-
-    @Bean
-    @Profile("legacy-test")
-    SecurityFilterChain legacyTestSecurity(HttpSecurity http) throws Exception {
-        return http.csrf(csrf -> csrf.disable())
-                .formLogin(login -> login.disable()).httpBasic(basic -> basic.disable()).logout(logout -> logout.disable())
-                .authorizeHttpRequests(access -> access.anyRequest().permitAll()).build();
     }
 }

@@ -4,7 +4,7 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 
-/** Live business-mcp lookup without a dependency on the legacy fixture. */
+/** Live business-mcp lookup through the Python /internal/v2 routes. */
 @Service
 final class SupplierLookupGateway {
     private final SupplierGatewayClient client;

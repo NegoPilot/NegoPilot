@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.util.UriComponentsBuilder;
 import tools.jackson.databind.JsonNode;
 
-/** Supplier URI encoding and error rules shared by live lookup and legacy chat. */
+/** Supplier lookup URI encoding and upstream error rules. */
 @Component
 final class SupplierGatewayClient {
     private static final Set<Integer> STATUSES = Set.of(200, 400, 404, 503, 504);
@@ -22,7 +22,7 @@ final class SupplierGatewayClient {
     SupplierGatewayClient(AgentHttpTransport transport) { this.transport = transport; }
 
     JsonNode get(String path, UUID requestId, Consumer<JsonNode> validate) {
-        return exchange(HttpMethod.GET, transport.uri(path), null, requestId, validate);
+        return exchange(transport.uri(path), requestId, validate);
     }
 
     JsonNode search(String path, JsonNode filters, UUID requestId, Consumer<JsonNode> validate) {
@@ -32,37 +32,31 @@ final class SupplierGatewayClient {
             uri.queryParam(field, "{" + field + "}");
             variables.put(field, filters.get(field).asString());
         }
-        return exchange(HttpMethod.GET, uri.encode().buildAndExpand(variables).toUri(), null, requestId, validate);
+        return exchange(uri.encode().buildAndExpand(variables).toUri(), requestId, validate);
     }
 
     JsonNode detail(String path, String supplierId, UUID requestId, Consumer<JsonNode> validate) {
         URI uri = UriComponentsBuilder.fromUri(transport.uri(path))
                 .pathSegment("{supplierId}").encode().buildAndExpand(supplierId).toUri();
-        return exchange(HttpMethod.GET, uri, null, requestId, validate);
+        return exchange(uri, requestId, validate);
     }
 
-    JsonNode post(String path, JsonNode request, UUID requestId, Consumer<JsonNode> validate) {
-        return exchange(HttpMethod.POST, transport.uri(path), request, requestId, validate);
-    }
-
-    private JsonNode exchange(HttpMethod method, URI uri, JsonNode request, UUID requestId,
-                              Consumer<JsonNode> validate) {
-        return transport.exchange(method, uri, request, requestId, STATUSES, (status, body) -> {
-            if (status != 200) throw mapError(body, status, requestId, request != null);
+    private JsonNode exchange(URI uri, UUID requestId, Consumer<JsonNode> validate) {
+        return transport.exchange(HttpMethod.GET, uri, null, requestId, STATUSES, (status, body) -> {
+            if (status != 200) throw mapError(body, status, requestId);
             try { validate.accept(body); }
             catch (RuntimeException failure) { throw ApiException.invalidResponse(requestId); }
             return body;
         });
     }
 
-    private static ApiException mapError(JsonNode body, int status, UUID requestId, boolean idWasSent) {
+    private static ApiException mapError(JsonNode body, int status, UUID requestId) {
         if (body == null || !body.isObject() || body.size() != 2 || !body.has("request_id") || !body.has("error")) {
             return ApiException.invalidResponse(requestId);
         }
         JsonNode upstreamId = body.get("request_id");
         if (!upstreamId.isNull()) {
-            UUID decoded = RequestIds.parse(upstreamId);
-            if (decoded == null || (idWasSent && !requestId.equals(decoded))) return ApiException.invalidResponse(requestId);
+            if (RequestIds.parse(upstreamId) == null) return ApiException.invalidResponse(requestId);
         }
         JsonNode error = body.get("error");
         if (!error.isObject() || error.size() != 3 || !error.path("code").isString()
@@ -72,11 +66,7 @@ final class SupplierGatewayClient {
         ApiException mapped = switch (status) {
             case 400 -> code.equals("VALIDATION_ERROR") ? ApiException.validation(requestId) : null;
             case 404 -> code.equals("SUPPLIER_NOT_FOUND") ? ApiException.supplierNotFound(requestId) : null;
-            case 503 -> switch (code) {
-                case "DEMO_MODE_REQUIRED" -> ApiException.demoRequired(requestId);
-                case "UPSTREAM_UNAVAILABLE" -> ApiException.unavailable(requestId);
-                default -> null;
-            };
+            case 503 -> code.equals("UPSTREAM_UNAVAILABLE") ? ApiException.unavailable(requestId) : null;
             case 504 -> code.equals("UPSTREAM_TIMEOUT") ? ApiException.timeout(requestId) : null;
             default -> null;
         };
@@ -85,5 +75,4 @@ final class SupplierGatewayClient {
         }
         return mapped;
     }
-
 }

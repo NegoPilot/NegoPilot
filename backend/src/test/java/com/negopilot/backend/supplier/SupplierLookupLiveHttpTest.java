@@ -37,7 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /** v2 live lookups: Python answers from business-mcp, so Spring checks shape and filters instead of a fixture. */
 @SpringBootTest(classes = {HttpSliceTestConfiguration.class, SupplierLookupController.class, SupplierLookupGateway.class,
-        SupplierGatewayClient.class, SupplierChatRequestValidator.class, SupplierLookupResponseValidator.class},
+        SupplierGatewayClient.class, SupplierLookupRequestValidator.class, SupplierLookupResponseValidator.class},
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class SupplierLookupLiveHttpTest {
     private static final JsonMapper JSON = JsonMapper.builder().build();

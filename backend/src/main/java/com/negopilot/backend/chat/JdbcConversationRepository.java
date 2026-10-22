@@ -8,7 +8,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import tools.jackson.databind.JsonNode;
@@ -16,7 +15,6 @@ import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 /** Participates in the service's transactions without opening a new transaction. */
-@Profile("!legacy-test")
 @Repository
 class JdbcConversationRepository {
     private final JdbcTemplate jdbc;
