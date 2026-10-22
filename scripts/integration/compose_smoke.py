@@ -8,9 +8,11 @@ in with the originally saved credentials and checks both histories after a
 Compose down/up. State includes test passwords and is written with mode 0600.
 No passwords, CSRF tokens or cookies are printed.
 
-    python3 scripts/integration/compose_smoke.py --state /tmp/compose-smoke.json
+    export COMPOSE_FILE=compose.yaml:compose.test.yaml
+    export COMPOSE_PROJECT_NAME=negopilot-test TEST_WEB_PORT=5174
+    python3 scripts/integration/compose_smoke.py --base-url http://127.0.0.1:5174 --state /tmp/compose-smoke.json
     docker compose down && docker compose up -d --wait
-    python3 scripts/integration/compose_smoke.py --verify-state /tmp/compose-smoke.json
+    python3 scripts/integration/compose_smoke.py --base-url http://127.0.0.1:5174 --verify-state /tmp/compose-smoke.json
 
 Use a new state path for each initial run. The stack must use stub chat mode.
 """
