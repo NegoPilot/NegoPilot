@@ -204,6 +204,8 @@ temperature 0이어도 결과가 흔들리므로 변경 전후를 비교할 때�
 
 ## Python 내부 HTTP API (`negopilot_agent.api`)
 
+전체 서비스를 Docker로 실행하려면 [로컬 Docker 안내](../docs/LOCAL_DOCKER.md)를 따른다. 루트 `compose.yaml`은 두 단계 모두 OpenAI `gpt-4.1-mini`를 기본으로 쓰는 live 구성이다. 기본 OpenAI 실행에는 루트 `.env`에 모델 키를 넣어야 한다. `compose.test.yaml`을 추가한 별도 테스트 구성은 모델 키 없이 stub 채팅을 실행한다. 아래 uvicorn 명령은 Docker 시작기를 거치지 않는 독립 실행 방법이다.
+
 FastAPI 진입점은 `negopilot_agent.api.app:app`입니다. [쿼리 실행 HTTP 계약 v0.1](../docs/contracts/agent-http.md)과 [협력사 대화 HTTP 계약 v0.2](../docs/contracts/supplier-chat.md) 및 [Generation HTTP 계약 v0.3](../docs/contracts/agent-generation.md)의 Python 내부 경로를 제공합니다. 브라우저는 Spring의 공개 API를 호출하고 Spring이 내부 키를 붙여 Python에 요청합니다.
 
 기존 v0.1의 `/internal/v1/query-executions`는 `QueryDecomposer`와 `Router`를 실행해 구조화된 결과를 반환합니다. 기존 v0.2의 `/internal/v1/chat/responses`는 fixture를 조회해 템플릿 응답을 반환합니다. 이 두 기존 실행 경로는 `AnswerGenerator`와 전체 그래프를 호출하지 않으므로 `generation_status: NOT_IMPLEMENTED`를 유지합니다. 이 값은 코어 Generation의 구현 여부와 별개입니다.
@@ -251,6 +253,8 @@ curl --fail-with-body http://127.0.0.1:9200/internal/v1/query-executions \
 | Spring | `AGENT_RESPONSE_TIMEOUT_SECONDS` | `35` | 응답 및 소켓 읽기 대기 제한 시간 |
 | Spring | `SERVER_ADDRESS` | `127.0.0.1` | Spring 수신 주소 |
 | Spring | `SERVER_PORT` | `8080` | Spring 수신 포트 |
+
+위 표는 독립 실행의 기본값입니다. 루트 Docker의 live 구성은 Python 제한을 300초로 지정하고 Spring 제한을 310초로 지정합니다. 테스트 override는 각각 30초와 35초를 사용합니다.
 
 Spring을 함께 실행하려면 별도 터미널의 저장소 루트에서 다음 명령을 사용합니다. Java 21과 Maven 3.6.3 이상이 필요합니다. 상세 설정은 [backend 안내](../backend/README.md)를 참고합니다.
 
@@ -317,7 +321,7 @@ Python 직접 호출에서는 `request_id`와 `conversation_id` 및 `query`와 `
 
 `AGENT_EXECUTION_MODE=live`에서는 v0.1 경로가 기존 QueryDecomposer와 실제 McpToolCaller를 연결합니다. 위의 분해 및 Routing 환경 변수를 재사용합니다. 현재 기본 모델은 [DecomposerSettings](src/negopilot_agent/decomposition/decomposer.py)의 `DEFAULT_MODELS`에 정의돼 있습니다. `anthropic`은 `claude-opus-5-5`이며 `openai`는 `gpt-4.1-mini`입니다. [모델 백엔드](src/negopilot_agent/decomposition/backends.py)는 이 설정을 받아 호출합니다.
 
-기본 모델을 사용하려면 `NEGOPILOT_DECOMPOSER_MODEL`을 설정하지 않아야 합니다. `.env.example`의 `NEGOPILOT_DECOMPOSER_MODEL=`을 그대로 불러오면 빈 문자열이 선택됩니다. 이 경우 HTTP 경로는 503 `UPSTREAM_UNAVAILABLE`을 반환합니다. 기본 모델을 선택할 때는 환경 파일에서 해당 줄을 제거하거나 환경 파일을 불러온 뒤 아래 명령을 실행합니다.
+직접 uvicorn을 실행하면서 기본 모델을 사용하려면 `NEGOPILOT_DECOMPOSER_MODEL`을 설정하지 않아야 합니다. `agent/.env.example`의 `NEGOPILOT_DECOMPOSER_MODEL=`을 그대로 불러오면 빈 문자열이 선택됩니다. 이 경우 HTTP 경로는 503 `UPSTREAM_UNAVAILABLE`을 반환합니다. 기본 모델을 선택할 때는 환경 파일에서 해당 줄을 제거하거나 환경 파일을 불러온 뒤 아래 명령을 실행합니다.
 
 ```bash
 unset NEGOPILOT_DECOMPOSER_MODEL
@@ -399,11 +403,13 @@ curl --fail-with-body http://127.0.0.1:9200/internal/v2/query-executions \
 | `NEGOPILOT_DECOMPOSER_FALLBACKS` | `1` |
 | `NEGOPILOT_GENERATOR_FALLBACKS` | `1` |
 
-기본 모델을 사용하려면 두 MODEL 환경 변수를 빈 문자열로 지정하지 않고 미설정으로 둡니다. 환경 파일을 불러온 뒤 아래 명령으로 제거할 수 있습니다. FALLBACKS는 기존 Claude 서버 측 대체 모델 설정이며 HTTP 실행 모드를 stub으로 전환하는 설정이 아닙니다.
+직접 uvicorn을 실행할 때 기본 모델을 사용하려면 두 MODEL 환경 변수를 빈 문자열로 지정하지 않고 미설정으로 둡니다. 환경 파일을 불러온 뒤 아래 명령으로 제거할 수 있습니다. FALLBACKS는 기존 Claude 서버 측 대체 모델 설정이며 HTTP 실행 모드를 stub으로 전환하는 설정이 아닙니다.
 
 ```bash
 unset NEGOPILOT_DECOMPOSER_MODEL NEGOPILOT_GENERATOR_MODEL
 ```
+
+Docker 시작기 `deploy/local/agent_start.py`는 MODEL이 미설정이거나 빈 문자열이면 공급자 기본값을 적용합니다. 공백만 있는 모델 값은 거절합니다. 서버를 열기 전에 선택한 공급자와 모델 및 필수 키 설정을 검사하며 키가 없으면 시작을 중단합니다. 네트워크 호출을 하지 않으므로 키의 유효성이나 모델 사용 권한 및 실제 연결 성공은 확인하지 않습니다. 이 시작 전 검사는 Docker 전용이며 Agent 코어와 직접 uvicorn 실행의 동작은 바꾸지 않습니다.
 
 두 단계 모두 기본값인 OpenAI(gpt-4.1-mini)를 쓰려면 Python 서버를 시작할 셸에서 아래 값을 설정합니다. BACKEND 변수는 생략해도 openai이며, 다른 값이 남아 있을 수 있어 예시에서는 명시합니다. `OPENAI_API_KEY`에는 유효한 키를 지정해야 합니다. 위의 서버 시작 예시에서 실행 모드를 `live`로 바꾸고 서버를 시작합니다.
 

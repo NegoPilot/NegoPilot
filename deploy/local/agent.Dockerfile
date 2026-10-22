@@ -6,10 +6,12 @@ WORKDIR /app
 COPY shared/ shared/
 COPY agent/ agent/
 COPY docs/contracts/fixtures/ docs/contracts/fixtures/
+COPY deploy/local/agent_start.py /app/agent_start.py
 WORKDIR /app/agent
 RUN uv sync --locked --no-dev \
     && useradd --uid 10001 --create-home app
 ENV PATH="/app/agent/.venv/bin:$PATH"
 USER app
 EXPOSE 9200
+ENTRYPOINT ["python", "/app/agent_start.py"]
 CMD ["uvicorn", "negopilot_agent.api.app:app", "--host", "0.0.0.0", "--port", "9200"]
