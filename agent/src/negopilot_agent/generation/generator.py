@@ -64,6 +64,13 @@ SUPPLIER_SELECTION_TEXT = "이름이 일치하는 협력사가 여러 곳입니�
 ARTICLE_LOOKUP_NOTICE = "검색된 법령 근거로 답변했습니다. 일부 조문 전문은 가져오지 못했습니다."
 SUPPLIER_LOOKUP_NOTICE = "일부 협력사 상세 정보를 가져오지 못했습니다. 확인된 자료로 답변했습니다."
 MAX_SUPPLIER_OPTIONS = 10
+# 공개 오류 코드별 안내 (docs/contracts/check-offer.md 3절). 오류 원문 대신 고칠 방법만 알린다
+ERROR_NOTICES = {
+    "RFQ_NOT_FOUND": "RFQ 번호를 찾지 못했습니다. 번호를 확인해 주세요.",
+    "SUPPLIER_NOT_FOUND": "협력사를 찾지 못했습니다. 협력사 ID나 이름을 확인해 주세요.",
+    "SUPPLIER_AMBIGUOUS": "이름이 여러 협력사에 해당합니다. 협력사 ID로 다시 알려 주세요.",
+    "VALUE_OUT_OF_RANGE": "입력한 값이 허용 범위를 벗어났습니다. 단가와 일수는 0보다 크게, 비중은 0~100% 사이로 알려 주세요.",
+}
 
 
 class _SupplierCandidate(BaseModel):
@@ -188,7 +195,8 @@ def plan(decomposition: DecompositionResult, routing: RouteResult) -> Plan:
             case "error":
                 # 오류 원문은 로그로만. 내부 주소나 예외 이름이 화면에 나가지 않게
                 log.warning("하위 질문 %s 도구 오류: %s", o.id, [c.error for c in o.calls if c.error])
-                p.notices.append(f"{part} 부분은 자료를 가져오지 못했습니다.")
+                code = next((c.error_code for c in o.calls if c.error_code in ERROR_NOTICES), None)
+                p.notices.append(f"{part}: {ERROR_NOTICES[code]}" if code else f"{part} 부분은 자료를 가져오지 못했습니다.")
             case "skipped":
                 # 원인(empty, error)을 이미 안내했으면 따로 말하지 않는다. 그 밖의 경우만 짧게
                 if not statuses & {"empty", "error"}:

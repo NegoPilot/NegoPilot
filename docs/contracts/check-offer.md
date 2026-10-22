@@ -121,6 +121,7 @@ Spring 응답 검증기와 화면은 아래 필드만 기준으로 삼습니다.
 - **원문 메시지는 계속 가립니다.** 오류 원문에는 DB 연결 정보 같은 내부 내용이 섞일 수 있습니다. Agent의 `SafeToolCaller`와 Spring의 응답 정리 코드는 지금처럼 원문을 가리고, **허용 목록에 있는 코드만** 통과시킵니다.
 - **전달 경로:** business-mcp `ToolError("[CODE] ...")` → Agent가 `^\[([A-Z_]+)\]`로 코드만 꺼내 `ToolCall.error_code`에 담음(원문은 가림) → Spring이 허용 목록의 `error_code`만 응답에 남김 → Generation과 화면이 코드로 안내.
 - `ToolCall.error_code`는 Routing 결과에 새로 생기는 선택 필드입니다. 기존 필드를 바꾸지 않으므로 [Routing 계약](routing.md)의 `schema_version`은 올리지 않습니다.
+- **지금은 Agent 내부에서만 씁니다.** Spring 응답 검증기가 도구 호출 항목의 필드를 `server, tool, args, result, error` 5개로 고정하고 있어서, `error_code`는 직렬화(HTTP 응답, 저장 JSON)에서 뺍니다. 안내 문구는 Agent의 Generation이 만들므로 사용자에게는 이미 보입니다. BE가 검증기와 응답 정리 코드에 `error_code`를 허용하면 `shared/src/negopilot_shared/routing.py`의 `exclude=True`를 지워 응답에 포함합니다.
 
 ### 회사 이름이 모호할 때
 

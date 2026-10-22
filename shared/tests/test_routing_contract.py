@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from negopilot_shared import DecompositionResult, RouteResult
+from negopilot_shared import DecompositionResult, RouteResult, ToolCall, public_error_code
 
 FIXTURE_DIR = Path(__file__).resolve().parent.parent / "fixtures"
 ROUTING = sorted((FIXTURE_DIR / "routing").glob("*.json"))
@@ -71,3 +71,22 @@ def broken(name: str, mutate) -> dict:
 def test_contract_rejects(data, message):
     with pytest.raises(ValidationError, match=message):
         RouteResult.model_validate(data)
+
+
+@pytest.mark.parametrize("message, code", [
+    ("[RFQ_NOT_FOUND] RFQ 'RFQ-2026-099'가 없다", "RFQ_NOT_FOUND"),
+    ("[VALUE_OUT_OF_RANGE] raw_material_ratio 는 0~1 사이", "VALUE_OUT_OF_RANGE"),
+    ("[DB_UNAVAILABLE] 협력사 DB에 연결할 수 없다", None),      # 공개하지 않는 코드
+    ("[INTERNAL] secret", None),
+    ("RFQ 'RFQ-2026-099'가 없다", None),                        # 코드 없는 기존 메시지
+    ("ToolError: [RFQ_NOT_FOUND] ...", None),                   # 맨 앞이 아니면 코드로 보지 않는다
+])
+def test_public_error_code(message, code):
+    assert public_error_code(message) == code
+
+
+def test_error_code_is_internal_only():
+    """Spring 검증기가 받지 않는 필드라 직렬화(HTTP 응답, 저장 JSON)에서 빠진다 (#129)."""
+    call = ToolCall(server="business-mcp", tool="check_offer", args={}, error="x", error_code="RFQ_NOT_FOUND")
+    assert call.error_code == "RFQ_NOT_FOUND"
+    assert "error_code" not in call.model_dump() and "error_code" not in call.model_dump_json()

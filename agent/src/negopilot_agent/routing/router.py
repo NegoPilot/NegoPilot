@@ -10,7 +10,8 @@ import itertools
 import re
 from typing import Any, Protocol
 
-from negopilot_shared import DecompositionResult, IntentSpec, RouteResult, SubQueryOutcome, ToolCall, load_intents
+from negopilot_shared import (DecompositionResult, IntentSpec, RouteResult, SubQueryOutcome, ToolCall, load_intents,
+                              public_error_code)
 from negopilot_shared.decomposition import SubQuery
 
 from negopilot_agent import timing
@@ -299,7 +300,8 @@ class Router:
             with timing.span("tool", f"{server}.{tool}"):
                 result = await self.caller(server, tool, args)
         except Exception as e:  # noqa: BLE001  도구 오류도 결과로 Generation에 넘긴다
-            return ToolCall(server=server, tool=tool, args=args, error=f"{type(e).__name__}: {e}")
+            return ToolCall(server=server, tool=tool, args=args, error=f"{type(e).__name__}: {e}",
+                            error_code=public_error_code(str(e)))
         return ToolCall(server=server, tool=tool, args=args, result=result)
 
     @staticmethod
