@@ -1,0 +1,299 @@
+[
+  {
+    "id": "internal_discount",
+    "query": "12000원에서 5% 할인하면 얼마야?",
+    "history": [],
+    "context": null,
+    "expected": {
+      "status": "completed",
+      "classification": "internal",
+      "calls": [
+        {
+          "kind": "internal",
+          "target": "apply_discount",
+          "arguments": {
+            "amount": "12000",
+            "discount_pct": "5"
+          },
+          "status": "ok"
+        }
+      ],
+      "result_subset": {
+        "amount": "12000",
+        "discount_pct": "5",
+        "discount_amount": "600",
+        "discounted_amount": "11400"
+      }
+    }
+  },
+  {
+    "id": "latest_quote_mcp",
+    "query": "A기업의 최신 견적을 조회해줘",
+    "history": [],
+    "context": null,
+    "expected": {
+      "status": "completed",
+      "classification": "mcp",
+      "calls": [
+        {
+          "kind": "mcp",
+          "target": "business-mcp.find_suppliers",
+          "arguments": {
+            "supplier": "A기업",
+            "limit": 10
+          },
+          "status": "ok"
+        },
+        {
+          "kind": "mcp",
+          "target": "business-mcp.get_supplier",
+          "arguments": {
+            "supplier": "SUP-0001"
+          },
+          "status": "ok"
+        }
+      ],
+      "result_subset": {
+        "outcomes": [
+          {
+            "id": "q1",
+            "status": "ok",
+            "intent": "supplier_detail",
+            "calls": [
+              {
+                "server": "business-mcp",
+                "tool": "find_suppliers",
+                "args": {
+                  "supplier": "A기업",
+                  "limit": 10
+                },
+                "error": null,
+                "result": {
+                  "matches": [
+                    {
+                      "supplier_id": "SUP-0001",
+                      "name": "A기업"
+                    }
+                  ],
+                  "total": 1,
+                  "match_type": "exact"
+                }
+              },
+              {
+                "server": "business-mcp",
+                "tool": "get_supplier",
+                "args": {
+                  "supplier": "SUP-0001"
+                },
+                "error": null,
+                "result": {
+                  "supplier_id": "SUP-0001",
+                  "name": "A기업",
+                  "recent_quotes": [
+                    {
+                      "unit_price": 12000,
+                      "quoted_at": "2026-10-20"
+                    },
+                    {
+                      "unit_price": 13000,
+                      "quoted_at": "2026-10-01"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "mcp_then_discount",
+    "query": "A기업의 최신 견적에서 5% 할인한 금액을 계산해줘",
+    "history": [],
+    "context": null,
+    "expected": {
+      "status": "completed",
+      "classification": "mcp_then_internal",
+      "calls": [
+        {
+          "kind": "mcp",
+          "target": "business-mcp.find_suppliers",
+          "arguments": {
+            "supplier": "A기업",
+            "limit": 10
+          },
+          "status": "ok"
+        },
+        {
+          "kind": "mcp",
+          "target": "business-mcp.get_supplier",
+          "arguments": {
+            "supplier": "SUP-0001"
+          },
+          "status": "ok"
+        },
+        {
+          "kind": "binding",
+          "target": "latest_quote_unit_price",
+          "arguments": {
+            "from_step": "lookup",
+            "from_sub_query": "q1",
+            "selector": "latest_quote_unit_price"
+          },
+          "status": "ok"
+        },
+        {
+          "kind": "internal",
+          "target": "apply_discount",
+          "arguments": {
+            "amount": "12000",
+            "discount_pct": "5"
+          },
+          "status": "ok"
+        }
+      ],
+      "result_subset": {
+        "amount": "12000",
+        "discount_pct": "5",
+        "discount_amount": "600",
+        "discounted_amount": "11400"
+      }
+    }
+  },
+  {
+    "id": "missing_discount_rate",
+    "query": "12000원에서 할인하면 얼마야?",
+    "history": [],
+    "context": null,
+    "expected": {
+      "status": "clarify",
+      "classification": "none",
+      "calls": [],
+      "error_code": "MISSING_INPUT",
+      "result_subset": null
+    }
+  },
+  {
+    "id": "invalid_operation",
+    "query": "12000원에서 5% 할인해줘 (잘못된 실행 대상 테스트)",
+    "history": [],
+    "context": null,
+    "expected": {
+      "status": "validation_failed",
+      "classification": "none",
+      "calls": [],
+      "error_code": "INVALID_DECOMPOSITION"
+    }
+  },
+  {
+    "id": "invalid_later_step",
+    "query": "A기업의 최신 견적에서 5% 할인해줘 (뒤 단계 검증 실패 테스트)",
+    "history": [],
+    "context": null,
+    "expected": {
+      "status": "validation_failed",
+      "classification": "none",
+      "calls": [],
+      "error_code": "INVALID_DECOMPOSITION"
+    }
+  },
+  {
+    "id": "selected_followup",
+    "query": "그 견적에서 5% 할인한 금액은?",
+    "history": [
+      {
+        "role": "user",
+        "content": "A기업의 최신 견적을 조회해줘"
+      },
+      {
+        "role": "assistant",
+        "content": "A기업의 2026-10-20 견적 단가는 12000원입니다."
+      }
+    ],
+    "context": {
+      "selected_supplier_ids": [
+        "SUP-0001"
+      ]
+    },
+    "expected": {
+      "status": "completed",
+      "classification": "mcp_then_internal",
+      "calls": [
+        {
+          "kind": "mcp",
+          "target": "business-mcp.get_supplier",
+          "arguments": {
+            "supplier": "SUP-0001"
+          },
+          "status": "ok"
+        },
+        {
+          "kind": "binding",
+          "target": "latest_quote_unit_price",
+          "arguments": {
+            "from_step": "lookup",
+            "from_sub_query": "q1",
+            "selector": "latest_quote_unit_price"
+          },
+          "status": "ok"
+        },
+        {
+          "kind": "internal",
+          "target": "apply_discount",
+          "arguments": {
+            "amount": "12000",
+            "discount_pct": "5"
+          },
+          "status": "ok"
+        }
+      ],
+      "result_subset": {
+        "amount": "12000",
+        "discount_pct": "5",
+        "discount_amount": "600",
+        "discounted_amount": "11400"
+      }
+    }
+  },
+  {
+    "id": "ambiguous_latest_quote",
+    "query": "B기업의 최신 견적에서 5% 할인한 금액을 계산해줘",
+    "history": [],
+    "context": null,
+    "expected": {
+      "status": "execution_failed",
+      "classification": "mcp",
+      "calls": [
+        {
+          "kind": "mcp",
+          "target": "business-mcp.find_suppliers",
+          "arguments": {
+            "supplier": "B기업",
+            "limit": 10
+          },
+          "status": "ok"
+        },
+        {
+          "kind": "mcp",
+          "target": "business-mcp.get_supplier",
+          "arguments": {
+            "supplier": "SUP-0002"
+          },
+          "status": "ok"
+        },
+        {
+          "kind": "binding",
+          "target": "latest_quote_unit_price",
+          "arguments": {
+            "from_step": "lookup",
+            "from_sub_query": "q1",
+            "selector": "latest_quote_unit_price"
+          },
+          "status": "error"
+        }
+      ],
+      "error_code": "AMBIGUOUS_QUOTE"
+    }
+  }
+]
