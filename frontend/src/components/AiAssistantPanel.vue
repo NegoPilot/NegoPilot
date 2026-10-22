@@ -314,13 +314,13 @@ function supplierSummary(res: GenerationResponse) {
           </svg>
         </button>
         <div>
-          <h2 id="ai-h"><span aria-hidden="true">✦</span> AI 도우미</h2>
+          <h2 id="ai-h"><span aria-hidden="true">✦</span> NegoPilot</h2>
           <p class="muted">기업 선택 없이 질문하고 이전 대화를 이어갈 수 있습니다.</p>
         </div>
       </div>
       <div class="head-actions">
         <button v-if="conversationId || messages.length" class="link-btn" type="button" @click="newConversation">새 대화</button>
-        <button v-if="closable !== false" class="close" type="button" aria-label="AI 도우미 닫기" @click="emit('close')">
+        <button v-if="closable !== false" class="close" type="button" aria-label="NegoPilot 닫기" @click="emit('close')">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
           <path d="M3.5 3.5l9 9M12.5 3.5l-9 9" />
         </svg>
