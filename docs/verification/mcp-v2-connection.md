@@ -1,6 +1,6 @@
 # 공개 오류 코드 전달 검증
 
-이번 PR은 MCP 공개 오류 코드가 Agent HTTP 응답과 Spring 응답 및 저장 대상 대화 JSON에 전달되도록 연결한다. 기존 `feat/32-spring-http-backend` 브랜치에 최신 main의 `11bdfa1`을 반영하면서 변경 범위를 조정했다.
+이번 PR은 MCP 공개 오류 코드가 Agent HTTP 응답과 Spring 응답 및 저장 대상 대화 JSON에 전달되도록 연결한다. 기존 `feat/32-spring-http-backend` 브랜치에 main의 `bc29117`까지 반영했다. 공개 오류 코드 전달로 변경 범위를 제한한다.
 
 ## 변경 범위
 
@@ -11,6 +11,20 @@
 - OpenAPI와 프런트 API 타입 및 관련 테스트를 갱신한다.
 
 Agent 라우팅은 main에 머지된 [PR #142](https://github.com/NegoPilot/NegoPilot/pull/142)의 구현을 그대로 사용한다. `energy_ratio`와 `as_of` 전달 및 기준일별 조문 조회와 근거 항 우선 인용은 해당 PR의 범위다. 이번 PR에 있던 중복 라우팅 구현과 관련 테스트를 제거했다. `basis.as_of`를 우선 사용하던 추가 처리도 이번 PR에서 제외했다.
+
+## 최신 main 병합 후 검증
+
+2026-10-22에 main의 `bc29117`을 반영했다. #150에서 삭제한 v1 명세 `agent-http.openapi.json`은 삭제를 유지했다. 현재 사용하는 `agent-generation.openapi.json`의 공개 오류 코드 선택 필드와 오류 동반 검증은 유지했다. Agent 라우팅 파일은 main과 동일하다.
+
+| 대상 | 결과 |
+| --- | --- |
+| shared 전체 | 147개 통과 |
+| Agent 전체 | 908개 통과 |
+| Spring 전체 | 별도 PostgreSQL에서 `clean test` 623개 통과. 실패와 오류 및 스킵 없음 |
+| business-mcp 전체 | 별도 PostgreSQL에서 131개 통과 |
+| 프런트 | 타입 검사와 빌드 및 API 회귀 검사 통과 |
+
+자동 테스트 합계는 1809개다. 이전 검증보다 Agent 테스트 수가 줄어든 것은 main에서 v1 경로와 해당 테스트를 제거했기 때문이다. 이 병합 검증에서는 기존 로컬 서비스와 DB를 재기동하거나 변경하지 않았다. 아래 실제 AI 및 데이터 보존 기록은 앞선 `11bdfa1` 통합 시점의 결과다.
 
 ## 범위 조정 후 검증
 

@@ -1,0 +1,31 @@
+{
+  "note": "협상안에 에너지 비용 비중이 있으면 energy_ratio (비율로)",
+  "query": "SUP-0051에 RFQ-2026-005 단가 5,550원, 결제 60일, 연동 약정 없이 낼 건데 에너지 비용이 단가의 12%야. 검사해 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "SUP-0051에 RFQ-2026-005 단가 5,550원, 결제 60일, 연동 약정 없이 낼 건데 에너지 비용이 단가의 12%야. 검사해 줘",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "SUP-0051에 RFQ-2026-005 단가 5,550원, 지급 60일, 연동 약정 없음, 에너지 비중 12% 협상안의 하도급법 위반 여부",
+        "original_text": "SUP-0051에 RFQ-2026-005 단가 5,550원, 결제 60일, 연동 약정 없이 낼 건데 에너지 비용이 단가의 12%야. 검사해 줘",
+        "intent": "offer_check",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "supplier": "SUP-0051",
+          "rfq_id": "RFQ-2026-005",
+          "unit_price": 5550,
+          "payment_days": 60,
+          "price_linkage": false,
+          "energy_ratio": 0.12
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

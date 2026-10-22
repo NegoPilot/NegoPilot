@@ -332,13 +332,53 @@ async def test_v2_reads_business_mcp_in_either_execution_mode(mode):
     assert [call[0] for call in business.calls] == ["find_suppliers", "get_supplier"]
 
 
-@pytest.mark.parametrize("path", ["/internal/v1/business/catalog", "/internal/v1/suppliers/SUP-0034"])
-async def test_v1_lookups_stay_stub_only_without_calling_business_mcp(path):
+@pytest.mark.parametrize("params", [
+    {},
+    {"process": ""},
+    {"process": " \t"},
+    {"process": "가" * 101},
+    {"process": "다이캐스팅", "material": ""},
+    {"process": "다이캐스팅", "material": " \t"},
+    {"process": "다이캐스팅", "material": "가" * 101},
+    {"process": "다이캐스팅", "region": ""},
+    {"process": "다이캐스팅", "region": "가" * 101},
+    {"process": "다이캐스팅", "iatf_required": "1"},
+    {"process": "다이캐스팅", "iatf_required": "True"},
+    {"process": "다이캐스팅", "iatf_required": "yes"},
+    {"process": "다이캐스팅", "iso14001_required": "1"},
+    {"process": "다이캐스팅", "iso14001_required": "True"},
+    {"process": "다이캐스팅", "limit": "0"},
+    {"process": "다이캐스팅", "limit": "101"},
+    {"process": "다이캐스팅", "limit": "1.5"},
+    {"process": "다이캐스팅", "limit": "true"},
+    {"process": "다이캐스팅", "min_monthly_capacity": "0"},
+    {"process": "다이캐스팅", "min_monthly_capacity": "10000001"},
+    {"process": "다이캐스팅", "min_monthly_capacity": "-1"},
+    {"process": "다이캐스팅", "min_monthly_capacity": "1.5"},
+    {"process": "다이캐스팅", "min_monthly_capacity": ""},
+    [("process", "다이캐스팅"), ("min_monthly_capacity", "1"), ("min_monthly_capacity", "2")],
+    {"process": "다이캐스팅", "unknown": "private-query-value"},
+    {"process": "다이캐스팅", "offset": "0"},
+    [("process", "다이캐스팅"), ("process", "다이캐스팅")],
+    [("process", "다이캐스팅"), ("limit", "1"), ("limit", "2")],
+    [("process", "다이캐스팅"), ("material", "ADC12"), ("material", "ADC12")],
+    [("process", "다이캐스팅"), ("region", "경남"), ("region", "경남")],
+    [("process", "다이캐스팅"), ("iatf_required", "false"), ("iatf_required", "false")],
+])
+async def test_search_rejects_invalid_or_duplicate_parameters_before_mcp(params, caplog):
     business = FakeBusiness()
-    response = await get(live_app(business), path)
-    assert response.status_code == 503
-    assert response.json()["error"]["code"] == "DEMO_MODE_REQUIRED"
+    response = await get(live_app(business), SEARCH, params=params)
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert "private-query-value" not in response.text + caplog.text
     assert business.calls == []
+
+
+async def test_search_accepts_string_length_boundary_after_trimming():
+    data = live_data(await get(live_app(FakeBusiness()), SEARCH, params={
+        "process": " " + "가" * 100 + " ", "material": "나" * 100, "region": "다" * 100,
+    }))
+    assert data == {"items": [], "returned_count": 0, "limit": 20}
 
 
 @pytest.mark.parametrize(("suffix", "headers", "status", "code"), [

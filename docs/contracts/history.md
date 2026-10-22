@@ -2,8 +2,6 @@
 
 Spring의 기본 실행 프로필은 로그인한 회원의 대화와 응답을 PostgreSQL에 저장한다. 대화 목록과 스냅샷 및 메시지 페이지의 `schema_version`은 `"0.4"`다. 저장된 Agent 응답과 Python 내부 요청 계약은 [Generation v0.3](agent-generation.md)을 유지한다.
 
-`legacy-test` 프로필은 기존 메모리 대화의 호환성 테스트용이다. 아래 계약은 기본 실행 프로필에 적용한다.
-
 ## 인증과 소유권
 
 모든 경로는 `ACTIVE` 회원의 로그인 세션이 필요하다. 소유자는 세션의 회원 UUID로 결정한다. 요청 본문에 `owner_id`나 `user_id`를 지정할 수 없다. 관리자도 다른 회원의 대화를 읽거나 변경할 수 없다. 없는 대화와 다른 회원의 대화는 모두 `404 CONVERSATION_NOT_FOUND`를 반환한다.

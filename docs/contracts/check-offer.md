@@ -44,7 +44,7 @@ v1과 비교해 **기존 필드는 이름도 뜻도 바꾸지 않고, 새 필드
   "schema_version": "2",
   "verdict": "위반 소지 있음",
   "verdict_code": "VIOLATION",
-  "basis": {"as_of": "2026-10-22", "law_versions": {"subcontract_act": "2026-10-02", "subcontract_decree": "2026-08-11"}},
+  "basis": {"as_of": "2026-10-22", "law_versions": {"subcontract_act": "2026-10-02", "subcontract_decree": "2026-08-11", "sme_decree": "2026-01-02"}},
   "supplier": {"supplier_id": "SUP-0030", "name": "...", "source": "MOCK", "revenue_eok": 850, "...": "..."},
   "rfq": {"rfq_id": "RFQ-2026-004", "part_name": "...", "process": "...", "material": "...", "annual_volume": 120000, "target_price": 15000},
   "offer": {"unit_price": 15200, "payment_days": 75, "price_linkage": false, "raw_material_ratio": 0.4,
@@ -88,7 +88,8 @@ v1과 비교해 **기존 필드는 이름도 뜻도 바꾸지 않고, 새 필드
 | `PRICE_BELOW_MARKET` | warning | 단가가 같은 공정·소재 최근 견적 중앙값의 90% 미만 (제4조) | |
 | `PRICE_CUT_FROM_LAST_QUOTE` | warning | 이 협력사의 직전 견적보다 5% 넘게 낮음 (제4조) | |
 | `ABOVE_TARGET_PRICE` | info | 단가가 RFQ 목표 단가보다 높음 | |
-| `SUBCONTRACT_ACT_APPLIES`, `SME_STATUS_CHECK`, `SME_STATUS_UNKNOWN` | info | 수급사업자(중소기업자) 해당 여부 | |
+| `SUBCONTRACT_ACT_APPLIES`, `SME_STATUS_CHECK`, `SME_STATUS_UNKNOWN` | info | 수급사업자(중소기업자) 해당 여부. 자동차 및 트레일러 제조업(C30) 중소기업 기준 평균매출액 1,200억 원 이하 (중소기업기본법 시행령 별표 1) | 기준 1,000억 → 1,200억 |
+| `MIDSIZE_PAYMENT_RULES_MAY_APPLY` | info | 중소기업 기준은 넘지만 매출이 3천억 원 미만이라, 중견기업이고 원사업자가 조건에 맞으면 지급 조항(제13조①~⑩)이 적용됨 (제13조⑪, 시행령 제7조의5·제7조의6, 별표 1의2). 2,000억 원 미만이면 원사업자가 상호출자제한기업집단 소속이거나 매출 2조 원 초과일 때, 2,000억 원 이상 3천억 원 미만이면 상호출자제한기업집단 소속일 때 | **추가** |
 | `CERT_MISSING`, `CAPABILITY_MISSING`, `CAPACITY_SHORT` | warning | RFQ 거래 조건(인증, 생산능력) | |
 
 에너지 규칙은 다음 기준을 따릅니다.
