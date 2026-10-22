@@ -83,7 +83,8 @@ class _SupplierMatches(BaseModel):
 
 def supplier_options(outcome: SubQueryOutcome) -> list[str]:
     """Read selection labels only from a successful structured supplier lookup."""
-    if outcome.intent != "supplier_detail" or outcome.status != "missing_args" or "supplier" not in outcome.missing:
+    if (outcome.intent not in {"supplier_detail", "offer_check"} or outcome.status != "missing_args"
+            or "supplier" not in outcome.missing):
         return []
     options: dict[str, str] = {}
     for call in outcome.calls:
