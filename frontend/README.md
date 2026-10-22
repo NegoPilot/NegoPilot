@@ -6,10 +6,14 @@
 
 | 기능 | 공개 API | 계약 |
 | --- | --- | --- |
-| 회원가입과 로그인 및 세션 확인 | `/api/v1/auth/signup` `login` `me` `logout` `csrf` | [회원과 세션](../docs/contracts/membership.md) |
-| 개인 대화 생성과 목록 및 제목 변경과 삭제 | `/api/v2/conversations` 및 `/{id}` | [개인 대화 이력 v0.4](../docs/contracts/history.md) |
-| 질문 전송과 이전 메시지 조회 | `/api/v2/conversations/{id}/messages` | [대화 이력](../docs/contracts/history.md)과 [Generation v0.3](../docs/contracts/agent-generation.md) |
-| 저장된 답변과 근거 조회 | `/api/v2/conversations/{id}/responses/{responseId}` | [대화 이력](../docs/contracts/history.md) |
+| 회원가입과 로그인 및 세션 확인 | `/api/auth/signup` `login` `me` `logout` `csrf` | [회원과 세션](../docs/contracts/membership.md) |
+| 개인 대화 생성과 목록 및 제목 변경과 삭제 | `/api/conversations` 및 `/{id}` | [개인 대화 이력 v0.4](../docs/contracts/history.md) |
+| 질문 전송과 이전 메시지 조회 | `/api/conversations/{id}/messages` | [대화 이력](../docs/contracts/history.md)과 [Generation v0.3](../docs/contracts/agent-generation.md) |
+| 저장된 답변과 근거 조회 | `/api/conversations/{id}/responses/{responseId}` | [대화 이력](../docs/contracts/history.md) |
+| 협력사 검색과 상세 (`/suppliers` 화면) | `/api/business/catalog` `/api/suppliers` 및 `/{id}` | [협력사 조회](../docs/contracts/supplier-lookup.md) |
+| 회원 목록과 승인 (관리자 화면) | `/api/admin/members` | [회원과 세션](../docs/contracts/membership.md) |
+
+공개 API 경로에는 버전을 두지 않습니다. 경로는 `src/api/client.ts`의 `API_PATHS`에서만 정하고, 계약 버전은 응답의 `schema_version`으로 구분합니다.
 
 대화 목록과 스냅샷의 외부 계약은 `schema_version: "0.4"`와 `storage: "database"`입니다. 저장된 Generation 응답은 `schema_version: "0.3"`을 유지합니다. 프런트는 전체 응답과 원본 근거를 보존하고 표시할 때만 필드를 변환합니다.
 
@@ -17,9 +21,9 @@
 
 회원가입은 이름과 이메일 및 비밀번호와 부서와 직책을 서버에 저장합니다. 이름과 이메일 및 비밀번호와 부서는 필수입니다. 비밀번호 확인은 화면 검사용이며 서버에 보내지 않습니다. 비밀번호는 영문과 숫자 및 특수문자를 포함한 8자 이상이어야 합니다. 최대 길이는 UTF-8 기준 72바이트입니다.
 
-신규 회원은 `PENDING`으로 생성됩니다. 가입 후 로그인하면 승인 대기 화면에서 상태를 확인할 수 있습니다. `ACTIVE` 회원만 AI 대화를 이용합니다. 회원 승인은 현재 관리자 API로 처리하며 관리자 화면 연결은 준비 중입니다. 최초 관리자는 [관리자 생성 절차](../docs/contracts/membership.md#최초-관리자-생성)로 만듭니다.
+신규 회원은 `PENDING`으로 생성됩니다. 가입 후 로그인하면 승인 대기 화면에서 상태를 확인할 수 있습니다. `ACTIVE` 회원만 AI 대화를 이용합니다. 회원 승인은 관리자 화면의 회원 승인 메뉴에서 처리합니다. 최초 관리자는 [관리자 생성 절차](../docs/contracts/membership.md#최초-관리자-생성)로 만듭니다.
 
-인증은 서버의 HttpOnly 세션 쿠키를 사용합니다. 변경 요청에는 `/api/v1/auth/csrf`에서 받은 토큰을 보냅니다. 역할과 승인 상태는 서버가 반환한 회원 정보로 확인합니다. 예전 시안의 브라우저 저장 역할 값은 인증에 사용하지 않습니다. 임의의 이메일이나 비밀번호로 로그인할 수 없습니다.
+인증은 서버의 HttpOnly 세션 쿠키를 사용합니다. 변경 요청에는 `/api/auth/csrf`에서 받은 토큰을 보냅니다. 역할과 승인 상태는 서버가 반환한 회원 정보로 확인합니다. 예전 시안의 브라우저 저장 역할 값은 인증에 사용하지 않습니다. 임의의 이메일이나 비밀번호로 로그인할 수 없습니다.
 
 ### AI 대화와 개인 이력
 
@@ -59,15 +63,13 @@ business MCP의 flat 응답을 화면용 형식으로 변환합니다. `on_time_
 | `/evidence/:conversationId/:responseId/:evidenceId` | 저장된 답변의 기업 근거와 법령 원문 표시 |
 | `/login` `/signup` `/signup/pending` | 실제 인증 API와 가입 승인 상태 확인 |
 | `/overview` | 예시 RFQ 목록과 AI 대화 진입. RFQ 목록 API는 아직 연결하지 않음 |
-| `/suppliers` | 별도 조회 화면 연결 준비 안내. 검색 요청과 첫 기업 자동 선택을 실행하지 않음 |
+| `/suppliers` | 협력사 조회 API로 공정·소재·지역 검색과 기업 상세를 표시 |
 | `/review` | 예시 협상안과 법규 검토 결과. 재검사 API는 미연결 |
-| `/admin` 및 하위 경로 | 서버에서 확인한 ADMIN 계정만 진입. 회원 승인과 권한 관리 및 데이터 관리 화면은 연결 준비 안내 |
+| `/admin` 및 하위 경로 | 서버에서 확인한 ADMIN 계정만 진입. 회원 목록과 승인·상태 변경은 관리자 API와 연결. 데이터 관리 화면은 예시 데이터 |
 
-관리자 백엔드 API가 있어도 현재 관리자 화면에서 승인이나 등록을 실행하지 않습니다. 기존 시안의 예시 회원과 등록 요청을 실제 관리 결과로 표시하지 않습니다. 후속 UI 연결 시 [회원 계약](../docs/contracts/membership.md)과 [법령 관리 계약](../docs/contracts/admin-laws.md)을 확인해야 합니다.
+관리자 데이터 관리 화면(법령·협력사 등록)은 아직 백엔드 API에 연결하지 않았으며 예시 데이터를 표시합니다. 후속 UI 연결 시 [회원 계약](../docs/contracts/membership.md)과 [법령 관리 계약](../docs/contracts/admin-laws.md)을 확인해야 합니다.
 
-협력사 조회용 기존 `/api/v1/business/catalog`와 `/api/v1/suppliers` 코드는 남아 있지만 현재 기본 서버와 연결된 기능으로 제공하지 않습니다. 기업 정보는 AI 대화의 business MCP 도구 조회로 확인합니다.
-
-백엔드에는 [협력사 조회 v2 API](../docs/contracts/supplier-lookup.md)가 추가됐습니다. `/api/v2/business/catalog`과 `/api/v2/suppliers` 및 `/api/v2/suppliers/{id}`는 실행 모드와 관계없이 business MCP를 조회하며 모델은 호출하지 않습니다. 이 API는 `schema_version: "0.3"`과 `mode: "live"`를 반환합니다. 프런트의 별도 검색 화면과 기존 v1 조회 클라이언트는 아직 v2로 전환하지 않았습니다. 채팅을 stub으로 실행해도 v2 조회에는 business MCP와 DB가 필요합니다.
+[협력사 조회 API](../docs/contracts/supplier-lookup.md)는 실행 모드와 관계없이 business MCP를 조회하며 모델은 호출하지 않습니다. 이 API는 `schema_version: "0.3"`과 `mode: "live"`를 반환합니다. 채팅을 stub으로 실행해도 협력사 조회에는 business MCP와 DB가 필요합니다.
 
 ## 로컬 실행
 

@@ -17,7 +17,7 @@ const api = await import(await moduleUrl('../src/api/admin-members.ts', [
   ['from "./client"', `from '${clientUrl}'`],
 ]))
 
-const root = '/api/v1/admin/members'
+const root = '/api/admin/members'
 const id = '56f51af3-50dc-42e2-a603-f7cf637df417'
 const otherId = '52a3f43d-cc53-4e9f-a17d-0da24fa2af3a'
 const stamp = '2026-10-21T05:00:00Z'
@@ -38,7 +38,7 @@ function serve(body, status = 200) {
 }
 function serveUpdate(user) {
   calls.length = 0
-  respond = async path => path === '/api/v1/auth/csrf'
+  respond = async path => path === '/api/auth/csrf'
     ? Response.json({ header_name: 'X-CSRF-TOKEN', token: 'test-csrf' })
     : Response.json({ user })
 }
@@ -114,7 +114,7 @@ try {
   calls.length = 0
   let tokenCount = 0
   respond = async (path, init) => {
-    if (path === '/api/v1/auth/csrf') {
+    if (path === '/api/auth/csrf') {
       return Response.json({ header_name: 'X-CSRF-TOKEN', token: `test-csrf-${++tokenCount}` })
     }
     return Response.json({ user: { ...member, status: JSON.parse(init.body).status } })
@@ -126,7 +126,7 @@ try {
   for (const [index, status] of ['ACTIVE', 'REJECTED'].entries()) {
     const csrf = calls[index * 2]
     const patch = calls[index * 2 + 1]
-    assert.equal(csrf.path, '/api/v1/auth/csrf')
+    assert.equal(csrf.path, '/api/auth/csrf')
     assert.equal(csrf.init.credentials, 'same-origin')
     assert.equal(patch.path, `${root}/${id}/status`)
     assert.equal(patch.init.method, 'PATCH')
@@ -155,9 +155,9 @@ try {
   await assert.rejects(api.listMembers(), forbidden)
   serve(denied, 403)
   await assert.rejects(api.updateMemberStatus(id, 'ACTIVE'), forbidden)
-  assert.deepEqual(calls.map(call => call.path), ['/api/v1/auth/csrf'], 'CSRF failure must prevent PATCH')
+  assert.deepEqual(calls.map(call => call.path), ['/api/auth/csrf'], 'CSRF failure must prevent PATCH')
   calls.length = 0
-  respond = async path => path === '/api/v1/auth/csrf'
+  respond = async path => path === '/api/auth/csrf'
     ? Response.json({ header_name: 'X-CSRF-TOKEN', token: 'test-csrf' })
     : Response.json(denied, { status: 403 })
   await assert.rejects(api.updateMemberStatus(id, 'REJECTED'), forbidden)

@@ -1,6 +1,7 @@
 package com.negopilot.backend.admin.law;
 
 import com.negopilot.backend.common.api.ApiException;
+import com.negopilot.backend.common.api.ApiPaths;
 import com.negopilot.backend.auth.CurrentUser;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -18,7 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.JsonNode;
 
 @RestController
-@RequestMapping("/api/v1/admin/laws")
+@RequestMapping(ApiPaths.ADMIN + "/laws")
 final class AdminLawController {
     private final AdminLawGateway laws;
     private final CurrentUser currentUser;

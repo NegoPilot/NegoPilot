@@ -39,7 +39,7 @@ import tools.jackson.databind.json.JsonMapper;
 @WebMvcTest(controllers = {AdminLawController.class, AdminDataController.class})
 @Import({SecurityConfiguration.class, CurrentUser.class, AdminLawControllerTest.JsonConfiguration.class})
 class AdminLawControllerTest {
-    private static final String ROOT = "/api/v1/admin/laws";
+    private static final String ROOT = "/api/admin/laws";
     private static final String VERSION = "2026-01-01_" + "a".repeat(40);
     private static final String JOB = "74af7d24-2c46-47a9-a281-7b3a11b54482";
     @Autowired MockMvc mvc;
@@ -130,7 +130,7 @@ class AdminLawControllerTest {
     }
     @Test void summaryShowsUnavailableAsNullIndependentlyOfAvailableSource() throws Exception {
         when(laws.read(anyString(), any())).thenThrow(ApiException.unavailable(null));
-        var first = mvc.perform(get("/api/v1/admin/data/summary").with(admin())).andExpect(status().isOk()).andReturn();
+        var first = mvc.perform(get("/api/admin/data/summary").with(admin())).andExpect(status().isOk()).andReturn();
         var body = mapper.readTree(first.getResponse().getContentAsString());
         assertThat(body.at("/suppliers/status").stringValue()).isEqualTo("AVAILABLE");
         assertThat(body.at("/suppliers/data/total").intValue()).isEqualTo(2);
@@ -139,14 +139,14 @@ class AdminLawControllerTest {
         assertThat(body.at("/laws/error_code").stringValue()).isEqualTo("UPSTREAM_UNAVAILABLE");
         Instant.parse(body.get("checked_at").stringValue());
         when(suppliers.summary()).thenThrow(ApiException.unavailable(null));
-        var second = mvc.perform(get("/api/v1/admin/data/summary").with(admin())).andExpect(status().isOk()).andReturn();
+        var second = mvc.perform(get("/api/admin/data/summary").with(admin())).andExpect(status().isOk()).andReturn();
         var unavailable = mapper.readTree(second.getResponse().getContentAsString());
         assertThat(unavailable.at("/suppliers/data").isNull()).isTrue();
         assertThat(unavailable.at("/laws/data").isNull()).isTrue();
     }
     @Test void summaryIsAdminOnlyAndRejectsQueryParameters() throws Exception {
-        mvc.perform(get("/api/v1/admin/data/summary").with(principal("USER", "ACTIVE"))).andExpect(status().isForbidden());
-        mvc.perform(get("/api/v1/admin/data/summary?force=true").with(admin())).andExpect(status().isBadRequest());
+        mvc.perform(get("/api/admin/data/summary").with(principal("USER", "ACTIVE"))).andExpect(status().isForbidden());
+        mvc.perform(get("/api/admin/data/summary?force=true").with(admin())).andExpect(status().isBadRequest());
         verifyNoInteractions(laws, suppliers);
     }
 }

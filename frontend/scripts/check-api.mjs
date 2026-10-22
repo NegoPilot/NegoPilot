@@ -125,7 +125,7 @@ const calls = []
 try {
   globalThis.fetch = async (path, init) => {
     calls.push({ path, init })
-    if (path === '/api/v1/auth/csrf') return Response.json({ header_name: 'X-CSRF-TOKEN', token: 'test-csrf' })
+    if (path === '/api/auth/csrf') return Response.json({ header_name: 'X-CSRF-TOKEN', token: 'test-csrf' })
     return new Response(null, { status: 204 })
   }
   assert.equal(await client.request('/delete', { method: 'DELETE', headers: { 'Idempotency-Key': id } }), undefined)

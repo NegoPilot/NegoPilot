@@ -3,6 +3,7 @@ package com.negopilot.backend.admin.data;
 import com.negopilot.backend.admin.law.AdminLawGateway;
 import com.negopilot.backend.admin.supplier.AdminSupplierService;
 import com.negopilot.backend.common.api.ApiException;
+import com.negopilot.backend.common.api.ApiPaths;
 import com.negopilot.backend.auth.CurrentUser;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -22,7 +23,7 @@ public final class AdminDataController {
     AdminDataController(CurrentUser currentUser, AdminSupplierService suppliers, AdminLawGateway laws) {
         this.currentUser = currentUser; this.suppliers = suppliers; this.laws = laws;
     }
-    @GetMapping("/api/v1/admin/data/summary")
+    @GetMapping(ApiPaths.ADMIN + "/data/summary")
     Map<String, Object> summary(HttpServletRequest request) {
         currentUser.requireAdmin();
         UUID id = UUID.randomUUID();

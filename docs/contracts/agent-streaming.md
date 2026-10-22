@@ -27,10 +27,10 @@
 | 경로 | 역할 | 응답 |
 | --- | --- | --- |
 | POST /internal/v2/query-executions/stream | Python 전체 Agent 실행 (스트리밍) | SSE |
-| POST /api/v2/agent/queries/stream | Spring 상태 없는 생성 답변 (스트리밍) | SSE |
-| POST /api/v2/conversations/{conversation_id}/messages/stream | Spring 대화 메시지 (스트리밍) | SSE |
+| POST /api/agent/queries/stream | Spring 상태 없는 생성 답변 (스트리밍) | SSE |
+| POST /api/conversations/{conversation_id}/messages/stream | Spring 대화 메시지 (스트리밍) | SSE |
 
-- 요청 본문은 각 기존 경로(`/internal/v2/query-executions`, `/api/v2/agent/queries`, `/api/v2/conversations/{id}/messages`)와 **같다.** 검증 규칙도 같다
+- 요청 본문은 각 기존 경로(`/internal/v2/query-executions`, `/api/agent/queries`, `/api/conversations/{id}/messages`)와 **같다.** 검증 규칙도 같다
 - 요청 검증 실패(400), 내부 인증 실패(401), 없는 대화(404)처럼 **실행을 시작하기 전에 정해지는 오류는 SSE가 아니라 기존 JSON 오류 envelope**로 응답한다
 - 실행을 시작하면 HTTP 200과 `Content-Type: text/event-stream`으로 응답하고, 이후의 오류는 `error` 이벤트로 보낸다
 - 응답 헤더: `Cache-Control: no-cache`, `X-Accel-Buffering: no` (프록시가 이벤트를 모아 두지 않게)

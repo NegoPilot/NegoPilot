@@ -20,7 +20,7 @@ import {
 
 const route = useRoute()
 const router = useRouter()
-// 협력사 조회 v2 API(/api/v2/business/catalog, /api/v2/suppliers)로 검색과 상세를 불러온다.
+// 협력사 조회 API(/api/business/catalog, /api/suppliers)로 검색과 상세를 불러온다.
 const SUPPLIER_READ_AVAILABLE = true
 
 function queryString(key: string): string | null {

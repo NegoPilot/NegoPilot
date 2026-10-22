@@ -111,19 +111,19 @@ class SmokeCommonTest(unittest.TestCase):
 
         def fake_exchange(port, path, body=None, *, method, headers: dict, timeout):
             calls.append((method, path, dict(headers)))
-            if path == "/api/v1/auth/csrf":
+            if path == "/api/auth/csrf":
                 issued = headers_of() if "Cookie" in headers else headers_of("SESSION=first; Path=/; HttpOnly")
                 return 200, {"header_name": "X-CSRF-TOKEN", "token": f"token-{len(calls)}"}, issued
-            if path == "/api/v1/auth/login":
+            if path == "/api/auth/login":
                 return 200, {"user": {"status": "ACTIVE"}}, headers_of("SESSION=rotated; Path=/; HttpOnly")
             return 200, {"items": []}, headers_of()
 
         headers_of = headers
         with patch.object(smoke, "exchange", side_effect=fake_exchange):
             session.login("member@example.test", "password")
-            session.send("GET", "/api/v2/conversations")
-            session.send("POST", "/api/v2/conversations", {"context": {"selected_supplier_ids": []}})
-        login = next(call for call in calls if call[1] == "/api/v1/auth/login")
+            session.send("GET", "/api/conversations")
+            session.send("POST", "/api/conversations", {"context": {"selected_supplier_ids": []}})
+        login = next(call for call in calls if call[1] == "/api/auth/login")
         self.assertEqual(login[2]["X-CSRF-TOKEN"], "token-1")
         self.assertEqual(login[2]["Cookie"], "SESSION=first")
         self.assertEqual(session.cookies, {"SESSION": "rotated"})
@@ -136,7 +136,7 @@ class SmokeCommonTest(unittest.TestCase):
         session = smoke.SpringSession(8080)
         session.cookies = {"SESSION": "old"}
         with patch.object(smoke, "exchange", return_value=(204, None, headers("SESSION=; Max-Age=0; Path=/"))):
-            session.send("POST", "/api/v1/auth/logout")
+            session.send("POST", "/api/auth/logout")
         self.assertEqual(session.cookies, {})
 
     def test_database_close_removes_only_its_own_container_once(self):

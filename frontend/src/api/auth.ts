@@ -1,4 +1,4 @@
-import { ApiError, request } from './client'
+import { API_PATHS, ApiError, request } from './client'
 
 export interface Member {
   id: string
@@ -22,11 +22,11 @@ function member(value: { user: Member }): Member {
   }
   return user
 }
-export async function currentMember() { return member(await request<{ user: Member }>('/api/v1/auth/me')) }
+export async function currentMember() { return member(await request<{ user: Member }>(`${API_PATHS.auth}/me`)) }
 export async function login(email: string, password: string) {
-  return member(await request<{ user: Member }>('/api/v1/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }))
+  return member(await request<{ user: Member }>(`${API_PATHS.auth}/login`, { method: 'POST', body: JSON.stringify({ email, password }) }))
 }
 export async function signup(input: SignupInput) {
-  return member(await request<{ user: Member }>('/api/v1/auth/signup', { method: 'POST', body: JSON.stringify(input) }))
+  return member(await request<{ user: Member }>(`${API_PATHS.auth}/signup`, { method: 'POST', body: JSON.stringify(input) }))
 }
-export function logout() { return request<void>('/api/v1/auth/logout', { method: 'POST' }) }
+export function logout() { return request<void>(`${API_PATHS.auth}/logout`, { method: 'POST' }) }

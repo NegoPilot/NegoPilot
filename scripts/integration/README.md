@@ -1,14 +1,14 @@
 # Spring과 Python HTTP 통합 검증
 
-이 디렉터리의 smoke 실행기는 Spring과 Python을 임시 포트에서 함께 띄워 v2 경로를 검사하는 개발용 회귀 검사입니다. 사용자용 서버를 실행하는 용도로 사용하지 않습니다.
+이 디렉터리의 smoke 실행기는 Spring과 Python을 임시 포트에서 함께 띄워 공개 API와 내부 v2 경로를 검사하는 개발용 회귀 검사입니다. 사용자용 서버를 실행하는 용도로 사용하지 않습니다.
 
 Spring은 운영과 같은 기본 프로필로 실행합니다. 실행마다 일회용 PostgreSQL 컨테이너를 만들고, JAR의 bootstrap CLI로 관리자와 승인된 회원을 만든 뒤, 공개 API로 로그인해 세션과 CSRF 토큰을 붙여 호출합니다. 셸의 운영 프로필과 DB 설정은 상속하지 않습니다. 대화 저장 검사는 [이력 v0.4 계약](../../docs/contracts/history.md)을 따릅니다.
 
 컨테이너 재생성 후 기록 보존과 실제 MCP 공급사 조회 등 Compose 전체 흐름은 `compose_smoke.py`가 확인합니다. 실행 방법은 [로컬 Docker 안내](../../docs/LOCAL_DOCKER.md)를 따릅니다.
 
-Generation 경로의 계약 회귀는 `generation_smoke.py`로 검사합니다. [Generation HTTP 계약](../../docs/contracts/agent-generation.md)의 공개 v2 경로와 내부 v2 경로를 연결합니다. 실제 `build_graph`와 `QueryDecomposer` 및 `AnswerGenerator`를 실행하며 모델 backend와 도구 입출력에 fake를 주입합니다.
+Generation 경로의 계약 회귀는 `generation_smoke.py`로 검사합니다. [Generation HTTP 계약](../../docs/contracts/agent-generation.md)의 공개 경로(`/api/...`)와 내부 v2 경로를 연결합니다. 실제 `build_graph`와 `QueryDecomposer` 및 `AnswerGenerator`를 실행하며 모델 backend와 도구 입출력에 fake를 주입합니다.
 
-`direct_chat_smoke.py`는 같은 v2 경로에서 기업을 미리 선택하지 않은 직접 질문과 추가 답변을 검사합니다. 문서화된 질문을 내장 stub에 보내 검색과 이름 조회 및 법령 조회와 원래 질문의 재개를 확인합니다. HTTP 스키마는 0.3을 유지합니다.
+`direct_chat_smoke.py`는 같은 경로에서 기업을 미리 선택하지 않은 직접 질문과 추가 답변을 검사합니다. 문서화된 질문을 내장 stub에 보내 검색과 이름 조회 및 법령 조회와 원래 질문의 재개를 확인합니다. HTTP 스키마는 0.3을 유지합니다.
 
 이 검사들은 Python live 환경이나 모델 인증 키 및 MCP 서버를 준비할 필요가 없습니다. 실제 모델과 MCP를 호출하지 않으며 메일도 보내지 않습니다. DB는 실행이 직접 만든 일회용 컨테이너만 사용합니다.
 

@@ -87,16 +87,16 @@ class SupplierLookupLiveHttpTest {
 
     @Test
     void proxiesLiveCatalogSearchAndDetail() throws Exception {
-        var catalog = get("/api/v2/business/catalog");
+        var catalog = get("/api/business/catalog");
         assertThat(catalog.statusCode()).as(catalog.body()).isEqualTo(200);
         assertThat(body(catalog)).isEqualTo(catalog());
 
-        var search = get("/api/v2/suppliers?process=" + encode("다이캐스팅") + "&region=" + encode("경남"));
+        var search = get("/api/suppliers?process=" + encode("다이캐스팅") + "&region=" + encode("경남"));
         assertThat(search.statusCode()).as(search.body()).isEqualTo(200);
         assertThat(body(search).path("mode").stringValue()).isEqualTo("live");
         assertThat(body(search).path("data").path("returned_count").intValue()).isEqualTo(2);
 
-        var detail = get("/api/v2/suppliers/SUP-0001");
+        var detail = get("/api/suppliers/SUP-0001");
         assertThat(detail.statusCode()).as(detail.body()).isEqualTo(200);
         assertThat(body(detail).path("data").path("provenance").path("profile").stringValue()).isEqualTo("DART");
         assertThat(PATHS).containsExactly("/internal/v2/business/catalog", "/internal/v2/suppliers",
@@ -118,17 +118,17 @@ class SupplierLookupLiveHttpTest {
                 default -> ((ObjectNode) body.get("data")).put("returned_count", 3);
             }
         });
-        var response = get("/api/v2/suppliers?process=" + encode("다이캐스팅") + "&region=" + encode("경남"));
+        var response = get("/api/suppliers?process=" + encode("다이캐스팅") + "&region=" + encode("경남"));
         assertError(response, 502, "UPSTREAM_INVALID_RESPONSE", false);
     }
 
     @Test
     void rejectsLiveSearchItemWithoutRequiredIso14001() throws Exception {
-        var response = get("/api/v2/suppliers?process=" + encode("다이캐스팅") + "&iso14001_required=true");
+        var response = get("/api/suppliers?process=" + encode("다이캐스팅") + "&iso14001_required=true");
         assertError(response, 502, "UPSTREAM_INVALID_RESPONSE", false);
         CORRUPT.set(body -> ((ArrayNode) body.at("/data/items")).remove(1));
         CORRUPT.set(CORRUPT.get().andThen(body -> ((ObjectNode) body.get("data")).put("returned_count", 1)));
-        var filtered = get("/api/v2/suppliers?process=" + encode("다이캐스팅") + "&iso14001_required=true");
+        var filtered = get("/api/suppliers?process=" + encode("다이캐스팅") + "&iso14001_required=true");
         assertThat(filtered.statusCode()).as(filtered.body()).isEqualTo(200);
     }
 
@@ -143,13 +143,13 @@ class SupplierLookupLiveHttpTest {
                 default -> data.put("extra", true);
             }
         });
-        assertError(get("/api/v2/suppliers/SUP-0001"), 502, "UPSTREAM_INVALID_RESPONSE", false);
+        assertError(get("/api/suppliers/SUP-0001"), 502, "UPSTREAM_INVALID_RESPONSE", false);
     }
 
     @Test
     void businessDataOutageIsRetryable() throws Exception {
         STATUS.set(503);
-        assertError(get("/api/v2/business/catalog"), 503, "UPSTREAM_UNAVAILABLE", true);
+        assertError(get("/api/business/catalog"), 503, "UPSTREAM_UNAVAILABLE", true);
     }
 
     @Test
@@ -164,7 +164,7 @@ class SupplierLookupLiveHttpTest {
             data.putObject("provenance").put("profile", "MANUAL")
                     .put("financials", "UNKNOWN").put("operations", "MANUAL");
         });
-        var response = get("/api/v2/suppliers/SUP-10000");
+        var response = get("/api/suppliers/SUP-10000");
         assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
         assertThat(body(response).at("/data/supplier_id").stringValue()).isEqualTo("SUP-10000");
         assertThat(PATHS).containsExactly("/internal/v2/suppliers/SUP-10000");
@@ -173,14 +173,14 @@ class SupplierLookupLiveHttpTest {
     @ParameterizedTest
     @ValueSource(strings = {"SUP-1", "sup-0001", "SUP-0001extra", "SUP-1234567890123456789"})
     void rejectsInvalidLiveSupplierIdsBeforeCallingPython(String id) throws Exception {
-        assertError(get("/api/v2/suppliers/" + id), 400, "VALIDATION_ERROR", false);
+        assertError(get("/api/suppliers/" + id), 400, "VALIDATION_ERROR", false);
         assertThat(PATHS).isEmpty();
     }
 
     @Test
     void rejectsV1StyleEnvelope() throws Exception {
         CORRUPT.set(body -> body.put("schema_version", "0.2"));
-        assertError(get("/api/v2/business/catalog"), 502, "UPSTREAM_INVALID_RESPONSE", false);
+        assertError(get("/api/business/catalog"), 502, "UPSTREAM_INVALID_RESPONSE", false);
     }
 
     private static ObjectNode envelope() {

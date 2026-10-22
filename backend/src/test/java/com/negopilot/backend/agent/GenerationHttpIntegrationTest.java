@@ -48,7 +48,7 @@ class GenerationHttpIntegrationTest {
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final String ID = "62751dc6-e6ad-41dc-a7fd-a11f79b5f3c2";
     private static final String TEST_KEY = "generation-test-internal-key";
-    private static final String QUERIES = "/api/v2/agent/queries";
+    private static final String QUERIES = "/api/agent/queries";
     private static final HttpServer UPSTREAM;
     private static final ExecutorService EXECUTOR = Executors.newCachedThreadPool();
     private static final AtomicReference<Function<JsonNode, StubResponse>> RESPONSE = new AtomicReference<>();

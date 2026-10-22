@@ -125,12 +125,12 @@ Docker 시작기는 MODEL 값이 미설정이거나 빈 문자열이면 기존 �
 | `/chat` | `/overview`로 이동한 뒤 오른쪽 AI 패널을 엶. 기본 실행은 실제 모델과 MCP를 사용함 |
 | 근거 상세 | 답변의 근거 링크를 새 탭으로 열고 저장 응답을 조회함 |
 | 개인 대화 기록 | DB에 저장됨. 현재 패널에는 전체 대화 목록과 제목 변경 및 삭제 UI가 없으므로 [개인 이력 API](contracts/history.md)를 사용해야 함 |
-| `/suppliers` | 협력사 조회 v2 API로 검색과 상세 조회를 실행함. 일부 연결 준비 문구는 화면에 남아 있음 |
+| `/suppliers` | 협력사 조회 API로 검색과 상세 조회를 실행함. 일부 연결 준비 문구는 화면에 남아 있음 |
 | `/admin`과 `/admin/members` 및 `/admin/approvals` | 실제 회원 현황과 목록 및 가입 승인과 반려를 제공함 |
 | 나머지 관리자 메뉴 | 접근 이력과 데이터 관리 및 등록 화면은 연결 준비 안내를 표시함 |
 | `/overview`의 RFQ와 수치 및 `/review` | 화면용 예시 자료이며 실시간 업무 결과가 아님 |
 
-회원과 로그인 세션 및 개인 대화는 실제 PostgreSQL에 저장합니다. 협력사 조회 v2 API는 business MCP를 거쳐 별도 business DB를 조회합니다. 이 조회는 채팅 모드와 무관하게 동작하며 모델을 호출하지 않습니다. 승인된 계정으로 로그인한 상태에서 `/api/v2/business/catalog`를 열면 MCP 카탈로그 응답을 확인할 수 있습니다. 검색 조건과 상세 경로는 [협력사 조회 v2](contracts/supplier-lookup.md)를 참고합니다.
+회원과 로그인 세션 및 개인 대화는 실제 PostgreSQL에 저장합니다. 협력사 조회 API는 business MCP를 거쳐 별도 business DB를 조회합니다. 이 조회는 채팅 모드와 무관하게 동작하며 모델을 호출하지 않습니다. 승인된 계정으로 로그인한 상태에서 `/api/business/catalog`를 열면 MCP 카탈로그 응답을 확인할 수 있습니다. 검색 조건과 상세 경로는 [협력사 조회 계약](contracts/supplier-lookup.md)를 참고합니다.
 
 `live`는 실제 모델이나 MCP 실행 경로를 뜻하며 모든 자료가 실데이터라는 뜻은 아닙니다. 초기 business DB에는 저장소의 DART 공시 스냅샷과 가상 기업 및 가상 운영 데이터가 함께 들어갑니다. 실행할 때마다 DART를 새로 수집하지 않습니다. 인증과 생산능력 및 품질 같은 항목은 기본 기업 정보의 출처와 다를 수 있습니다. 각 필드의 DART와 MOCK 및 MANUAL 출처를 구분해서 확인합니다. 홈의 RFQ와 수치는 예시 데이터입니다.
 
@@ -148,7 +148,7 @@ docker compose -f compose.yaml -f compose.test.yaml logs --tail=100
 
 [http://localhost:5174](http://localhost:5174)에서 같은 기본 계정으로 로그인합니다. 이 구성은 Spring과 Python의 채팅 모드를 `stub`으로 지정하고 OpenAI와 Anthropic 키를 빈 값으로 덮어씁니다. 모델과 채팅용 도구의 입출력은 테스트 응답을 사용합니다. 그래프와 근거 검증 및 DB 저장 코드는 실행합니다. `해솔에 대해 알려줘` 같은 정해진 예시로 후보 선택과 후속 대화를 확인합니다. stub 답변은 실제 모델의 판단이나 현재 DB 조회 결과가 아닙니다.
 
-회원과 세션 및 대화 DB는 실제로 사용합니다. 별도 협력사 조회 v2 API도 실제 business MCP와 DB를 사용합니다. stub 채팅 성공만으로 모델이나 채팅용 MCP 연결을 확인했다고 판단하지 않습니다.
+회원과 세션 및 대화 DB는 실제로 사용합니다. 별도 협력사 조회 API도 실제 business MCP와 DB를 사용합니다. stub 채팅 성공만으로 모델이나 채팅용 MCP 연결을 확인했다고 판단하지 않습니다.
 
 기본 프로젝트 이름은 `negopilot-local`이며 테스트 프로젝트 이름은 `negopilot-test`입니다. 프로젝트별 DB와 법령 named volume이 분리됩니다. 테스트 웹 포트는 기본 포트에 추가되는 대신 `TEST_WEB_PORT`로 교체되므로 기본값에서 두 환경을 동시에 실행할 수 있습니다. `-p` 또는 `COMPOSE_PROJECT_NAME`을 직접 사용한다면 두 환경에 서로 다른 이름을 지정해야 합니다.
 

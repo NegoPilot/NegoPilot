@@ -10,11 +10,11 @@ Java 21과 Spring Boot 4.1.1을 사용한다. 기본 실행은 PostgreSQL에 회
 
 | 영역 | 명세 | 주요 경로 |
 | --- | --- | --- |
-| 인증과 가입 승인 및 접근 이력 | [membership.md](../docs/contracts/membership.md) | `/api/v1/auth` 및 `/api/v1/admin/members` |
-| 개인 채팅 이력 | [history.md](../docs/contracts/history.md) | `/api/v2/conversations` |
-| 협력사 조회 | [supplier-lookup.md](../docs/contracts/supplier-lookup.md) | `/api/v2/business/catalog` 및 `/api/v2/suppliers` |
-| 협력사 관리 | [admin-suppliers.md](../docs/contracts/admin-suppliers.md) | `/api/v1/admin/suppliers` |
-| 데이터 현황과 법령 버전 및 최신화 | [admin-laws.md](../docs/contracts/admin-laws.md) | `/api/v1/admin/data/summary` 및 `/api/v1/admin/laws` |
+| 인증과 가입 승인 및 접근 이력 | [membership.md](../docs/contracts/membership.md) | `/api/auth` 및 `/api/admin/members` |
+| 개인 채팅 이력 | [history.md](../docs/contracts/history.md) | `/api/conversations` |
+| 협력사 조회 | [supplier-lookup.md](../docs/contracts/supplier-lookup.md) | `/api/business/catalog` 및 `/api/suppliers` |
+| 협력사 관리 | [admin-suppliers.md](../docs/contracts/admin-suppliers.md) | `/api/admin/suppliers` |
+| 데이터 현황과 법령 버전 및 최신화 | [admin-laws.md](../docs/contracts/admin-laws.md) | `/api/admin/data/summary` 및 `/api/admin/laws` |
 | Agent 실행 응답 | [agent-generation.md](../docs/contracts/agent-generation.md) | `/internal/v2/query-executions` |
 
 일반 업무 API는 ACTIVE 회원만 사용한다. 관리자 API는 ACTIVE ADMIN만 사용한다. 관리자도 다른 회원의 채팅은 읽을 수 없다. 회원 제거는 비활성화와 세션 폐기로 처리한다. 개인 대화 삭제는 메시지와 저장 응답 및 근거까지 물리 삭제한다.
@@ -43,7 +43,7 @@ Java 21과 Spring Boot 4.1.1을 사용한다. 기본 실행은 PostgreSQL에 회
 
 비즈니스 DB는 기존 8개 테이블을 준비한 뒤 활성화한다. Spring이 별도 Flyway 이력으로 관리 열을 추가한다. business-mcp를 먼저 실행할 때는 [독립 마이그레이션 명령](../docs/contracts/admin-suppliers.md)을 실행한다. business-mcp의 `DATABASE_URL`은 동일 DB에 대한 조회 전용 계정을 사용한다. 새 데모 DB에만 기존 seed를 명시적으로 실행한다. 기존 DB에 seed를 실행하면 안 된다.
 
-`BUSINESS_DATABASE_ENABLED=false`여도 회원과 채팅은 사용할 수 있다. 협력사 관리 API는 503을 반환한다. 데이터 현황은 해당 영역을 `UNAVAILABLE`과 `data:null`로 반환한다. 이 설정은 Spring의 관리자 쓰기 기능 설정이다. v2 협력사 조회는 Python과 business-mcp의 별도 DB 연결을 사용한다.
+`BUSINESS_DATABASE_ENABLED=false`여도 회원과 채팅은 사용할 수 있다. 협력사 관리 API는 503을 반환한다. 데이터 현황은 해당 영역을 `UNAVAILABLE`과 `data:null`로 반환한다. 이 설정은 Spring의 관리자 쓰기 기능 설정이다. 협력사 조회는 Python과 business-mcp의 별도 DB 연결을 사용한다.
 
 ## 최초 관리자와 실행
 
@@ -58,7 +58,7 @@ java -jar backend/target/negopilot-backend-0.1.0-SNAPSHOT.jar
 
 [Python 실행 안내](../agent/README.md)에 따라 내부 API를 실행한다. 모델 없이 연결을 확인할 때는 Spring과 Python 모두 `AGENT_EXECUTION_MODE=stub`를 명시한다. stub에서도 회원과 세션 및 대화 저장을 위한 애플리케이션 PostgreSQL DB는 필요하다. 실제 모델을 연결할 때는 두 서버에 `live`를 설정하고 Python의 모델 공급자를 지정한다. 실패한 live 실행을 stub으로 대체하지 않는다.
 
-협력사 조회 v2는 위 채팅 모드와 관계없이 business-mcp를 조회한다. 모델을 호출하지 않으며 성공 응답은 `schema_version: "0.3"`과 `mode: "live"`다. 채팅이 stub이어도 v2 조회에는 Python과 business-mcp 및 business DB 연결이 필요하다. `/suppliers` 화면도 이 API로 검색과 상세를 조회한다. v1 조회와 메모리 대화 API는 #130에서 제거됐다.
+협력사 조회는 위 채팅 모드와 관계없이 business-mcp를 조회한다. 모델을 호출하지 않으며 성공 응답은 `schema_version: "0.3"`과 `mode: "live"`다. 채팅이 stub이어도 협력사 조회에는 Python과 business-mcp 및 business DB 연결이 필요하다. `/suppliers` 화면도 이 API로 검색과 상세를 조회한다. v1 조회와 메모리 대화 API는 #130에서 제거됐다.
 
 법령 조회에는 law-mcp가 필요하다. 법령 최신화에는 law-mcp의 `LAW_RUNTIME_DIR`과 별도 `LAW_ADMIN_API_KEY`가 필요하다. Python에도 같은 법령 관리 키와 `LAW_MCP_URL`을 설정한다. [법령 서버 실행 안내](../mcp-servers/law-mcp/README.md)를 따른다.
 
@@ -74,12 +74,12 @@ java -jar backend/target/negopilot-backend-0.1.0-SNAPSHOT.jar
 | `/chat` | `/overview`로 이동한 뒤 오른쪽 AI 패널을 연다. 기업 선택 없이 질문하며 Spring이 Python Agent의 분해와 도구 호출 및 Generation을 실행한다. stub 답변에는 테스트 응답 표시가 붙는다. |
 | 개인 대화 기록과 근거 상세 | 메시지와 근거 상세는 DB 저장 응답을 조회한다. 전체 대화 목록과 제목 변경 및 영구 삭제는 API를 제공하지만 현재 패널에는 해당 UI가 없다. PostgreSQL 저장이므로 Spring 재시작 후에도 이력은 남는다. |
 | `/admin`과 `/admin/members` 및 `/admin/approvals` | 실제 회원 현황과 목록 및 가입 승인과 반려를 제공한다. 나머지 관리자 메뉴는 연결 준비 안내를 표시한다. |
-| `/suppliers` | 협력사 조회 v2 API로 검색과 상세를 조회한다. 일부 연결 준비 문구는 화면에 남아 있다. |
+| `/suppliers` | 협력사 조회 API로 검색과 상세를 조회한다. 일부 연결 준비 문구는 화면에 남아 있다. |
 | `/overview`와 `/review` | RFQ 개요와 법규 검토 예시는 화면용 자료다. 실시간 조회나 실행 결과로 해석하지 않는다. |
 
-프런트는 같은 출처의 `/api` 요청에 세션 쿠키를 보내며 변경 요청 전에 현재 CSRF 토큰을 조회한다. 회원의 역할과 상태는 `/api/v1/auth/me`로 확인한다. 대화 목록과 저장 스냅샷의 v0.4를 Generation 응답의 v0.3과 구분한다.
+프런트는 같은 출처의 `/api` 요청에 세션 쿠키를 보내며 변경 요청 전에 현재 CSRF 토큰을 조회한다. 회원의 역할과 상태는 `/api/auth/me`로 확인한다. 대화 목록과 저장 스냅샷의 v0.4를 Generation 응답의 v0.3과 구분한다.
 
-관리자 화면에서 가입을 승인하거나 [회원 계약](../docs/contracts/membership.md#관리자-회원-api)에 따라 관리자 세션과 CSRF 토큰으로 승인 API를 호출한다. `PATCH /api/v1/admin/members/{id}/status`에 `{"status":"ACTIVE"}`를 보낸다. 공개 가입으로 관리자 권한을 지정할 수 없다.
+관리자 화면에서 가입을 승인하거나 [회원 계약](../docs/contracts/membership.md#관리자-회원-api)에 따라 관리자 세션과 CSRF 토큰으로 승인 API를 호출한다. `PATCH /api/admin/members/{id}/status`에 `{"status":"ACTIVE"}`를 보낸다. 공개 가입으로 관리자 권한을 지정할 수 없다.
 
 프런트 실행은 저장소 루트에서 별도 터미널을 사용한다.
 

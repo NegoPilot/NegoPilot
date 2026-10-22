@@ -32,8 +32,8 @@ import uuid
 from smoke_common import ROOT, Process, Smoke, SpringSession, child_environment, request, require, unused_port
 
 INTERNAL = "/internal/v2/query-executions"
-PUBLIC = "/api/v2/agent/queries"
-CONVERSATIONS = "/api/v2/conversations"
+PUBLIC = "/api/agent/queries"
+CONVERSATIONS = "/api/conversations"
 CONTRACT = ROOT / "docs/contracts/agent-generation.openapi.json"
 DEFAULT_REPORT = Path("/tmp/negopilot-generation-smoke-results.json")
 DIAGNOSTIC = "private-generation-tool-diagnostic"

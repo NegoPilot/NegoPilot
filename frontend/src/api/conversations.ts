@@ -1,9 +1,9 @@
-import { ApiError, DEFAULT_TIMEOUT_MS, request } from './client'
+import { API_PATHS, ApiError, DEFAULT_TIMEOUT_MS, request } from './client'
 import { parseConversationList, parseGenerationResponse, parseMessagePage, parseSavedResponse, parseSnapshot } from './conversation-contract'
 
 // Python 300초와 Spring 310초 제한보다 길게 유지한다. 조회는 짧은 DB 트랜잭션만 기다린다.
 const GENERATION_TIMEOUT_MS = Math.max(330_000, DEFAULT_TIMEOUT_MS)
-const ROOT = '/api/v2/conversations'
+const ROOT = API_PATHS.conversations
 const path = (id: string) => `${ROOT}/${encodeURIComponent(id)}`
 function validated<T>(value: unknown, parse: (input: unknown) => T): T {
   try { return parse(value) } catch { throw new ApiError(502, 'INVALID_RESPONSE', 'Invalid conversation response.', false) }
