@@ -107,6 +107,8 @@ async def test_health_matches_fixed_openapi_without_external_dependencies(mode):
     ("/internal/business/catalog", None),
     ("/internal/suppliers", {"process": "다이캐스팅", "iso14001_required": "true"}),
     ("/internal/suppliers/SUP-0001", None),
+    ("/internal/suppliers/SUP-0001/quotes", None),
+    ("/internal/suppliers", None),
 ])
 async def test_live_lookups_match_fixed_contract(mode, path, params):
     app = create_app(
@@ -115,8 +117,10 @@ async def test_live_lookups_match_fixed_contract(mode, path, params):
     )
     response = await request(app, "GET", path, params=params)
     schema_path = "/internal/suppliers/{supplier_id}" if path.endswith("SUP-0001") else path
+    if path.endswith("/quotes"):
+        schema_path = "/internal/suppliers/{supplier_id}/quotes"
     data = assert_wire(response, LOOKUP, schema_path, "GET")
-    assert (data["schema_version"], data["mode"]) == ("0.3", "live")
+    assert (data["schema_version"], data["mode"]) == ("0.4", "live")
 
 
 async def test_live_lookup_errors_match_fixed_contract():
