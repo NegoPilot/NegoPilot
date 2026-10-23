@@ -8,9 +8,11 @@ in with the originally saved credentials and checks both histories after a
 Compose down/up. State includes test passwords and is written with mode 0600.
 No passwords, CSRF tokens or cookies are printed.
 
-    python3 scripts/integration/compose_smoke.py --state /tmp/compose-smoke.json
+    export COMPOSE_FILE=compose.yaml:compose.test.yaml
+    export COMPOSE_PROJECT_NAME=negopilot-test TEST_WEB_PORT=5174
+    python3 scripts/integration/compose_smoke.py --base-url http://127.0.0.1:5174 --state /tmp/compose-smoke.json
     docker compose down && docker compose up -d --wait
-    python3 scripts/integration/compose_smoke.py --verify-state /tmp/compose-smoke.json
+    python3 scripts/integration/compose_smoke.py --base-url http://127.0.0.1:5174 --verify-state /tmp/compose-smoke.json
 
 Use a new state path for each initial run. The stack must use stub chat mode.
 """
@@ -33,9 +35,9 @@ from urllib.parse import urlencode, urlsplit
 from urllib.request import build_opener, HTTPCookieProcessor, HTTPRedirectHandler, Request
 import uuid
 
-AUTH = "/api/v1/auth"
-CONVERSATIONS = "/api/v2/conversations"
-CATALOG = "/api/v2/business/catalog"
+AUTH = "/api/auth"
+CONVERSATIONS = "/api/conversations"
+CATALOG = "/api/business/catalog"
 AMBIGUOUS_QUERY = "해솔에 대해 알려줘"
 FOLLOWUP_QUERY = "첫 번째"
 STATE_VERSION = 2
@@ -160,7 +162,7 @@ def admin_login(base_url: str) -> Client:
     member = admin.login(os.getenv("LOCAL_ADMIN_EMAIL", "admin@negopilot.local"),
                          os.getenv("LOCAL_ADMIN_PASSWORD", "LocalAdmin2026!"))
     require((member["role"], member["status"]) == ("ADMIN", "ACTIVE"), "Bootstrap admin is not active")
-    members = admin.request("GET", "/api/v1/admin/members?size=100")
+    members = admin.request("GET", "/api/admin/members?size=100")
     require(isinstance(members["items"], list) and members["total"] >= 1, "Admin member listing failed")
     return admin
 
@@ -172,13 +174,13 @@ def live_lookup(client: Client) -> str:
     require(bool(processes) and bool(processes[0]["materials"]), "Seed catalog is empty")
     process = processes[0]
     filters = urlencode({"process": process["process"], "material": process["materials"][0], "limit": 3})
-    search = client.request("GET", "/api/v2/suppliers?" + filters)
+    search = client.request("GET", "/api/suppliers?" + filters)
     require((search["schema_version"], search["mode"]) == ("0.3", "live"), "Search must read live business data")
     items = search["data"]["items"]
     ids = [item["supplier_id"] for item in items]
     require(bool(ids) and ids == sorted(set(ids)) and len(ids) <= 3, "Seed supplier search is empty or unordered")
     require(search["data"]["returned_count"] == len(ids), "Supplier count differs")
-    detail = client.request("GET", "/api/v2/suppliers/" + ids[0])
+    detail = client.request("GET", "/api/suppliers/" + ids[0])
     require((detail["schema_version"], detail["mode"]) == ("0.3", "live"), "Detail must read live business data")
     require(detail["data"]["supplier_id"] == ids[0], "Supplier detail ID differs")
     require(detail["data"]["provenance"]["profile"] in {"DART", "MOCK", "MANUAL"}, "Supplier source is not live")
@@ -206,7 +208,7 @@ def persisted_snapshot(client: Client, state: dict) -> dict:
 
 
 def assert_regular_user(client: Client) -> None:
-    denied = client.request("GET", "/api/v1/admin/members", status=403)
+    denied = client.request("GET", "/api/admin/members", status=403)
     require(denied["error"]["code"] == "FORBIDDEN", "Regular user gained admin access")
 
 
@@ -275,15 +277,15 @@ def verify_saved_chat(client: Client, chat: dict) -> None:
 def initial(base_url: str, path: Path) -> None:
     reserve_state(path)
     anonymous = Client(base_url)
-    denied = anonymous.request("GET", "/api/v1/admin/members", status=401)
+    denied = anonymous.request("GET", "/api/admin/members", status=401)
     require(denied["error"]["code"] == "UNAUTHENTICATED", "Anonymous admin access was not blocked")
     denied = anonymous.request("POST", AUTH + "/login", {}, status=403, csrf=False)
     require(denied["error"]["code"] == "CSRF_INVALID", "Login did not require CSRF")
     admin = admin_login(base_url)
     supplier_id = live_lookup(admin)
-    laws = admin.request("GET", "/api/v1/admin/laws")
+    laws = admin.request("GET", "/api/admin/laws")
     require(laws["law_count"] > 0 and bool(laws["items"]), "Law catalog is empty")
-    jobs = admin.request("GET", "/api/v1/admin/laws/refresh-jobs")
+    jobs = admin.request("GET", "/api/admin/laws/refresh-jobs")
     require("item" in jobs, "Law refresh-job read response is incomplete")
 
     run_id = uuid.uuid4().hex
@@ -314,7 +316,7 @@ def initial(base_url: str, path: Path) -> None:
     require(user.login(user_data["email"], user_data["password"])["status"] == "PENDING", "Pending login failed")
     denied = user.request("GET", CATALOG, status=403)
     require(denied["error"]["code"] == "FORBIDDEN", "Pending user could access business data")
-    approved = admin.request("PATCH", "/api/v1/admin/members/" + member["id"] + "/status", {"status": "ACTIVE"})
+    approved = admin.request("PATCH", "/api/admin/members/" + member["id"] + "/status", {"status": "ACTIVE"})
     require(approved["user"]["status"] == "ACTIVE", "Admin approval failed")
     live_lookup(user)  # The existing pending session must immediately gain active access.
     user.refresh_csrf()

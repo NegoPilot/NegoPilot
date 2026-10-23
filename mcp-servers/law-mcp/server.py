@@ -17,7 +17,7 @@ import secrets
 import threading
 from functools import wraps
 import re
-from collections import Counter
+from collections import Counter, OrderedDict
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -94,7 +94,7 @@ def admin_exact_version(law_key: str, version_id: str) -> dict | None:
 @mcp.tool(annotations={"readOnlyHint": True})
 @dataset_read
 def admin_law_catalog() -> dict:
-    """Return the dataset actually loaded by this process. No collection or editing."""
+    """관리자 화면용. 이 서버가 지금 불러온 법령 데이터의 목록과 건수를 반환한다. 수집·수정은 하지 않는다."""
     items = [{"law_key": key, "law_name": law["law_name"], "version_count": len(law["versions"]),
               "article_count": sum(len(v["articles"]) for v in law["versions"])}
              for key, law in sorted(LAWS.items())]
@@ -106,7 +106,10 @@ def admin_law_catalog() -> dict:
 @mcp.tool(annotations={"readOnlyHint": True})
 @dataset_read
 def admin_law_versions(law_key: str) -> dict | None:
-    """List every retained version without choosing a date-dependent fallback."""
+    """관리자 화면용. 법령 하나가 가진 모든 판(최신 판부터)을 반환한다. 기준일로 판을 고르지 않는다.
+
+    law_key: subcontract_act 처럼 정확한 키 (별칭은 받지 않는다). 없으면 null
+    """
     law = LAWS.get(law_key)
     if law is None:
         return None
@@ -117,9 +120,13 @@ def admin_law_versions(law_key: str) -> dict | None:
 @mcp.tool(annotations={"readOnlyHint": True})
 @dataset_read
 def admin_law_articles(law_key: str, version_id: str, offset: int = 0, limit: int = 50) -> dict | None:
-    """Page article metadata from one exact retained version."""
+    """관리자 화면용. 지정한 판의 조문 목록(번호, 제목, 삭제 여부)을 페이지 단위로 반환한다.
+
+    version_id: admin_law_versions의 version_id. 판이 없으면 null
+    offset: 0 이상, limit: 1~100
+    """
     if offset < 0 or not 1 <= limit <= 100:
-        raise ToolError("Invalid page")
+        raise ToolError("offset 은 0 이상, limit 은 1~100 이어야 한다")
     version = admin_exact_version(law_key, version_id)
     if version is None:
         return None
@@ -132,7 +139,10 @@ def admin_law_articles(law_key: str, version_id: str, offset: int = 0, limit: in
 @mcp.tool(annotations={"readOnlyHint": True})
 @dataset_read
 def admin_law_article(law_key: str, version_id: str, article_no: str) -> dict | None:
-    """Read one exact version's article. Never modify or refresh the dataset."""
+    """관리자 화면용. 지정한 판의 조문 하나를 전문과 인용 문구로 반환한다. 판이나 조문이 없으면 null.
+
+    article_no: '제4조', '16조의2' 처럼 입력. 데이터를 바꾸거나 갱신하지 않는다
+    """
     version = admin_exact_version(law_key, version_id)
     if version is None:
         return None
@@ -202,8 +212,14 @@ GLOSSARY = {
     "하청": "수급사업자 하도급",
     "납품단가": "하도급대금 납품대금",
     "단가": "하도급대금 단가",
+    # 낮추는 시점(정할 때/정한 뒤)에 따라 제4조와 제11조로 갈려 한쪽으로 몰지 않는다 (#168)
     "깎": "인하 감액",
-    "인하": "인하 하도급대금의 결정",
+    "낮추": "인하 감액",
+    "낮춰": "인하 감액",
+    "인하": "인하 감액 하도급대금의 결정",
+    "돌려보내": "반품",
+    "되돌려": "반품",
+    "철회": "위탁취소",
     "전 품목": "일률적인 비율",
     "일괄": "일률적인 비율",
     "같은 비율": "일률적인 비율",
@@ -211,17 +227,37 @@ GLOSSARY = {
     "원재료": "주요 원재료 공급원가",
     "연동": "연동 조정요건 기준 지표",
     "계약서": "서면 발급",
-    "대금 지급": "하도급대금의 지급 60일",
+    # 기한 숫자를 덧붙이면 '지급 후' 같은 말에도 제13조로 몰려 다른 조문을 밀어낸다 (#168)
+    "대금 지급": "하도급대금의 지급",
     "기술 자료": "기술자료 제공 요구",
     "늦게 지급": "지연지급 지연이율",
     "이자율": "지연이율",
     "업종별 기준표": "주된 업종별 평균매출액등 규모 기준 별표",
     "미연동 합의": "표준 미연동계약서",
+    "도면": "기술자료",
+    "노하우": "기술자료",
+    "협찬": "경제적 이익",
 }
 
 
+
 def expand_query(query: str) -> str:
-    extra = [term for key, term in GLOSSARY.items() if key in query]
+    """현업 표현을 찾아 법령 용어를 덧붙인다.
+
+    긴 표현부터 찾고, 이미 찾은 글자는 짧은 표현이 다시 쓰지 않는다.
+    예: '1차 협력사'는 원사업자만 붙고, 그 안의 '협력사'로 수급사업자가 함께 붙지 않는다.
+    """
+    used = [False] * len(query)
+    found: list[tuple[int, str]] = []          # (질문 안 위치, 덧붙일 용어)
+    for key in sorted(GLOSSARY, key=len, reverse=True):
+        start = query.find(key)
+        while start >= 0:
+            end = start + len(key)
+            if not any(used[start:end]):
+                used[start:end] = [True] * len(key)
+                found.append((start, GLOSSARY[key]))
+            start = query.find(key, end)
+    extra = list(dict.fromkeys(term for _, term in sorted(found)))   # 질문에 나온 순서, 같은 용어는 한 번
     return query + (" " + " ".join(extra) if extra else "")
 
 
@@ -255,18 +291,69 @@ class Bm25:
         return out
 
 
-_search_cache: dict[tuple, tuple[list[dict], Bm25]] = {}
+# 법령 조합·시행판마다 색인 하나. 오래 안 쓴 색인부터 버린다 (LRU)
+SEARCH_CACHE_SIZE = 32
+_search_cache: OrderedDict[tuple, tuple[list[dict], Bm25]] = OrderedDict()
+
+
+# 정의 조항: '이 법에서 "주요 원재료"란 …을 말한다'. 시행령의 '대통령령으로 정하는 …'은 정의가 아니라 위임이라 뺀다
+DEFINED_TERM = re.compile(r'"([^"]{2,30})"(?:이)?란')
+DEFINITION_ARTICLE = "제2조"
+MAX_DEFINITIONS = 2
+# 원사업자·중소기업처럼 그 법령의 많은 항에 나오는 용어는 정의를 붙여도 도움이 안 되고 결과만 늘린다.
+# 비율은 그 법령의 항 수 기준이라 법령 필터와 관계없이 같은 용어가 붙는다
+COMMON_TERM_SHARE = 0.05
+
+
+def definition_text(text: str, term: str) -> str:
+    """정의 항에서 그 용어를 정의한 부분만 꺼낸다.
+
+    상생협력법 제2조처럼 한 항에 호(1. 2. …)로 여러 용어를 정의하면 그 호와 딸린 목만 남긴다.
+    한 항에 용어 하나면 항 전체를 쓴다.
+    """
+    if len(DEFINED_TERM.findall(text)) <= 1:
+        return text
+    lines = text.splitlines()
+    start = next(i for i, line in enumerate(lines) if f'"{term}"' in line)
+    indent = len(lines[start]) - len(lines[start].lstrip())
+    end = start + 1
+    while end < len(lines) and lines[end].strip() and len(lines[end]) - len(lines[end].lstrip()) > indent:
+        end += 1
+    return "\n".join(line.strip() for line in lines[start:end])
+
+
+def definition_units(units: list[dict]) -> dict[tuple[str, str], tuple[int, str]]:
+    """(law_key, 용어) → (그 용어를 정의한 항의 색인 위치, 정의 부분). 흔한 용어는 뺀다."""
+    out = {}
+    law_size = {k: sum(1 for v in units if v.get("law_key") == k) for k in {u["law_key"] for u in units if "law_key" in u}}
+    for i, u in enumerate(units):
+        if "document" in u or u["article"] is None or u["article"]["no"] != DEFINITION_ARTICLE or u["law_key"].endswith("_decree"):
+            continue
+        for term in DEFINED_TERM.findall(u["text"]):
+            if term.startswith("대통령령"):
+                continue
+            df = sum(1 for v in units if v.get("law_key") == u["law_key"] and term in v["text"])
+            if df <= COMMON_TERM_SHARE * law_size[u["law_key"]]:
+                out.setdefault((u["law_key"], term), (i, definition_text(u["text"], term)))
+    return out
 
 
 def search_units(law_keys: tuple[str, ...], as_of: str, include_addenda: bool):
-    """항 단위 검색 문서 목록과 BM25 인덱스. 같은 조건이면 재사용한다."""
-    cache_key = (law_keys, as_of, include_addenda)
+    """항 단위 검색 문서 목록과 BM25 인덱스. 같은 조건이면 재사용한다.
+
+    캐시 키는 기준일이 아니라 그날 시행 중인 판이다. 기준일이 달라도 시행판이 같으면 같은 색인을 쓴다.
+    """
+    versions = {key: version_in_force(LAWS[key], as_of) for key in law_keys}
+    active_docs = tuple(key for key, doc in SUPPORTING_SOURCES.items()
+                        if supporting_sources.available(doc, as_of)
+                        and set(doc["parent_laws"]).intersection(law_keys))
+    cache_key = (law_keys, tuple(admin_version_id(v) for v in versions.values()), include_addenda, active_docs)
     if cache_key in _search_cache:
+        _search_cache.move_to_end(cache_key)
         return _search_cache[cache_key]
     units = []
     for key in law_keys:
-        law = LAWS[key]
-        v = version_in_force(law, as_of)
+        v = versions[key]
         for art in v["articles"]:
             if art["deleted"]:
                 continue
@@ -283,8 +370,10 @@ def search_units(law_keys: tuple[str, ...], as_of: str, include_addenda: bool):
     for unit in supporting_sources.search_units(SUPPORTING_SOURCES, law_keys, as_of):
         unit['tokens'] = tokenize(unit['document']['title'] + ' ' + unit['text'])
         units.append(unit)
-    result = (units, Bm25([u["tokens"] for u in units]))
+    result = (units, Bm25([u["tokens"] for u in units]), definition_units(units))
     _search_cache[cache_key] = result
+    while len(_search_cache) > SEARCH_CACHE_SIZE:
+        _search_cache.popitem(last=False)
     return result
 
 
@@ -356,20 +445,29 @@ def search_regulation(query: str, laws: list[str] | None = None, as_of: str | No
     laws: 검색할 법령(law_key 또는 별칭). 생략하면 전체
     as_of: 기준일(YYYY-MM-DD). 생략하면 오늘 시행 중인 판
     include_addenda: 부칙(시행일·경과조치)까지 검색할지
+    결과 조문에 정의된 용어(예: 주요 원재료)가 나오면 그 용어의 정의 항(제2조)을 top_k 뒤에 최대 2개 덧붙인다.
+    덧붙인 항은 type이 "정의"다. 의무 조문만으로는 "10% 이상" 같은 기준이 빠지기 때문이다 (#167).
     """
     if not query.strip():
         raise ToolError("query 가 비어 있다")
     day = parse_as_of(as_of)
     keys = tuple(sorted({resolve_law(l)["law_key"] for l in laws})) if laws else tuple(LAWS)
     top_k = max(1, min(top_k, 20))
-    units, bm25 = search_units(keys, day, include_addenda)
+    units, bm25, definitions = search_units(keys, day, include_addenda)
     scores = bm25.scores(tokenize(expand_query(query)))
     ranked = sorted(range(len(units)), key=lambda i: scores[i], reverse=True)
 
+    hits = [i for i in ranked[:top_k] if scores[i] > 0]
+    # 검색된 조문에 나오는 정의 용어의 정의 항. 같은 법령의 정의만 붙이고, 이미 결과에 있으면 다시 넣지 않는다
+    extra: dict[int, str] = {}
+    for i in hits:
+        for (law_key, term), (d, text) in definitions.items():
+            if (law_key in ([units[i]["law_key"]] if "law_key" in units[i] else units[i]["document"]["parent_laws"]) and term in units[i]["text"] and d not in hits and d not in extra
+                    and len(extra) < MAX_DEFINITIONS):
+                extra[d] = text
+
     results = []
-    for i in ranked[:top_k]:
-        if scores[i] <= 0:
-            break
+    for i in hits + list(extra):
         u = units[i]
         if 'document' in u:
             d = u['document']
@@ -391,8 +489,8 @@ def search_regulation(query: str, laws: list[str] | None = None, as_of: str | No
         else:
             a = u["article"]
             results.append({"law_key": u["law_key"], "law_name": v["law_name"],
-                            "type": "조문", "article_no": a["no"], "title": a["title"],
-                            "paragraph": u["paragraph"], "text": u["text"][:1500],
+                            "type": "조문" if i in hits else "정의", "article_no": a["no"], "title": a["title"],
+                            "paragraph": u["paragraph"], "text": extra.get(i, u["text"])[:1500],
                             "citation": citation(v, a, u["paragraph"]),
                             "effective_date": v["effective_date"], "source_url": v["source_url"],
                             "score": round(scores[i], 2)})

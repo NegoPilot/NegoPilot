@@ -12,6 +12,8 @@ import argparse
 import json
 import os
 import re
+import threading
+import time
 from datetime import date
 from decimal import Decimal
 
@@ -20,18 +22,18 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from psycopg.rows import dict_row
 from company_size import CompanySizeInput, assess as assess_size
+from psycopg_pool import ConnectionPool, PoolTimeout
+
+import rules
+from rules import finding, linkage_findings, payment_findings
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://agent:agent@localhost:5432/supplier_db")
+DB_POOL_MAX = int(os.getenv("BUSINESS_DB_POOL_MAX", "10"))   # 상위 n곳 fan-out(최대 10회)이 한꺼번에 와도 이 수를 넘지 않는다
+DB_WAIT_SECONDS = 5.0           # 풀에서 연결을 기다리는 최대 시간. 넘으면 DB_UNAVAILABLE
+MATERIALS_TTL_SECONDS = 60.0    # 공정별 소재 목록 캐시. 관리자가 생산능력을 바꾸면 이 시간 안에 반영된다
 DEBT_RATIO_WARN = 2.0           # 부채비율 200% 초과 시 경고
 GRADE_SCORE = {"A": 1.0, "B": 0.67, "C": 0.33, "D": 0.0}
-
-# 협상안 검사 기준. 근거 조문은 law-mcp(law_key, 조문 번호)로 확인·인용한다.
-PAYMENT_DAYS_LIMIT = 60          # 하도급법 제13조①: 수령일부터 60일 이내 지급
-MAJOR_MATERIAL_RATIO = 0.10      # 하도급법 제2조⑯: 비용이 하도급대금의 10% 이상이면 주요 원재료
-LINKAGE_EXEMPT_DAYS = 90         # 하도급법 제3조④2: 거래 기간 90일 이내 (법률 상한, 시행령 값 확인)
-LINKAGE_EXEMPT_AMOUNT = 100_000_000   # 하도급법 제3조④3: 하도급대금 1억 원 이하 (법률 상한, 시행령 값 확인)
-MARKET_PRICE_FLOOR = 0.90        # 시장 중앙값의 90% 미만이면 제4조(부당한 하도급대금 결정) 위험으로 본다 (내부 기준)
-LAST_QUOTE_CUT = 0.05            # 직전 견적보다 5% 넘게 낮으면 인하 근거 확인 (내부 기준)
+# 협상안 검사 기준과 법 규칙은 rules.py에 있다. 근거 조문은 law-mcp(law_key, 조문 번호)로 확인·인용한다.
 
 PROCESSES = ["다이캐스팅", "프레스", "사출", "단조", "CNC가공"]   # schema.sql의 CHECK와 같다
 
@@ -74,12 +76,28 @@ mcp = FastMCP("BusinessServer", instructions=(
 
 # ---------- DB ----------
 
+_pool: ConnectionPool | None = None
+_pool_lock = threading.Lock()
+
+
+def db_pool() -> ConnectionPool:
+    """처음 쿼리할 때 연결 풀을 연다. import만 하는 테스트나 DB 없이 뜬 서버는 연결하지 않는다."""
+    global _pool
+    with _pool_lock:
+        if _pool is None:
+            # DB가 꺼져 있어도 서버는 뜨고, 풀이 뒤에서 다시 연결한다. 그동안의 쿼리는 DB_UNAVAILABLE
+            _pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=DB_POOL_MAX, timeout=DB_WAIT_SECONDS,
+                                   kwargs={"row_factory": dict_row}, name="business-mcp", open=False)
+            _pool.open(wait=False)
+        return _pool
+
+
 def query(sql: str, params=()) -> list[dict]:
     try:
-        with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
+        with db_pool().connection() as conn:
             rows = conn.execute(sql, params).fetchall()
-    except psycopg.OperationalError as exc:
-        raise ToolError("협력사 DB에 연결할 수 없다. PostgreSQL이 켜져 있는지, seed.py를 실행했는지 확인한다 "
+    except (psycopg.OperationalError, PoolTimeout) as exc:
+        raise ToolError("[DB_UNAVAILABLE] 협력사 DB에 연결할 수 없다. PostgreSQL이 켜져 있는지, seed.py를 실행했는지 확인한다 "
                         f"(SETUP.md 참고). 원인: {str(exc).splitlines()[0]}") from exc
     return [{k: plain(v) for k, v in r.items()} for r in rows]
 
@@ -109,28 +127,59 @@ def resolve_process(process: str) -> str:
     raise ToolError(f"알 수 없는 공정 '{process}'. 사용 가능: {', '.join(PROCESSES)}")
 
 
-def materials_by_process() -> dict[str, list[str]]:
-    out = {p: [] for p in PROCESSES}
-    for r in query("SELECT DISTINCT c.process, c.material FROM capabilities c JOIN suppliers s USING (supplier_id) "
-                   "WHERE s.status = 'ACTIVE' ORDER BY c.process, c.material"):
-        out[r["process"]].append(r["material"])
-    return out
+_materials_cache: tuple[float, dict[str, list[str]]] | None = None   # (읽은 시각, 공정별 소재)
+
+
+def load_materials(fresh: bool = False) -> tuple[dict[str, list[str]], bool]:
+    """활성 협력사가 실제로 다루는 공정별 소재와, 이번에 DB에서 새로 읽었는지.
+
+    MATERIALS_TTL_SECONDS 동안은 DB를 다시 읽지 않는다. fresh=True면 캐시를 무시하고 다시 읽는다.
+    """
+    global _materials_cache
+    cached = _materials_cache
+    if fresh or cached is None or time.monotonic() - cached[0] >= MATERIALS_TTL_SECONDS:
+        out = {p: [] for p in PROCESSES}
+        for r in query("SELECT DISTINCT c.process, c.material FROM capabilities c JOIN suppliers s USING (supplier_id) "
+                       "WHERE s.status = 'ACTIVE' ORDER BY c.process, c.material"):
+            out[r["process"]].append(r["material"])
+        _materials_cache = (time.monotonic(), out)
+        return {process: list(codes) for process, codes in out.items()}, True
+    return {process: list(codes) for process, codes in cached[1].items()}, False
+
+
+def materials_by_process(fresh: bool = False) -> dict[str, list[str]]:
+    return load_materials(fresh)[0]
 
 
 def resolve_materials(material: str, process: str | None) -> list[str]:
-    """소재 코드나 계열 이름을 실제 지원 코드로 바꾼다. 공정이 없으면 전체 공정을 확인한다."""
-    by_process = materials_by_process()
-    available = (by_process[process] if process is not None
-                 else sorted({code for codes in by_process.values() for code in codes}))
+    """소재 코드나 계열 이름을 실제 지원 코드로 바꾼다. 공정이 없으면 전체 공정을 확인한다.
+
+    캐시에 없는 소재는 DB를 한 번 더 읽어 확인한다. 관리자가 방금 추가한 소재도 바로 검색된다.
+    """
+    by_process, loaded = load_materials()
+    matched = match_materials(material, process, by_process)
+    if not matched and not loaded:
+        by_process, _ = load_materials(fresh=True)
+        matched = match_materials(material, process, by_process)
+    if matched:
+        return matched
+    available = available_materials(process, by_process)
+    scope = f"{process} 공정" if process is not None else "전체 공정"
+    raise ToolError(f"{scope}에 소재 '{material}'가 없다. 사용 가능: {', '.join(available) or '없음'}")
+
+
+def available_materials(process: str | None, by_process: dict[str, list[str]]) -> list[str]:
+    return (by_process[process] if process is not None
+            else sorted({code for codes in by_process.values() for code in codes}))
+
+
+def match_materials(material: str, process: str | None, by_process: dict[str, list[str]]) -> list[str]:
+    available = available_materials(process, by_process)
     code = material.strip().upper().replace(" ", "")
     exact = [stored for stored in available if stored.upper().replace(" ", "") == code]
     if exact:
         return exact
-    matched = [m for m in MATERIAL_ALIASES.get(squash(material), []) if m in available]
-    if matched:
-        return matched
-    scope = f"{process} 공정" if process is not None else "전체 공정"
-    raise ToolError(f"{scope}에 소재 '{material}'가 없다. 사용 가능: {', '.join(available) or '없음'}")
+    return [m for m in MATERIAL_ALIASES.get(squash(material), []) if m in available]
 
 
 def resolve_region(region: str) -> str:
@@ -141,84 +190,64 @@ def resolve_region(region: str) -> str:
     raise ToolError(f"알 수 없는 지역 '{region}'. 시·도 이름(예: 경남, 경상남도, 울산광역시)으로 입력한다")
 
 
-def resolve_supplier_id(supplier: str) -> str:
-    """SUP-0001, 0001, 1 같은 ID나 회사명(일부)을 supplier_id 하나로 바꾼다."""
+SUPPLIER_ID = re.compile(r"(?:SUP-?)?(\d{1,19})", flags=re.IGNORECASE)
+SUPPLIER_CANDIDATES_SHOWN = 10   # 후보가 여러 곳일 때 오류 메시지에 보여 줄 수
+
+
+def match_suppliers(supplier: str, limit: int) -> tuple[list[dict], int, str]:
+    """협력사 이름·ID 해석 규칙. find_suppliers, get_supplier, check_offer가 모두 이 함수를 쓴다.
+
+    - SUP-0001, sup1, 0001, 1 같은 ID는 SUP-0001로 바꿔 그 ID만 찾는다 (match_type id)
+    - 회사명은 회사 표기((주), 주식회사, ㈜)와 공백을 빼고 대소문자 없이 비교한다.
+      정확히 같은 이름이 있으면 그것만(exact), 없으면 이름 일부로 찾는다(partial)
+    - 이름의 %, _, !는 검색 명령이 아닌 문자 그대로 비교한다
+    반환: (limit개까지의 후보 {supplier_id, name, region, total}, limit 전 후보 수, match_type)
+    """
     text = supplier.strip()
-    m = re.fullmatch(r"(?:SUP-?)?(\d{1,19})", text, flags=re.IGNORECASE)
-    if m:
-        sid = f"SUP-{int(m.group(1)):04d}"
-        if query("SELECT 1 FROM suppliers WHERE supplier_id = %s AND status = 'ACTIVE'", (sid,)):
-            return sid
-        raise ToolError(f"{sid} 협력사가 없다. search_suppliers나 회사명으로 찾는다")
-    name = re.sub(COMPANY_SUFFIX, "", text)
-    if not name:
+    if not text:
         raise ToolError("supplier 가 비어 있다")
-    literal_name = name.replace("!", "!!").replace("%", "!%").replace("_", "!_")
-    rows = query("SELECT supplier_id, name FROM suppliers "
-                 "WHERE status = 'ACTIVE' AND regexp_replace(name, %s, '', 'g') ILIKE %s ESCAPE '!' ORDER BY supplier_id",
-                 (COMPANY_SUFFIX, f"%{literal_name}%"))
-    exact = [r for r in rows if re.sub(COMPANY_SUFFIX, "", r["name"]) == name]
-    if len(exact) == 1 or len(rows) == 1:
-        return (exact or rows)[0]["supplier_id"]
-    if not rows:
-        raise ToolError(f"'{supplier}'에 해당하는 협력사가 없다. supplier_id(SUP-0001)나 회사명 일부로 입력한다")
-    names = ", ".join(f"{r['supplier_id']} {r['name']}" for r in rows[:10])
-    raise ToolError(f"'{supplier}'에 해당하는 협력사가 {len(rows)}곳이다. 하나를 골라 supplier_id로 다시 호출한다: {names}")
+    identifier = SUPPLIER_ID.fullmatch(text)
+    if identifier:
+        sid = f"SUP-{int(identifier.group(1)):04d}"
+        rows = query("SELECT supplier_id, name, region, count(*) OVER () AS total FROM suppliers "
+                     "WHERE supplier_id = %s AND status = 'ACTIVE' ORDER BY supplier_id LIMIT %s", (sid, limit))
+        match_type = "id"
+    else:
+        name = re.sub(COMPANY_SUFFIX, "", text)
+        if not name:
+            raise ToolError("supplier 가 비어 있다")
+        literal_name = name.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+        sql = ("SELECT supplier_id, name, region, count(*) OVER () AS total FROM suppliers "
+               "WHERE status = 'ACTIVE' AND regexp_replace(name, %s, '', 'g') ILIKE %s ESCAPE '!' "
+               "ORDER BY supplier_id LIMIT %s")
+        rows = query(sql, (COMPANY_SUFFIX, literal_name, limit))
+        match_type = "exact"
+        if not rows:
+            rows = query(sql, (COMPANY_SUFFIX, f"%{literal_name}%", limit))
+            match_type = "partial"
+    return rows, int(rows[0]["total"]) if rows else 0, match_type
+
+
+def resolve_supplier_id(supplier: str) -> str:
+    """협력사를 하나로 확정한다. 없거나 여러 곳이면 find_suppliers와 같은 후보를 근거로 오류를 낸다."""
+    rows, total, match_type = match_suppliers(supplier, SUPPLIER_CANDIDATES_SHOWN)
+    if total == 1:
+        return rows[0]["supplier_id"]
+    if total == 0 and match_type == "id":
+        sid = f"SUP-{int(SUPPLIER_ID.fullmatch(supplier.strip()).group(1)):04d}"
+        raise ToolError(f"[SUPPLIER_NOT_FOUND] {sid} 협력사가 없다. search_suppliers나 회사명으로 찾는다")
+    if total == 0:
+        raise ToolError(f"[SUPPLIER_NOT_FOUND] '{supplier}'에 해당하는 협력사가 없다. supplier_id(SUP-0001)나 회사명 일부로 입력한다")
+    names = ", ".join(f"{r['supplier_id']} {r['name']}" for r in rows)
+    raise ToolError(f"[SUPPLIER_AMBIGUOUS] '{supplier}'에 해당하는 협력사가 {total}곳이다. 하나를 골라 supplier_id로 다시 호출한다: {names}")
 
 
 def get_rfq(rfq_id: str) -> dict:
     rfq = query("SELECT * FROM rfqs WHERE rfq_id = %s", (rfq_id.strip().upper(),))
     if not rfq:
         ids = [r["rfq_id"] for r in query("SELECT rfq_id FROM rfqs ORDER BY rfq_id")]
-        raise ToolError(f"RFQ '{rfq_id}'가 없다. 사용 가능: {', '.join(ids)}")
+        raise ToolError(f"[RFQ_NOT_FOUND] RFQ '{rfq_id}'가 없다. 사용 가능: {', '.join(ids)}")
     return rfq[0]
-
-
-def finding(code: str, severity: str, message: str, *refs: tuple[str, str]) -> dict:
-    """검사 결과 한 건. law_refs는 law-mcp get_article(law, article_no)로 그대로 넘길 수 있다."""
-    return {"code": code, "severity": severity, "message": message,
-            "law_refs": [{"law": law, "article_no": no} for law, no in refs]}
-
-
-def linkage_findings(raw_material_ratio: float | None, price_linkage: bool, contract_amount: int | None,
-                     contract_days: int | None, waived: bool = False, buyer_is_small_business: bool = False) -> list[dict]:
-    """주요 원재료 연동 약정(하도급법 제3조②3·④, 제2조⑯) 검사."""
-    if price_linkage:
-        return []
-    if raw_material_ratio is None:
-        return [finding("RAW_MATERIAL_RATIO_UNKNOWN", "warning",
-                        "원재료 비중을 몰라 연동 약정 대상인지 판단할 수 없다. 원재료 비용이 하도급대금의 10% 이상이면 "
-                        "연동 사항을 서면에 적어야 한다", ("subcontract_act", "제2조"), ("subcontract_act", "제3조"))]
-    if raw_material_ratio < MAJOR_MATERIAL_RATIO:
-        return []
-    pct = f"{raw_material_ratio * 100:.0f}%"
-    exemptions = []
-    if buyer_is_small_business:
-        exemptions.append("원사업자가 소기업")
-    if contract_days is not None and contract_days <= LINKAGE_EXEMPT_DAYS:
-        exemptions.append(f"거래 기간 {contract_days}일(90일 이내)")
-    if contract_amount is not None and contract_amount <= LINKAGE_EXEMPT_AMOUNT:
-        exemptions.append(f"하도급대금 {contract_amount:,}원(1억 원 이하)")
-    if exemptions:
-        return [finding("LINKAGE_EXEMPT", "info",
-                        f"원재료 비중 {pct}로 연동 대상이지만 예외에 해당할 수 있다: {', '.join(exemptions)}. "
-                        "기간·금액 기준은 시행령 값을 확인한다", ("subcontract_act", "제3조"))]
-    if waived:
-        return [finding("LINKAGE_WAIVED_NEEDS_WRITTEN_REASON", "warning",
-                        f"원재료 비중 {pct}로 연동 대상인데 연동하지 않기로 합의했다. 그 취지와 사유를 서면에 분명하게 "
-                        "적어야 하고, 거래상 지위를 남용해 합의를 유도하면 안 된다", ("subcontract_act", "제3조"))]
-    return [finding("LINKAGE_TERMS_MISSING", "violation",
-                    f"원재료 비중 {pct}로 주요 원재료(10% 이상)에 해당하는데 연동 약정이 없다. 연동 대상 원재료, 조정요건, "
-                    "기준 지표, 산식 등을 서면에 적어야 한다", ("subcontract_act", "제2조"), ("subcontract_act", "제3조"))]
-
-
-def payment_findings(payment_days: int) -> list[dict]:
-    if payment_days > PAYMENT_DAYS_LIMIT:
-        return [finding("PAYMENT_DAYS_OVER_60", "violation",
-                        f"지급 기한 {payment_days}일: 목적물 수령일부터 {PAYMENT_DAYS_LIMIT}일 이내로 정해야 한다 "
-                        "(대등한 지위에서 정했거나 업종 특수성이 인정되는 예외 제외). 초과 기간에는 지연이자가 붙는다",
-                        ("subcontract_act", "제13조"))]
-    return []
 
 
 def minmax(value, values, higher_is_better=True):
@@ -322,32 +351,10 @@ def find_suppliers(supplier: str, limit: int = 10) -> dict:
     결과: {matches: [{supplier_id, name, region}], total, match_type: id|exact|partial}.
           total은 limit 전의 후보 수다. 0건은 빈 matches로 반환하며 DB 오류는 예외로 전달한다.
     """
-    text = supplier.strip()
-    if not text:
-        raise ToolError("supplier 가 비어 있다")
-    bounded_limit = max(1, min(limit, 100))
-    identifier = re.fullmatch(r"(?:SUP-?)?(\d{1,19})", text, flags=re.IGNORECASE)
-    if identifier:
-        sid = f"SUP-{int(identifier.group(1)):04d}"
-        rows = query("SELECT supplier_id, name, region, count(*) OVER () AS total FROM suppliers "
-                     "WHERE supplier_id = %s AND status = 'ACTIVE' ORDER BY supplier_id LIMIT %s", (sid, bounded_limit))
-        match_type = "id"
-    else:
-        name = re.sub(COMPANY_SUFFIX, "", text)
-        if not name:
-            raise ToolError("supplier 가 비어 있다")
-        literal_name = name.replace("!", "!!").replace("%", "!%").replace("_", "!_")
-        sql = ("SELECT supplier_id, name, region, count(*) OVER () AS total FROM suppliers "
-               "WHERE status = 'ACTIVE' AND regexp_replace(name, %s, '', 'g') ILIKE %s ESCAPE '!' "
-               "ORDER BY supplier_id LIMIT %s")
-        rows = query(sql, (COMPANY_SUFFIX, literal_name, bounded_limit))
-        match_type = "exact"
-        if not rows:
-            rows = query(sql, (COMPANY_SUFFIX, f"%{literal_name}%", bounded_limit))
-            match_type = "partial"
+    rows, total, match_type = match_suppliers(supplier, max(1, min(limit, 100)))
     return {
         "matches": [{key: row[key] for key in ("supplier_id", "name", "region")} for row in rows],
-        "total": int(rows[0]["total"]) if rows else 0,
+        "total": total,
         "match_type": match_type,
     }
 
@@ -361,14 +368,23 @@ def get_supplier(supplier: str) -> dict:
     source는 기본 정보의 출처다. DART는 공시 값이고 MOCK은 가상 값이며 MANUAL은 관리자 입력이다.
     재무 출처는 financials의 각 source를 확인한다. 운영 자료의 출처는 각각 *_source로 반환한다.
     금액 단위는 원, revenue_eok는 억 원.
+    flags는 기존 계약 조건의 법규 점검 결과다({code, severity, message, law_refs}, rank_suppliers와 같은 규칙).
+    law_refs는 flags의 조문을 겹치지 않게 모은 것이다. law-mcp get_article로 넘겨 조문을 인용한다.
     """
     sid = resolve_supplier_id(supplier)
     records = query("SELECT * FROM supplier_overview WHERE supplier_id = %s AND status = 'ACTIVE'", (sid,))
     if not records:
-        raise ToolError("활성 협력사가 없다")
+        raise ToolError("[SUPPLIER_NOT_FOUND] 활성 협력사가 없다")
     overview = records[0]
+    # 기존 계약 조건의 법규 점검. 거래 이력이 없으면 기존 계약이 없어 연동 검사를 하지 않는다 (rank_suppliers와 같음)
+    flags = (payment_findings(overview["payment_days"]) if overview.get("payment_days") else []) + (
+        linkage_findings(overview.get("raw_material_ratio"), overview.get("price_linkage"), None, None)
+        if overview.get("years_dealing") else [])
+    law_refs = list({(r["law"], r["article_no"]): r for f in flags for r in f["law_refs"]}.values())
     return {
         **overview,
+        "flags": flags,
+        "law_refs": law_refs,
         "capabilities": query("SELECT process, material, monthly_capacity FROM capabilities "
                               "WHERE supplier_id = %s ORDER BY process, material", (sid,)),
         "financials": query("SELECT bsns_year, fs_div, source, revenue, operating_income, net_income, "
@@ -435,8 +451,9 @@ def rank_suppliers(rfq_id: str, w_price: float = 0.5, w_quality: float = 0.3,
             notes = []
             if c["years_dealing"] == 0:
                 notes.append("신규 후보(거래 이력 없음)")
-            if c["payment_days"] and c["payment_days"] > PAYMENT_DAYS_LIMIT:
-                notes.append(f"기존 계약 결제 {c['payment_days']}일: 하도급법 지급 기한 {PAYMENT_DAYS_LIMIT}일 초과, 점검 필요")
+            if rules.payment_days_exceeded(c["payment_days"]):
+                notes.append(f"기존 계약 결제 {c['payment_days']}일: 하도급법 지급 기한 "
+                             f"{rules.PAYMENT_DAYS_LIMIT.value}일 초과, 점검 필요")
             if c["operating_margin"] is not None and c["operating_margin"] < 0:
                 notes.append(f"{c['fin_year']}년 영업적자: 공급 안정성 확인 필요")
             if c["debt_ratio"] is not None and c["debt_ratio"] > DEBT_RATIO_WARN:
@@ -476,14 +493,14 @@ def check_offer(supplier: str, rfq_id: str, unit_price: int, payment_days: int, 
                 raw_material_ratio: float | None = None, contract_days: int = 365,
                 linkage_waived_by_agreement: bool = False, buyer_is_small_business: bool = False,
                 supplier_size: CompanySizeInput | None = None,
-                buyer_size: CompanySizeInput | None = None, as_of: str | None = None) -> dict:
+                buyer_size: CompanySizeInput | None = None, energy_ratio: float | None = None, as_of: str | None = None) -> dict:
     """협상안(단가·지급 기한·연동 약정)이 하도급법에 어긋나는지 코드 규칙으로 검사한다.
 
     supplier: 협상 상대 협력사 (SUP-0001, 회사명 등. get_supplier와 같은 입력)
     rfq_id: 협상안이 대응하는 RFQ (RFQ-2026-001 등)
     unit_price: 제시할 개당 단가(원)
     payment_days: 목적물 수령일부터 대금 지급까지 일수
-    price_linkage: 납품대금 연동 약정을 넣는지
+    price_linkage: 납품대금 연동 약정을 넣는지. True면 주요 원재료와 주요 에너지 모두 약정에 포함한 것으로 본다
     raw_material_ratio: 단가 중 원재료 비용 비중(0~1). 생략하면 그 협력사와의 기존 계약 값을 쓴다
     contract_days: 거래 기간(일). 하도급대금은 RFQ 연간 물량 × 단가 × 기간/365로 계산한다
     linkage_waived_by_agreement: 연동하지 않기로 협력사와 합의했는지
@@ -491,22 +508,29 @@ def check_offer(supplier: str, rfq_id: str, unit_price: int, payment_days: int, 
     supplier_size, buyer_size: 주된 업종 KSIC, 법정 평균매출액, 자산, 독립성, 관계기업, 경과조치 및 근거.
         최근 단년도 매출은 평균매출액으로 자동 대체하지 않는다. assess_company_size의 입력 구조와 같다.
     as_of: 기업 규모 판정 기준일. 검증된 별표 기간 밖이면 규모를 확정하지 않는다.
-        기존 지급·연동 규칙의 과거 시점 재현은 지원하지 않는다.
+        에너지 연동 규칙도 이 계약(위탁) 시점의 시행 기준을 사용한다.
+    energy_ratio: 단가 중 에너지 비용 비중(0~1). 생략 시 ENERGY_RATIO_UNKNOWN 안내.
 
     결과의 각 항목은 {code, severity(violation/warning/info), message, law_refs}이다.
-    violation은 법 위반 소지, warning은 확인이 필요한 위험, info는 참고다.
-    law_refs의 {law, article_no}를 law-mcp get_article로 넘겨 조문 원문을 인용한다.
+    violation은 법 위반 소지, warning은 확인이 필요한 위험, info는 참고다. 화면 분기는 verdict_code로 한다.
+    law_refs의 {law, article_no}를 law-mcp get_article로 넘겨 조문 원문을 인용한다. paragraph는 근거가 되는 항이다.
+    입력 오류는 메시지 앞에 [RFQ_NOT_FOUND] 같은 오류 코드를 붙인다 (docs/contracts/check-offer.md).
     판정은 이 도구가 하고, 법 해석이나 예외 해당 여부의 최종 판단은 법무 검토로 확인한다.
     """
     if unit_price <= 0 or payment_days <= 0 or contract_days <= 0:
-        raise ToolError("unit_price, payment_days, contract_days 는 0보다 커야 한다")
-    if raw_material_ratio is not None and not 0 <= raw_material_ratio <= 1:
-        raise ToolError("raw_material_ratio 는 0~1 사이 비율로 입력한다 (예: 40% → 0.4)")
+        raise ToolError("[VALUE_OUT_OF_RANGE] unit_price, payment_days, contract_days 는 0보다 커야 한다")
+    for name, value in (("raw_material_ratio", raw_material_ratio), ("energy_ratio", energy_ratio)):
+        if value is not None and not 0 <= value <= 1:
+            raise ToolError(f"[VALUE_OUT_OF_RANGE] {name} 는 0~1 사이 비율로 입력한다 (예: 40% → 0.4)")
+    try:
+        basis_day = date.fromisoformat(as_of) if as_of else date.today()
+    except ValueError:
+        raise ToolError(f"[VALUE_OUT_OF_RANGE] as_of '{as_of}'는 YYYY-MM-DD 형식으로 입력한다") from None
     sid = resolve_supplier_id(supplier)
     rfq = get_rfq(rfq_id)
     records = query("SELECT * FROM supplier_overview WHERE supplier_id = %s AND status = 'ACTIVE'", (sid,))
     if not records:
-        raise ToolError("활성 협력사가 없다")
+        raise ToolError("[SUPPLIER_NOT_FOUND] 활성 협력사가 없다")
     s = records[0]
     cap = query("SELECT monthly_capacity FROM capabilities WHERE supplier_id = %s AND process = %s AND material = %s",
                 (sid, rfq["process"], rfq["material"]))
@@ -531,51 +555,37 @@ def check_offer(supplier: str, rfq_id: str, unit_price: int, payment_days: int, 
     findings = payment_findings(payment_days)
     findings += linkage_findings(ratio, price_linkage, contract_amount, contract_days,
                                  linkage_waived_by_agreement, buyer_assessment['is_small_business'] is True)
+    findings += rules.energy_linkage_findings(energy_ratio, price_linkage, contract_amount, contract_days, basis_day,
+                                              linkage_waived_by_agreement, buyer_assessment['is_small_business'] is True)
     if buyer_assessment['is_small_business'] is None:
         # Unknown is not false: do not assert a missing-terms violation while the
         # buyer's statutory small-business exemption is still unresolved.
-        findings = [f for f in findings if f['code'] != 'LINKAGE_TERMS_MISSING']
+        findings = [f for f in findings if f['code'] not in {'LINKAGE_TERMS_MISSING', 'ENERGY_LINKAGE_TERMS_MISSING'}]
         findings.append(finding('BUYER_SIZE_UNKNOWN', 'warning',
             '구매자 소기업 판정 보류: ' + ', '.join(buyer_assessment['missing']) +
             '. 소기업이 아니라고 판단한 것이 아니다. 소기업 예외 적용 여부와 연동 약정 의무를 추가 확인해야 한다',
-            ('sme_decree', '제8조'), ('subcontract_act', '제3조')))
+            rules.LawRef('sme_decree', '제8조'), rules.LawRef('subcontract_act', '제3조')))
     if buyer_is_small_business and buyer_assessment['is_small_business'] is not True:
         findings.append(finding('BUYER_SIZE_UNVERIFIED', 'warning',
             '소기업이라는 입력만으로 연동 예외를 적용하지 않았다. buyer_size에 별표 3 및 본문 요건 확인 근거가 필요하다',
-            ('sme_decree', '제8조')))
+            rules.LawRef('sme_decree', '제8조')))
 
-    # 단가: 일반적으로 지급되는 대가보다 낮은지 (제4조①, ②5 일방적으로 낮은 단가, ②1 일률적 인하)
-    if market["median"] and unit_price < market["median"] * MARKET_PRICE_FLOOR:
-        findings.append(finding(
-            "PRICE_BELOW_MARKET", "warning",
-            f"단가 {unit_price:,}원이 같은 공정·소재 최근 견적 중앙값 {market['median']:,.0f}원({market['n']}곳)의 "
-            f"{unit_price / market['median'] * 100:.0f}%다. 일반적으로 지급되는 대가보다 낮게 정하면 부당한 하도급대금 "
-            "결정이 될 수 있으니 원가 근거와 협의 기록을 남긴다", ("subcontract_act", "제4조")))
-    if last and unit_price < last[0]["unit_price"] * (1 - LAST_QUOTE_CUT):
-        findings.append(finding(
-            "PRICE_CUT_FROM_LAST_QUOTE", "warning",
-            f"이 협력사의 직전 견적 {last[0]['unit_price']:,}원보다 {(1 - unit_price / last[0]['unit_price']) * 100:.1f}% 낮다. "
-            "정당한 사유 없는 일률적 인하나 일방적으로 낮은 단가 결정이 되지 않도록 인하 근거를 확인한다",
-            ("subcontract_act", "제4조")))
-    if unit_price > rfq["target_price"]:
-        findings.append(finding("ABOVE_TARGET_PRICE", "info",
-                                f"단가가 RFQ 목표 단가 {rfq['target_price']:,}원보다 "
-                                f"{(unit_price / rfq['target_price'] - 1) * 100:.1f}% 높다"))
-
+    findings += rules.price_findings(unit_price, market["median"], market["n"],
+                                     last[0]["unit_price"] if last else None, rfq["target_price"])
     # Size is only one prerequisite; annual revenue never establishes statutory applicability.
     if supplier_assessment['is_sme'] is None:
         findings.append(finding('SME_STATUS_UNKNOWN', 'warning',
             '기업 규모 판정 보류: ' + ', '.join(supplier_assessment['missing']) +
             '. 최근 매출을 법정 평균매출액으로 대체하지 않았다. 하도급법 검사는 적용대상이라는 조건부 검토다',
-            ('sme_decree', '제3조'), ('subcontract_act', '제2조')))
+            rules.LawRef('sme_decree', '제3조'), rules.LawRef('subcontract_act', '제2조')))
     elif supplier_assessment['is_sme']:
         findings.append(finding('SME_SIZE_CRITERIA_MET', 'info',
             '입력 근거와 공식 별표에 따른 중소기업 규모 요건 충족. 위탁 유형·원사업자 요건은 별도 확인해야 한다',
-            ('sme_decree', '제3조'), ('subcontract_act', '제2조')))
+            rules.LawRef('sme_decree', '제3조'), rules.LawRef('subcontract_act', '제2조')))
     else:
         findings.append(finding('SME_STATUS_CHECK', 'warning',
             '입력 근거에 따른 중소기업 기준 미충족. 중견기업 지급 조항 확대 적용 등 거래 적용범위를 별도 확인한다',
-            ('subcontract_act', '제2조'), ('subcontract_act', '제13조')))
+            rules.LawRef('subcontract_act', '제2조'), rules.LawRef('subcontract_act', '제13조')))
 
     # RFQ 요건 (법규가 아닌 거래 조건)
     if rfq["required_cert"] == "IATF16949" and not s["iatf16949"]:
@@ -588,9 +598,13 @@ def check_offer(supplier: str, rfq_id: str, unit_price: int, payment_days: int, 
                                 f"월 생산능력 {cap[0]['monthly_capacity']:,}개 < 필요 {needed_monthly:,}개"))
 
     by = {k: [f for f in findings if f["severity"] == k] for k in ("violation", "warning", "info")}
-    refs = list(dict.fromkeys((r["law"], r["article_no"]) for f in findings for r in f["law_refs"]))
+    code = rules.verdict_code(findings)
+    refs = list({tuple(r.items()): r for f in findings for r in f["law_refs"]}.values())
     return {
-        "verdict": "위반 소지 있음" if by["violation"] else "확인 필요" if by["warning"] else "문제 없음",
+        "schema_version": "2",
+        "verdict": {"VIOLATION": "위반 소지 있음", "CHECK_NEEDED": "확인 필요", "OK": "문제 없음"}[code],
+        "verdict_code": code,
+        "basis": {"as_of": basis_day.isoformat(), "law_versions": rules.law_versions_on(basis_day)},
         "applicability": "conditional_on_transaction_and_buyer_requirements",
         "company_size": {"supplier": supplier_assessment, "buyer": buyer_assessment},
         "supplier": {"supplier_id": sid, "name": s["name"], "source": s["source"], "revenue_eok": s["revenue_eok"],
@@ -598,11 +612,12 @@ def check_offer(supplier: str, rfq_id: str, unit_price: int, payment_days: int, 
                      "capability_source": s["capability_source"], "quality_source": s["quality_source"]},
         "rfq": {k: rfq[k] for k in ("rfq_id", "part_name", "process", "material", "annual_volume", "target_price")},
         "offer": {"unit_price": unit_price, "payment_days": payment_days, "price_linkage": price_linkage,
-                  "raw_material_ratio": ratio, "contract_days": contract_days, "contract_amount": contract_amount},
+                  "raw_material_ratio": ratio, "energy_ratio": energy_ratio, "contract_days": contract_days,
+                  "contract_amount": contract_amount},
         "violations": by["violation"],
         "warnings": by["warning"],
         "info": by["info"],
-        "law_refs": [{"law": law, "article_no": no} for law, no in refs],
+        "law_refs": refs,
     }
 
 
@@ -614,7 +629,8 @@ def catalog() -> str:
     regions = query("SELECT region, count(*) AS suppliers FROM suppliers WHERE status = 'ACTIVE' GROUP BY region ORDER BY count(*) DESC, region")
     counts = query("SELECT source, count(*) AS suppliers FROM suppliers WHERE status = 'ACTIVE' GROUP BY source ORDER BY source")
     rfqs = query("SELECT rfq_id, part_name, process, material, required_cert, due_date FROM rfqs ORDER BY rfq_id")
-    return json.dumps({"processes": materials_by_process(),
+    # 목록 자체를 보여 주는 리소스라 캐시가 아닌 현재 DB 값을 쓴다
+    return json.dumps({"processes": materials_by_process(fresh=True),
                        "process_aliases": PROCESS_ALIASES, "material_aliases": MATERIAL_ALIASES,
                        "regions": regions, "suppliers_by_source": counts, "rfqs": rfqs},
                       ensure_ascii=False, indent=1)

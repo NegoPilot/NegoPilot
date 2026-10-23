@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 
 import { describeError } from '@/utils/errors'
 import { session, signOut } from '@/stores/session'
@@ -41,6 +41,7 @@ const GROUPS = [
 ] as const
 
 const group = computed(() => GROUPS.find((g) => g.tabs.some((t) => t.name === route.name)) ?? GROUPS[0])
+const connected = computed(() => ['admin', 'admin-members', 'admin-approvals'].includes(String(route.name)))
 </script>
 
 <template>
@@ -88,13 +89,13 @@ const group = computed(() => GROUPS.find((g) => g.tabs.some((t) => t.name === ro
           </RouterLink>
         </nav>
       </header>
-      <main class="page-body">
+      <p v-if="logoutError" class="field-error" role="alert">{{ logoutError }}</p>
+      <RouterView v-if="connected" />
+      <main v-else class="page-body">
         <section class="panel panel-pad">
-          <h2>관리자 화면 연결 준비 중</h2>
-          <p>현재 로그인한 계정의 관리자 권한은 서버에서 확인했습니다. 회원 목록과 가입 승인 및 데이터 관리 화면은 아직 실제 API에 연결되지 않았습니다.</p>
-          <p>이 화면에서는 회원 승인이나 권한 변경을 실행하지 않습니다.</p>
-          <RouterLink :to="{ name: 'chat' }" class="btn btn-primary">AI 대화로 이동</RouterLink>
-          <p v-if="logoutError" class="field-error" role="alert">{{ logoutError }}</p>
+          <h2>{{ route.meta.title }} 연결 준비 중</h2>
+          <p>이 메뉴는 아직 연결되지 않았습니다. 회원 목록 조회와 가입 승인은 회원 관리에서 사용할 수 있습니다.</p>
+          <RouterLink :to="{ name: 'admin-members' }" class="btn btn-primary">회원 관리로 이동</RouterLink>
         </section>
       </main>
     </div>

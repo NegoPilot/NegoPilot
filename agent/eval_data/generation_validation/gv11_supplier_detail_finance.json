@@ -63,6 +63,10 @@
               "fin_year": 2025,
               "operating_margin": 0.049,
               "debt_ratio": 1.41,
+              "status": "ACTIVE",
+              "certification_source": "MOCK",
+              "capability_source": "MOCK",
+              "quality_source": "MOCK",
               "capabilities": [
                 {
                   "process": "다이캐스팅",

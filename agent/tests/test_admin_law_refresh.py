@@ -7,7 +7,7 @@ from negopilot_agent.api.app import create_app
 from negopilot_agent.api.settings import ApiSettings
 
 HEADERS = {'X-Internal-Api-Key': 'test-key'}
-ROOT = '/internal/v1/admin/laws/refresh-jobs'
+ROOT = '/internal/admin/laws/refresh-jobs'
 JOB = {'job_id': str(uuid4()), 'status': 'RUNNING', 'started_at': '2026-10-21T00:00:00Z',
        'finished_at': None, 'previous_dataset_id': 'a' * 64, 'dataset_id': None, 'error_code': None}
 

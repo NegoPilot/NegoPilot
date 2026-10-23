@@ -8,7 +8,6 @@ import pytest
 from negopilot_shared import DecompositionResult
 from negopilot_agent.api.generation_stubs import FixtureDecompositionBackend, GenerationStubToolCaller, stub_suppliers
 from negopilot_agent.api.stubs import UnsupportedStubQuery
-from negopilot_agent.api.supplier_chat_service import SupplierChatService
 
 
 @pytest.mark.parametrize(('query', 'intent', 'entities'), [
@@ -99,10 +98,8 @@ async def test_supplier_search_does_not_require_process(args, ids):
     assert all(row['stub'] is True for row in rows)
 
 
-async def test_new_fixture_does_not_change_the_legacy_catalog():
+def test_stub_suppliers_combine_both_fixtures():
     assert len(stub_suppliers()) == 4
-    legacy = await SupplierChatService().catalog()
-    assert '경남' not in legacy.regions
 
 
 async def test_payment_search_and_full_article_are_both_documented_fixture_results():

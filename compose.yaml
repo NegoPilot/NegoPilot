@@ -1,4 +1,5 @@
-# Local test stack. Only the web UI is published and only on the loopback interface.
+# Local live AI stack. Only the web UI is published on the loopback interface.
+# Use compose.test.yaml as a second file for key-free deterministic chat tests.
 name: negopilot-local
 
 x-app-environment: &app-environment
@@ -103,12 +104,35 @@ services:
       context: .
       dockerfile: deploy/local/agent.Dockerfile
     environment:
-      AGENT_EXECUTION_MODE: stub
+      AGENT_EXECUTION_MODE: live
       AGENT_INTERNAL_API_KEY: ${LOCAL_AGENT_API_KEY:-local-agent-test-key}
-      AGENT_REQUEST_TIMEOUT_SECONDS: "30"
+      AGENT_REQUEST_TIMEOUT_SECONDS: ${AGENT_REQUEST_TIMEOUT_SECONDS:-300}
+      NEGOPILOT_DECOMPOSER_BACKEND: ${NEGOPILOT_DECOMPOSER_BACKEND-openai}
+      # Empty MODEL selects this provider's core default (OpenAI: gpt-4.1-mini).
+      NEGOPILOT_DECOMPOSER_MODEL: ${NEGOPILOT_DECOMPOSER_MODEL-}
+      NEGOPILOT_DECOMPOSER_EFFORT: ${NEGOPILOT_DECOMPOSER_EFFORT-low}
+      NEGOPILOT_DECOMPOSER_FALLBACKS: ${NEGOPILOT_DECOMPOSER_FALLBACKS-1}
+      NEGOPILOT_GENERATOR_BACKEND: ${NEGOPILOT_GENERATOR_BACKEND-openai}
+      NEGOPILOT_GENERATOR_MODEL: ${NEGOPILOT_GENERATOR_MODEL-}
+      NEGOPILOT_GENERATOR_EFFORT: ${NEGOPILOT_GENERATOR_EFFORT-medium}
+      NEGOPILOT_GENERATOR_FALLBACKS: ${NEGOPILOT_GENERATOR_FALLBACKS-1}
+      OPENAI_API_KEY: ${OPENAI_API_KEY-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_TIMEOUT_SECONDS: ${OLLAMA_TIMEOUT_SECONDS:-300}
+      OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-32768}
+      OLLAMA_NUM_PREDICT: ${OLLAMA_NUM_PREDICT:-4096}
       BUSINESS_MCP_URL: http://business-mcp:9102/mcp
       LAW_MCP_URL: http://law-mcp:9103/mcp
       LAW_ADMIN_API_KEY: ${LOCAL_LAW_ADMIN_API_KEY:-local-law-test-key}
+      # LangSmith tracing is off unless both TRACING=true and a key are set. It sends prompts and tool data out.
+      LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY-}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-negopilot}
+      LANGSMITH_HIDE_INPUTS: ${LANGSMITH_HIDE_INPUTS:-false}
+      LANGSMITH_HIDE_OUTPUTS: ${LANGSMITH_HIDE_OUTPUTS:-false}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       business-mcp:
         condition: service_healthy
@@ -132,8 +156,8 @@ services:
       SESSION_COOKIE_SECURE: "false"
       AGENT_BASE_URL: http://agent:9200
       AGENT_INTERNAL_API_KEY: ${LOCAL_AGENT_API_KEY:-local-agent-test-key}
-      AGENT_EXECUTION_MODE: stub
-      AGENT_RESPONSE_TIMEOUT_SECONDS: "35"
+      AGENT_EXECUTION_MODE: live
+      AGENT_RESPONSE_TIMEOUT_SECONDS: ${AGENT_RESPONSE_TIMEOUT_SECONDS:-310}
       BUSINESS_DATABASE_ENABLED: "true"
       BUSINESS_DATABASE_URL: jdbc:postgresql://postgres:5432/negopilot_business
       BUSINESS_DATABASE_USER: negopilot_business_owner

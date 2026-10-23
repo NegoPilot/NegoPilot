@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from negopilot_shared import DecompositionResult, RouteResult
+from negopilot_shared import DecompositionResult, RouteResult, ToolCall, public_error_code
 
 FIXTURE_DIR = Path(__file__).resolve().parent.parent / "fixtures"
 ROUTING = sorted((FIXTURE_DIR / "routing").glob("*.json"))
@@ -71,3 +71,40 @@ def broken(name: str, mutate) -> dict:
 def test_contract_rejects(data, message):
     with pytest.raises(ValidationError, match=message):
         RouteResult.model_validate(data)
+
+
+@pytest.mark.parametrize("message, code", [
+    ("[RFQ_NOT_FOUND] RFQ 'RFQ-2026-099'가 없다", "RFQ_NOT_FOUND"),
+    ("[VALUE_OUT_OF_RANGE] raw_material_ratio 는 0~1 사이", "VALUE_OUT_OF_RANGE"),
+    ("[DB_UNAVAILABLE] 협력사 DB에 연결할 수 없다", None),      # 공개하지 않는 코드
+    ("[INTERNAL] secret", None),
+    ("RFQ 'RFQ-2026-099'가 없다", None),                        # 코드 없는 기존 메시지
+    ("ToolError: [RFQ_NOT_FOUND] ...", None),                   # 맨 앞이 아니면 코드로 보지 않는다
+])
+def test_public_error_code(message, code):
+    assert public_error_code(message) == code
+
+
+@pytest.mark.parametrize("code", ["RFQ_NOT_FOUND", "SUPPLIER_NOT_FOUND", "SUPPLIER_AMBIGUOUS", "VALUE_OUT_OF_RANGE"])
+def test_public_error_code_survives_http_and_stored_json(code):
+    call = ToolCall(server="business-mcp", tool="check_offer", args={}, error="Tool execution failed.", error_code=code)
+    assert call.model_dump()["error_code"] == code
+    assert ToolCall.model_validate_json(call.model_dump_json()) == call
+
+
+@pytest.mark.parametrize("error", [None, "Tool execution failed."])
+def test_legacy_tool_calls_keep_their_five_field_shape(error):
+    legacy = {"server": "business-mcp", "tool": "get_supplier", "args": {}, "result": None, "error": error}
+    assert ToolCall.model_validate(legacy).model_dump() == legacy
+    assert ToolCall.model_validate(legacy | {"error_code": None}).model_dump() == legacy
+
+
+@pytest.mark.parametrize("code", ["DB_UNAVAILABLE", "INTERNAL", "secret://private", "", 123, True, {}, []])
+def test_nonpublic_or_malformed_error_codes_are_rejected(code):
+    with pytest.raises(ValidationError):
+        ToolCall(server="business-mcp", tool="check_offer", args={}, error="x", error_code=code)
+
+
+def test_successful_tool_cannot_claim_an_error_code():
+    with pytest.raises(ValidationError, match="error_code"):
+        ToolCall(server="business-mcp", tool="check_offer", args={}, error_code="RFQ_NOT_FOUND")

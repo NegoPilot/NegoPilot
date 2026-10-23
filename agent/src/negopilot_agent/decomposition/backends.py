@@ -18,7 +18,8 @@ from pydantic import BaseModel
 from negopilot_shared import DecompositionResult
 from negopilot_agent.ollama import OllamaBackend  # re-export alongside the other providers
 
-from negopilot_agent import timing
+from negopilot_agent import timing, tracing
+from negopilot_agent.decomposition import wire
 
 log = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ class AnthropicBackend:
 
     def __init__(self, client: anthropic.AsyncAnthropic, model: str, effort: str, max_tokens: int,
                  use_fallbacks: bool):
-        self.client = client
+        self.client = tracing.wrap_llm_client(client)   # LANGSMITH_TRACING이 켜졌을 때만 감싼다
         self.model = model
         self.effort = effort
         self.max_tokens = max_tokens
@@ -74,15 +75,27 @@ class OpenAIBackend:
     그 변환은 SDK의 to_strict_json_schema를 쓴다 (chat.completions.parse가 내부에서 쓰는 함수).
     parse를 직접 쓰지 않는 이유: parse는 응답을 바로 모델로 검증해서, 계약 위반이 우리 재시도(오류 알려 주고 다시 쓰기)
     전에 예외로 나간다. 다른 백엔드처럼 JSON 문자열을 돌려주고 검증은 분해기가 한다.
+
+    분해는 계약 형식 대신 짧은 형식(wire.py)으로 출력받아 계약 형식으로 바꿔 돌려준다. strict 모드에서 계약 형식은
+    쓰지 않는 엔티티까지 null로 모두 출력해 출력 토큰(=응답 시간)이 두 배쯤 된다.
     """
 
-    OUTPUT_MODEL: type[BaseModel] = DecompositionResult
-    OUTPUT_SCHEMA = to_strict_json_schema(DecompositionResult)
+    OUTPUT_MODEL: type[BaseModel] = wire.DecompositionWire
+    OUTPUT_NAME = DecompositionResult.__name__
+    OUTPUT_SCHEMA = to_strict_json_schema(wire.DecompositionWire)
+    COMPACT_OUTPUT = True   # 분해기가 프롬프트의 출력 규칙과 예시도 짧은 형식으로 만든다
 
-    def __init__(self, client: openai.AsyncOpenAI, model: str, max_tokens: int):
-        self.client = client
+    @staticmethod
+    def to_contract(text: str) -> str:
+        return wire.to_contract_json(text)
+
+    def __init__(self, client: openai.AsyncOpenAI, model: str, max_tokens: int, reason: bool = False):
+        self.client = tracing.wrap_llm_client(client)   # LANGSMITH_TRACING이 켜졌을 때만 감싼다
         self.model = model
         self.max_tokens = max_tokens
+        self.reason = reason
+        if reason:   # 실험: 하위 질문마다 intent 앞에 판단 근거 한 문장 (wire.REASON_RULE)
+            self.OUTPUT_SCHEMA = to_strict_json_schema(wire.DecompositionWireWithReason)
 
     async def generate(self, system: str, user: str) -> str | None:
         with timing.span("llm", self.model) as meta:
@@ -93,7 +106,7 @@ class OpenAIBackend:
                 temperature=0,
                 max_completion_tokens=self.max_tokens,
                 response_format={"type": "json_schema", "json_schema": {
-                    "name": self.OUTPUT_MODEL.__name__, "schema": self.OUTPUT_SCHEMA, "strict": True}},
+                    "name": self.OUTPUT_NAME, "schema": self.OUTPUT_SCHEMA, "strict": True}},
             )
             if usage := getattr(response, "usage", None):
                 details = usage.prompt_tokens_details
@@ -106,4 +119,4 @@ class OpenAIBackend:
         if choice.finish_reason == "length":
             log.warning("분해 출력이 max_completion_tokens에서 잘림")
             return None
-        return choice.message.content or ""
+        return self.to_contract(choice.message.content or "")

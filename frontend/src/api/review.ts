@@ -18,5 +18,5 @@ export function companyInput(c: ReturnType<typeof newCompany>) {
     seat_manufacturing: tri(c.seat_manufacturing), deemed_sme: tri(c.deemed_sme) }
 }
 export async function reviewOffer(offer: unknown) {
-  return parseReviewResponse(await request('/api/v2/legal-reviews', { method: 'POST', body: JSON.stringify(offer) }, 330_000))
+  return parseReviewResponse(await request('/api/legal-reviews', { method: 'POST', body: JSON.stringify(offer) }, 330_000))
 }

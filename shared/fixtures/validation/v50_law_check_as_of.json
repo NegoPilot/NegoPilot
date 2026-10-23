@@ -1,0 +1,27 @@
+{
+  "note": "질문에 기준일과 법령 이름이 있으면 둘 다",
+  "query": "2027년 1월 1일 기준 하도급법 지급 기한 규정 알려 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "2027년 1월 1일 기준 하도급법 지급 기한 규정 알려 줘",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "2027-01-01 시행 기준 하도급대금 지급 기한",
+        "original_text": "2027년 1월 1일 기준 하도급법 지급 기한 규정",
+        "intent": "law_check",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "law": "subcontract_act",
+          "as_of": "2027-01-01"
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

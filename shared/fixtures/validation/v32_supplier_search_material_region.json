@@ -1,0 +1,27 @@
+{
+  "note": "소재·지역 조건 검색 (공정은 생략 가능)",
+  "query": "알루미늄 다루는 충남 업체 있어?",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "알루미늄 다루는 충남 업체 있어?",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "충남 지역 알루미늄 소재 2차 협력사",
+        "original_text": "알루미늄 다루는 충남 업체",
+        "intent": "supplier_search",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "material": "알루미늄",
+          "region": "충남"
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

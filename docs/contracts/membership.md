@@ -4,8 +4,8 @@ Spring 서버가 단일 조직의 회원과 세션을 관리한다. 역할은 `A
 
 ## 세션과 권한
 
-- `PENDING`은 로그인할 수 있다. 로그인 후에는 `/api/v1/auth/me`와 `/api/v1/auth/logout`만 사용할 수 있다. CSRF 토큰 조회는 허용한다.
-- `ACTIVE`는 업무 API를 사용할 수 있다. `/api/v1/admin/**`는 활성 `ADMIN`만 사용할 수 있다.
+- `PENDING`은 로그인할 수 있다. 로그인 후에는 `/api/auth/me`와 `/api/auth/logout`만 사용할 수 있다. CSRF 토큰 조회는 허용한다.
+- `ACTIVE`는 업무 API를 사용할 수 있다. `/api/admin/**`는 활성 `ADMIN`만 사용할 수 있다.
 - `REJECTED`와 `DISABLED`는 로그인할 수 없다. 기존 세션도 폐기한다.
 - Spring Session JDBC가 PostgreSQL에 세션을 저장한다. 세션의 principal name은 회원 UUID다. 기본 유효 기간은 마지막 접근 후 30분이다.
 - 로그인 성공 시 세션 ID를 회전하고 로그인 전 CSRF 토큰을 폐기한다. 클라이언트는 로그인 후 CSRF 토큰을 다시 조회해야 한다.
@@ -13,13 +13,12 @@ Spring 서버가 단일 조직의 회원과 세션을 관리한다. 역할은 `A
 - 요청마다 회원의 현재 상태와 역할을 DB에서 확인한다. 승인된 신청자의 기존 제한 세션은 다음 요청부터 활성 권한으로 갱신된다. 이때도 세션 ID를 회전한다.
 - 역할 변경은 대상 회원의 모든 세션을 폐기한다. 회원 비활성화는 회원 정보와 변경 이력 및 채팅을 삭제하지 않는다.
 - 기본 세션 쿠키는 `HttpOnly`와 `SameSite=Lax` 및 `Secure`를 사용한다. 로컬 HTTP 확인에만 `SESSION_COOKIE_SECURE=false`를 설정한다.
-- `legacy-test`는 기존 API 회귀 테스트를 위한 보안 제외 프로필이다. 운영 환경에 사용하지 않는다.
 
 ## 요청 순서
 
-1. `GET /api/v1/auth/csrf`로 익명 세션 쿠키와 CSRF 토큰을 받는다.
+1. `GET /api/auth/csrf`로 익명 세션 쿠키와 CSRF 토큰을 받는다.
 2. 변경 요청에 응답의 `header_name`을 헤더 이름으로 사용해 `token`을 전송한다. 기본 이름은 `X-CSRF-TOKEN`이다. 쿠키도 함께 보낸다.
-3. 로그인 성공 후 `/api/v1/auth/csrf`를 다시 호출한다.
+3. 로그인 성공 후 `/api/auth/csrf`를 다시 호출한다.
 4. 이후 변경 요청에는 새 토큰을 사용한다. 로그아웃 후 다시 로그인할 때도 처음부터 진행한다.
 
 가입과 로그인에도 CSRF 검증을 적용한다. CSRF 토큰이 없거나 유효하지 않으면 `403 CSRF_INVALID`다. 브라우저 요청은 동일 출처의 `/api` 프록시를 사용한다.
@@ -28,11 +27,11 @@ Spring 서버가 단일 조직의 회원과 세션을 관리한다. 역할은 `A
 
 | 메서드와 경로 | 요청 | 성공 응답 |
 | --- | --- | --- |
-| `GET /api/v1/auth/csrf` | 없음 | `200 {"header_name":"X-CSRF-TOKEN","token":"..."}` |
-| `POST /api/v1/auth/signup` | 아래 가입 DTO | `201 {"user": Member}` |
-| `POST /api/v1/auth/login` | `{"email":"user@example.com","password":"..."}` | `200 {"user": Member}` |
-| `GET /api/v1/auth/me` | 없음 | `200 {"user": Member}` |
-| `POST /api/v1/auth/logout` | 본문 없음 | `204` |
+| `GET /api/auth/csrf` | 없음 | `200 {"header_name":"X-CSRF-TOKEN","token":"..."}` |
+| `POST /api/auth/signup` | 아래 가입 DTO | `201 {"user": Member}` |
+| `POST /api/auth/login` | `{"email":"user@example.com","password":"..."}` | `200 {"user": Member}` |
+| `GET /api/auth/me` | 없음 | `200 {"user": Member}` |
+| `POST /api/auth/logout` | 본문 없음 | `204` |
 
 가입 DTO:
 
@@ -74,10 +73,10 @@ Spring 서버가 단일 조직의 회원과 세션을 관리한다. 역할은 `A
 
 | 메서드와 경로 | 요청 | 성공 응답 |
 | --- | --- | --- |
-| `GET /api/v1/admin/members` | 선택 쿼리 `search` `role` `status` `page` `size` | `200 Page<Member>` |
-| `GET /api/v1/admin/members/{id}` | 회원 UUID | `200 {"user": Member}` |
-| `PATCH /api/v1/admin/members/{id}/status` | `{"status":"ACTIVE"}` 등 | `200 {"user": Member}` |
-| `PATCH /api/v1/admin/members/{id}/role` | `{"role":"ADMIN"}` 또는 `{"role":"USER"}` | `200 {"user": Member}` |
+| `GET /api/admin/members` | 선택 쿼리 `search` `role` `status` `page` `size` | `200 Page<Member>` |
+| `GET /api/admin/members/{id}` | 회원 UUID | `200 {"user": Member}` |
+| `PATCH /api/admin/members/{id}/status` | `{"status":"ACTIVE"}` 등 | `200 {"user": Member}` |
+| `PATCH /api/admin/members/{id}/role` | `{"role":"ADMIN"}` 또는 `{"role":"USER"}` | `200 {"user": Member}` |
 
 `search`는 최대 254자의 이름 또는 이메일 부분 검색이다. 대소문자를 구분하지 않으며 SQL 와일드카드로 해석하지 않는다. `role`과 `status`는 각 열거값과 정확히 일치해야 한다. 목록은 생성 시각 내림차순 다음 UUID 순이다.
 
@@ -96,7 +95,7 @@ Spring 서버가 단일 조직의 회원과 세션을 관리한다. 역할은 `A
 
 ## 접근 이력
 
-`GET /api/v1/admin/access-logs`는 `Page<AccessLog>`를 반환한다. 선택 쿼리는 `user_id`와 `event` 및 `from`과 `to` 및 `success`와 `page` 및 `size`다.
+`GET /api/admin/access-logs`는 `Page<AccessLog>`를 반환한다. 선택 쿼리는 `user_id`와 `event` 및 `from`과 `to` 및 `success`와 `page` 및 `size`다.
 
 - `user_id`는 UUID다. `event`는 `LOGIN_SUCCESS` 또는 `LOGIN_FAILURE` 또는 `LOGOUT`이다.
 - `from`과 `to`는 ISO 8601 시각이다. `from`은 포함하고 `to`는 제외한다. 둘 다 지정하면 `from < to`여야 한다.
@@ -193,7 +192,7 @@ java -Dloader.main=com.negopilot.backend.AuthBootstrapLocalUser \
   org.springframework.boot.loader.launch.PropertiesLauncher
 ```
 
-Compose 컨테이너에서는 JAR 경로가 `/app/app.jar`다. 기존 volume에 로컬 일반 회원이 없다면 `docker compose up --build -d`로 추가한다. `down -v`는 필요하지 않다. 이후 환경변수의 비밀번호만 바꿔도 기존 암호가 변경되지는 않는다. 공개 `POST /api/v1/auth/signup`은 그대로 `USER/PENDING`을 생성하며 관리자 승인이 필요하다.
+Compose 컨테이너에서는 JAR 경로가 `/app/app.jar`다. 기존 volume에 로컬 일반 회원이 없다면 `docker compose up --build -d`로 추가한다. `down -v`는 필요하지 않다. 이후 환경변수의 비밀번호만 바꿔도 기존 암호가 변경되지는 않는다. 공개 `POST /api/auth/signup`은 그대로 `USER/PENDING`을 생성하며 관리자 승인이 필요하다.
 
 ## 검증
 

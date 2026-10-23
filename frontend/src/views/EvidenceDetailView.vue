@@ -255,10 +255,6 @@ const effectiveDate = computed(() => {
               <h3 class="table-title">{{ evidence.label }}</h3>
               <pre class="raw-text">{{ evidence.text }}</pre>
             </template>
-            <details v-if="supplier || fieldRows" class="raw-details">
-              <summary>원본 조회 응답 보기</summary>
-              <pre class="raw-text">{{ evidence.text }}</pre>
-            </details>
           </section>
 
           <section class="panel panel-pad" aria-labelledby="used-h">
@@ -373,8 +369,6 @@ const effectiveDate = computed(() => {
   line-height: 1.7;
   white-space: pre-wrap;
 }
-.raw-details { margin-top: 20px; }
-.raw-details summary { cursor: pointer; margin-bottom: 10px; }
 .side-title {
   font-size: 16px;
   margin-bottom: 14px;

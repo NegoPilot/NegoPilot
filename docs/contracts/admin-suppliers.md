@@ -1,12 +1,12 @@
 # 관리자 협력사 관리 계약
 
-모든 경로는 `/api/v1/admin/suppliers`로 시작한다. 활성 ADMIN 세션과 변경 요청의 CSRF 토큰이 필요하다. 회원 식별자는 세션에서 얻는다. 요청에서 수정자 ID나 권한을 받지 않는다.
+모든 경로는 `/api/admin/suppliers`로 시작한다. 활성 ADMIN 세션과 변경 요청의 CSRF 토큰이 필요하다. 회원 식별자는 세션에서 얻는다. 요청에서 수정자 ID나 권한을 받지 않는다.
 
 이 API는 기존 supplier DB를 관리한다. 회원과 세션 및 개인 대화가 저장되는 application DB와 분리한다. 재무와 계약 및 견적은 조회만 제공한다. 삭제 API는 없으며 비활성화로 조회 대상에서 제외한다.
 
 ## 조회
 
-`GET /api/v1/admin/suppliers?page=0&size=20&q=기업&source=MANUAL&status=ACTIVE`
+`GET /api/admin/suppliers?page=0&size=20&q=기업&source=MANUAL&status=ACTIVE`
 
 page는 0부터 1000000까지다. size는 1부터 100까지이며 기본값은 20이다. q는 선택 문자열이며 앞뒤 공백을 제거한 뒤 1부터 100자까지 허용한다. 기업명과 ID의 부분 일치로 검색한다. `%`와 `_`는 문자 그대로 검색한다. source는 DART 또는 MOCK 또는 MANUAL이다. status는 ACTIVE 또는 INACTIVE다. 미지정 시 모든 출처와 상태를 포함한다. 알 수 없는 parameter와 중복 parameter는 400이다. ID 순으로 정렬한다.
 
@@ -24,7 +24,7 @@ page는 0부터 1000000까지다. size는 1부터 100까지이며 기본값은 2
 }
 ```
 
-`GET /api/v1/admin/suppliers/{supplier_id}`는 아래 구조를 반환한다. 상세와 쓰기 응답은 동일한 구조다. 관리자는 비활성 기업도 조회할 수 있다. 없는 ID는 404다.
+`GET /api/admin/suppliers/{supplier_id}`는 아래 구조를 반환한다. 상세와 쓰기 응답은 동일한 구조다. 관리자는 비활성 기업도 조회할 수 있다. 없는 ID는 404다.
 
 ```json
 {
@@ -46,7 +46,7 @@ page는 0부터 1000000까지다. size는 1부터 100까지이며 기본값은 2
 
 ## 수동 등록
 
-`POST /api/v1/admin/suppliers`는 201과 상세를 반환한다.
+`POST /api/admin/suppliers`는 201과 상세를 반환한다.
 
 ```json
 {
@@ -69,7 +69,7 @@ ID와 source 및 corp_code는 요청하지 않는다. 서버가 `SUP-숫자` ID�
 
 모든 수정에는 조회한 version이 필요하다. 성공하면 version이 1 증가한다. 동시에 수정했거나 오래된 version이면 409 VERSION_CONFLICT다. 화면은 최신 상세를 다시 조회한 뒤 사용자의 입력을 확인한다.
 
-`PATCH /api/v1/admin/suppliers/{id}`
+`PATCH /api/admin/suppliers/{id}`
 
 ```json
 {"version": 0, "profile": {"employees": 20}, "certifications": {"iso14001": true}}
@@ -77,7 +77,7 @@ ID와 source 및 corp_code는 요청하지 않는다. 서버가 `SUP-숫자` ID�
 
 profile과 certifications 중 하나 이상이 필요하다. 각 영역은 부분 수정이며 빈 객체는 거절한다. DART 원본 기업의 profile 요청은 403 READ_ONLY_SOURCE다. 인증은 DART 기업도 수정할 수 있다. MOCK 기본 정보를 수정하면 source는 MANUAL로 바뀌며 profile_origin_source와 profile_original은 유지된다. 인증만 변경하면 기본 source는 그대로 두고 certification_source만 MANUAL로 바꾼다.
 
-`PUT /api/v1/admin/suppliers/{id}/capabilities`
+`PUT /api/admin/suppliers/{id}/capabilities`
 
 ```json
 {"version": 1, "capabilities": [{"process": "프레스", "material": "SPCC", "monthly_capacity": 2000}]}
@@ -85,7 +85,7 @@ profile과 certifications 중 하나 이상이 필요하다. 각 영역은 부�
 
 기존 capability 전체를 한 트랜잭션에서 교체한다. capability_source는 MANUAL이다. 최소 1개부터 최대 100개까지 허용하며 같은 공정과 소재의 조합은 중복할 수 없다.
 
-`PUT /api/v1/admin/suppliers/{id}/quality`
+`PUT /api/admin/suppliers/{id}/quality`
 
 ```json
 {"version": 2, "quality": {"defect_ppm": 0, "on_time_rate": 0.934, "audit_grade": "B", "years_dealing": 0}}
@@ -93,7 +93,7 @@ profile과 certifications 중 하나 이상이 필요하다. 각 영역은 부�
 
 품질 네 필드 전체가 필수다. 기존 행이 없으면 추가한다. quality_source는 MANUAL이다.
 
-`PATCH /api/v1/admin/suppliers/{id}/status`
+`PATCH /api/admin/suppliers/{id}/status`
 
 ```json
 {"version": 3, "status": "INACTIVE"}

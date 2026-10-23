@@ -10,6 +10,7 @@ import json
 import logging
 import re
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -18,6 +19,7 @@ import openai
 from pydantic import ValidationError
 
 from negopilot_shared import DecompositionResult, load_intents
+from negopilot_shared.decomposition import SELECT_RE
 
 from negopilot_agent.decomposition.backends import AnthropicBackend, Backend, OpenAIBackend, OllamaBackend
 from negopilot_agent.decomposition.prompt import build_system_prompt, build_user_message
@@ -44,6 +46,8 @@ class DecomposerSettings:
     # 안전 분류기가 거절하면 서버가 다른 모델로 다시 실행하게 한다 (anthropic 전용)
     use_fallbacks: bool = field(
         default_factory=lambda: os.getenv("NEGOPILOT_DECOMPOSER_FALLBACKS", "1") != "0")
+    # 실험: 하위 질문마다 intent 앞에 판단 근거 한 문장을 쓰게 한다 (openai 전용, wire.REASON_RULE). 기본은 끔
+    reason: bool = field(default_factory=lambda: os.getenv("NEGOPILOT_DECOMPOSER_REASON", "0") == "1")
 
 
 def failed_result(query: str) -> DecompositionResult:
@@ -62,7 +66,8 @@ def make_backend(settings: DecomposerSettings, client: anthropic.AsyncAnthropic 
     if settings.backend == "ollama":
         return OllamaBackend.from_env(settings.model, settings.max_tokens)
     if settings.backend == "openai":
-        return OpenAIBackend(openai.AsyncOpenAI(), settings.model, settings.max_tokens)  # OPENAI_API_KEY
+        return OpenAIBackend(openai.AsyncOpenAI(), settings.model, settings.max_tokens,  # OPENAI_API_KEY
+                            reason=settings.reason)
     if settings.backend == "anthropic":
         return AnthropicBackend(client or anthropic.AsyncAnthropic(), settings.model, settings.effort,
                                 settings.max_tokens, settings.use_fallbacks)
@@ -74,7 +79,9 @@ class QueryDecomposer:
                  settings: DecomposerSettings | None = None, backend: Backend | None = None):
         self.settings = settings or DecomposerSettings()
         self.backend = backend or make_backend(self.settings, client)
-        self.system = build_system_prompt()
+        # openai 백엔드는 짧은 출력 형식(wire.py)을 쓰므로 프롬프트의 출력 규칙과 예시도 그 형식으로 보여 준다
+        self.system = build_system_prompt(compact=getattr(self.backend, "COMPACT_OUTPUT", False),
+                                          reason=getattr(self.backend, "reason", False))
 
     async def decompose(self, query: str, history: list[dict] | None = None, *,
                         context: dict[str, list[str]] | None = None) -> DecompositionResult:
@@ -92,18 +99,121 @@ class QueryDecomposer:
             try:
                 # 스키마 형식은 모델 쪽 구조화 출력이 맞추고, 필드 사이 규칙은 여기서 검증한다
                 cleaned = drop_redundant_as_of(
-                    clean_entity_values(drop_disallowed_entities(drop_disallowed_inputs(text))), today)
+                    clean_entity_values(drop_disallowed_entities(drop_disallowed_inputs(drop_self_references(
+                        normalize_select(fill_original_query(text, query)))))),
+                    today)
                 result = DecompositionResult.model_validate_json(cleaned)
             except ValidationError as err:
-                log.warning("분해 결과 형식 오류 (시도 %d): %s", attempt, err.error_count())
+                log.warning("분해 결과 형식 오류 (시도 %d):\n%s", attempt, _format_errors(err))
                 feedback = ("\n\n직전 출력이 계약 형식을 어겼다. 아래 오류를 고쳐서 다시 출력해라.\n"
                             + _format_errors(err))
+                continue
+            if errors := unreadable_inputs(result):
+                # 앞 결과에서 꺼낼 수 없는 값을 inputs로 받으면 Routing이 실행할 수 없다 (#179)
+                log.warning("분해 결과 형식 오류 (시도 %d):\n%s", attempt, "\n".join(errors))
+                feedback = ("\n\n직전 출력이 계약 형식을 어겼다. 아래 오류를 고쳐서 다시 출력해라.\n"
+                            + "\n".join(errors))
                 continue
             # original_query는 사용자 원문이어야 한다. 모델이 다듬었으면 원문으로 되돌린다
             if result.original_query != query:
                 result = result.model_copy(update={"original_query": query})
-            return drop_unused_dependencies(preserve_size_facts(result, query, history))
+            return apply_named_law(drop_unused_dependencies(preserve_size_facts(
+                drop_invented_ids(result, query, history, context), query, history)))
         return preserve_size_facts(failed_result(query), query, history)
+
+
+def fill_original_query(text: str, query: str) -> str:
+    """original_query가 없으면 사용자 원문으로 채운다.
+
+    original_query는 원문 그대로여야 해서 모델이 쓸 필요가 없다. openai 백엔드는 출력 토큰을 줄이려고 이 필드를 빼고 받는다.
+    JSON이 아니거나 모양이 다르면 그대로 돌려줘 검증 오류로 처리되게 한다.
+    """
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return text
+    if not isinstance(data, dict) or "original_query" in data:
+        return text
+    data["original_query"] = query
+    return json.dumps(data, ensure_ascii=False)
+
+
+_LOOSE_TOP = re.compile(r"^\s*top[\s_-]*\(?\s*([1-9]\d*)\s*\)?\s*$", re.IGNORECASE)
+
+
+def normalize_select(text: str) -> str:
+    """inputs.select의 뜻이 분명한 표기 차이를 계약 형식으로 고친다 (#99).
+
+    모델이 "top3", "top 3", "TOP(3)"처럼 쓰면 계약(top1, top(n))에 맞지 않아 재시도한다. 숫자 하나만 뜻하므로
+    top(3)으로 바꾸고, 1이면 top1로 쓴다. 이미 맞는 값이나 뜻이 분명하지 않은 값은 그대로 둬 검증이 판단하게 한다.
+    """
+    try:
+        data = json.loads(text)
+        sub_queries = data["sub_queries"]
+    except (ValueError, TypeError, KeyError):
+        return text
+    changed = False
+    for sq in sub_queries if isinstance(sub_queries, list) else []:
+        for ref in sq.get("inputs", []) if isinstance(sq, dict) and isinstance(sq.get("inputs"), list) else []:
+            select = ref.get("select") if isinstance(ref, dict) else None
+            if not isinstance(select, str) or SELECT_RE.match(select) or not (m := _LOOSE_TOP.match(select)):
+                continue
+            fixed = "top1" if m.group(1) == "1" else f"top({m.group(1)})"
+            log.info("%s의 select %r → %r", sq.get("id"), select, fixed)
+            ref["select"] = fixed
+            changed = True
+    return json.dumps(data, ensure_ascii=False) if changed else text
+
+
+def unreadable_inputs(result: DecompositionResult) -> list[str]:
+    """앞 하위 질문의 결과에서 꺼낼 수 없는 slot을 받는 inputs. 재시도할 때 모델에게 줄 오류 문장 목록.
+
+    예: supplier_ranking 결과에서 rfq_id를 꺼내라는 inputs. 순위 결과는 협력사만 꺼낼 수 있다.
+    """
+    from negopilot_agent.routing.extract import RESULT_MAPS   # Routing과 같은 결과 대응표를 쓴다
+
+    intents = {sq.id: sq.intent for sq in result.sub_queries}
+    errors = []
+    for sq in result.sub_queries:
+        for ref in sq.inputs:
+            source = intents.get(ref.from_)
+            rmap = RESULT_MAPS.get(source)
+            if rmap is None:
+                errors.append(f"- {sq.id}: {ref.from_}({source}) 결과는 inputs로 쓸 수 없다")
+            elif ref.slot not in rmap.slots:
+                errors.append(f"- {sq.id}: {ref.from_}({source}) 결과에서 '{ref.slot}'를 꺼낼 수 없다. "
+                              f"꺼낼 수 있는 값: {', '.join(rmap.slots)}")
+    return errors
+
+
+def drop_self_references(text: str) -> str:
+    """하위 질문이 자기 자신을 가리키는 depends_on과 inputs를 검증 전에 지운다 (#178).
+
+    multi-hop 질문에서 모델이 q1의 depends_on에 q1을 넣는 경우가 있다. 자기 결과를 입력으로 받을 수는 없어서
+    뜻이 분명한 오류인데, 재시도하면 inputs.from만 남기는 다른 오류로 다시 실패해 분해가 통째로 failed가 된다.
+    지운 뒤 필요한 값이 비면 Routing이 missing_args로 처리한다. 다른 하위 질문을 가리키는 값은 그대로 둔다.
+    JSON이 아니거나 모양이 다르면 그대로 돌려줘 검증 오류로 처리되게 한다.
+    """
+    try:
+        data = json.loads(text)
+        sub_queries = data["sub_queries"]
+    except (ValueError, TypeError, KeyError):
+        return text
+    changed = False
+    for sq in sub_queries if isinstance(sub_queries, list) else []:
+        if not isinstance(sq, dict) or not isinstance(sq_id := sq.get("id"), str):
+            continue
+        if isinstance(deps := sq.get("depends_on"), list) and sq_id in deps:
+            sq["depends_on"] = [d for d in deps if d != sq_id]
+            changed = True
+            log.info("%s의 depends_on에서 자기 자신 제거", sq_id)
+        if isinstance(inputs := sq.get("inputs"), list):
+            kept = [i for i in inputs if not (isinstance(i, dict) and i.get("from") == sq_id)]
+            if len(kept) != len(inputs):
+                sq["inputs"] = kept
+                changed = True
+                log.info("%s의 inputs에서 자기 자신을 가리키는 값 제거", sq_id)
+    return json.dumps(data, ensure_ascii=False) if changed else text
 
 
 def drop_disallowed_inputs(text: str) -> str:
@@ -241,4 +351,87 @@ def drop_unused_dependencies(result: DecompositionResult) -> DecompositionResult
             changed = True
             log.info("%s의 depends_on %s → %s (inputs로 받는 값 없음)", sq.id, sq.depends_on, kept)
         sub_queries.append(sq.model_copy(update={"depends_on": kept}))
+    return result.model_copy(update={"sub_queries": sub_queries}) if changed else result
+
+
+# 질문에 법령 이름이 그대로 나오면 law 엔티티를 정할 수 있다. 시행령을 먼저 본다
+NAMED_LAWS = [
+    ("subcontract_decree", re.compile(r"하도급법\s*시행령|하도급거래\s*공정화에\s*관한\s*법률\s*시행령")),
+    ("subcontract_act", re.compile(r"하도급법|하도급거래\s*공정화")),
+    ("winwin_decree", re.compile(r"상생협력법\s*시행령")),
+    ("winwin_act", re.compile(r"상생협력법|상생협력\s*촉진")),
+    ("sme_decree", re.compile(r"중소기업기본법\s*시행령")),
+    ("sme_act", re.compile(r"중소기업기본법")),
+]
+
+
+def named_law(text: str) -> str | None:
+    """text가 법령 하나를 이름으로 가리키면 그 law 키. 없거나 둘 이상이면 None."""
+    found: list[str] = []
+    for key, pattern in NAMED_LAWS:
+        family = key.split("_")[0]   # 시행령이 잡히면 같은 법의 본법 이름은 세지 않는다
+        if pattern.search(text) and not any(f.split("_")[0] == family for f in found):
+            found.append(key)
+    return found[0] if len(found) == 1 else None
+
+
+_SUPPLIER_ID = re.compile(r"SUP-?0*(\d+)", re.IGNORECASE)
+_RFQ_ID = re.compile(r"RFQ-?(\d{4})-?(\d{3})", re.IGNORECASE)
+# 질문 원문에서 찾을 때는 띄어 쓴 표기(SUP 34, RFQ 2026-001)와 RFQ 접두어를 뺀 번호(2026-001)도 같은 값으로 본다
+_SUPPLIER_ID_IN_TEXT = re.compile(r"SUP[\s_-]*0*(\d+)", re.IGNORECASE)
+_RFQ_ID_IN_TEXT = re.compile(r"RFQ[\s_-]*(\d{4})[\s_-]*(\d{3})|(?<!\d)(\d{4})[\s_-](\d{3})(?!\d)", re.IGNORECASE)
+
+
+def drop_invented_ids(result: DecompositionResult, query: str, history: list[dict] | None = None,
+                      context: dict[str, list[str]] | None = None) -> DecompositionResult:
+    """질문·대화 이력·선택 기업 어디에도 없는 협력사 ID와 RFQ 번호를 엔티티에서 지운다 (#143).
+
+    모델이 "우리 협력사는 SUP-0001로 가정"처럼 대상을 지어내면, 사용자가 말하지 않은 협력사로 검사하고 답한다.
+    값은 질문에 있는 표기와 숫자로 비교한다 (SUP-1과 SUP-0001은 같다). 지운 값을 말하는 가정도 함께 지운다.
+    값이 비면 Routing이 missing_args로 되묻는다. 앞 결과에서 받는 값(inputs)은 엔티티가 아니라서 건드리지 않는다.
+    회사 이름은 표기가 다양해 비교하지 않는다.
+    """
+    seen = "\n".join([query, *(str(m.get("content", "")) for m in history or [] if isinstance(m, dict)),
+                      *(str(i) for i in (context or {}).get("selected_supplier_ids", []))])
+    suppliers = {int(n) for n in _SUPPLIER_ID_IN_TEXT.findall(seen)}
+    rfqs = {(m[0], m[1]) if m[0] else (m[2], m[3]) for m in _RFQ_ID_IN_TEXT.findall(seen)}
+    dropped: list[str] = []
+    sub_queries = []
+    for sq in result.sub_queries:
+        update = {}
+        supplier = sq.entities.supplier
+        if supplier and (m := _SUPPLIER_ID.fullmatch(supplier.strip())) and int(m.group(1)) not in suppliers:
+            update["supplier"] = None
+        if sq.entities.rfq_id and (m := _RFQ_ID.fullmatch(sq.entities.rfq_id)) and m.groups() not in rfqs:
+            update["rfq_id"] = None
+        if update:
+            dropped += [getattr(sq.entities, k) for k in update]
+            log.info("%s의 질문에 없는 값 제거: %s", sq.id, {k: getattr(sq.entities, k) for k in update})
+            sq = sq.model_copy(update={"entities": sq.entities.model_copy(update=update)})
+        sub_queries.append(sq)
+    if not dropped:
+        return result
+    assumptions = [a for a in result.assumptions if not any(v in a for v in dropped)]
+    return result.model_copy(update={"sub_queries": sub_queries, "assumptions": assumptions})
+
+
+def apply_named_law(result: DecompositionResult) -> DecompositionResult:
+    """law를 받는 하위 질문에서 사용자가 법령 이름을 직접 말했으면 law를 그 법령으로 맞춘다.
+
+    "하도급법상 대금 지급 기한은?"처럼 법령 이름이 그대로 있는데 모델이 law를 빼거나 다른 법령을 넣는 경우가 있다
+    (특히 짧은 출력 형식). 그러면 law-mcp가 엉뚱한 범위를 검색해 근거가 흐려진다. 하위 질문 원문을 먼저 보고,
+    없으면 전체 질문을 본다. 이름이 없거나 여러 법령을 말했으면 모델 판단을 그대로 둔다.
+    """
+    intents = load_intents()
+    changed = False
+    sub_queries = []
+    for sq in result.sub_queries:
+        spec = intents.get(sq.intent)
+        if spec is not None and "law" in spec.entities:
+            law = named_law(sq.original_text) or named_law(result.original_query)
+            if law and law != sq.entities.law:
+                log.info("%s의 law를 질문의 법령 이름으로 맞춤: %s → %s", sq.id, sq.entities.law, law)
+                sq = sq.model_copy(update={"entities": sq.entities.model_copy(update={"law": law})})
+                changed = True
+        sub_queries.append(sq)
     return result.model_copy(update={"sub_queries": sub_queries}) if changed else result

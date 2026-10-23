@@ -102,7 +102,7 @@ for group in result.parallel_groups():              # [["q1", "q2"], ["q3"]] →
 | `supplier_search` | business-mcp | `search_suppliers` | process, material, region, iatf_required, min_monthly_capacity, top_n |
 | `supplier_detail` | business-mcp | 기업명은 `find_suppliers` → 유일 후보의 `get_supplier`. 명시 ID는 `get_supplier` | supplier |
 | `supplier_ranking` | business-mcp | `rank_suppliers` | rfq_id, top_n |
-| `offer_check` | business-mcp | `check_offer` | supplier, rfq_id, unit_price, payment_days, price_linkage, raw_material_ratio, contract_days, linkage_waived_by_agreement, buyer_is_small_business, supplier_size, buyer_size, as_of |
+| `offer_check` | business-mcp | `check_offer` | supplier, rfq_id, unit_price, payment_days, price_linkage, raw_material_ratio, energy_ratio, contract_days, linkage_waived_by_agreement, buyer_is_small_business, supplier_size, buyer_size, as_of |
 | `law_check` | law-mcp | `search_regulation` → `get_article` | law, as_of, price_change_pct |
 | `law_article` | law-mcp | `get_article` | law, article_no, as_of |
 | `draft_email` | mail-mcp | (예정) | supplier, rfq_id |
@@ -133,12 +133,13 @@ for group in result.parallel_groups():              # [["q1", "q2"], ["q3"]] →
 | `payment_days` | int > 0 | `60` | |
 | `price_linkage` | bool | `false` | 납품대금 연동 약정 여부 |
 | `raw_material_ratio` | 0~1 | `0.45` | |
+| `energy_ratio` | 0~1 | `0.12` | 단가 중 에너지 비용 비중. 선택 ([협상안 검사 계약](check-offer.md)) |
 | `contract_days` | int > 0 | `365` | |
 | `linkage_waived_by_agreement` | bool | `false` | |
 | `buyer_is_small_business` | bool | `false` | |
 | `law` | law_key | `subcontract_act` | law-mcp의 `list_laws` 참고. 사용자가 법령 이름을 말했을 때만 |
 | `article_no` | `제N조` 또는 `제N조의M` | `제16조의2` | |
-| `as_of` | `YYYY-MM-DD` | `2026-10-20` | 생략하면 오늘 |
+| `as_of` | `YYYY-MM-DD` | `2026-10-20` | 생략하면 오늘. `offer_check`에서는 계약(위탁) 시점이며 사용자가 날짜를 말했을 때만 |
 | `price_change_pct` | number | `-5` | 인하는 음수. 현재 분해가 뽑지 않음 |
 
 ## 5. 근거와 되묻기 규칙
@@ -151,6 +152,7 @@ for group in result.parallel_groups():              # [["q1", "q2"], ["q3"]] →
 | 근거가 필요한지 판단이 애매함 | **근거 필요 쪽으로** (도구를 한 번 더 부르는 비용 < 틀린 법 정보) |
 | 해석이 여러 개이고 해석마다 답이 달라짐 | `status: clarify`, 선택지 제시 |
 | 해석이 여러 개지만 답이 크게 다르지 않음 | 되묻지 않고 `assumptions`에 가정을 적고 진행 |
+| 대상 협력사나 RFQ를 특정할 수 없음 ("우리 협력사", "거래하는 곳") | 가정으로 ID를 채우지 않는다. 그 엔티티를 비우고 되묻기 규칙을 따른다. 질문·대화 이력·선택 기업에 없는 `supplier`(SUP-NNNN)와 `rfq_id`는 코드가 지우고, 그 값을 말하는 가정도 함께 지운다 (#143) |
 | 업무와 무관 | `out_of_scope` → Generation이 정중히 거절 |
 
 **Generation 쪽 약속:** `grounding: none` 답변에 조문 번호, 구체적 숫자, 회사 정보가 들어가면 지우거나 "확인 필요"로 바꾼다.
@@ -188,7 +190,7 @@ for group in result.parallel_groups():              # [["q1", "q2"], ["q3"]] →
 
 위 11개는 **개발용**입니다. 프롬프트를 고칠 때 오답을 보고 규칙을 다듬는 데 씁니다.
 `decomposition_dev/`의 질문도 개발용입니다. Routing fixture와 묶이지 않아 자유롭게 늘릴 수 있습니다 (평가 `--set dev`가 두 폴더를 함께 읽음).
-`validation/`의 24개는 **검증용**입니다. 프롬프트·모델을 바꾼 뒤 점수만 확인하고, 오답을 보고 프롬프트를 고치지 않습니다.
+`validation/`의 50개는 **검증용**입니다. 프롬프트·모델을 바꾼 뒤 점수만 확인하고, 오답을 보고 프롬프트를 고치지 않습니다.
 그렇게 해야 점수가 "이 질문들에 맞춘 결과"가 아니라 실제 개선을 뜻합니다.
 
 - 형식은 개발용과 같습니다 (`note`, `query`, `expected`). 계약 테스트가 둘 다 스키마로 검사합니다.

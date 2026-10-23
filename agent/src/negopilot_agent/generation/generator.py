@@ -17,6 +17,7 @@ status별 처리는 Routing 결과 계약(docs/contracts/routing.md) 3절을 따
 
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -49,6 +50,7 @@ ENTITY_LABELS = {
     "payment_days": "결제 기간(일)",
     "price_linkage": "납품대금 연동 약정을 넣을지 여부",
     "raw_material_ratio": "단가 중 원재료 비중",
+    "energy_ratio": "단가 중 에너지 비용 비중",
     "contract_days": "거래 기간(일)",
     "law": "법령 이름",
     "article_no": "조문 번호(예: 제13조)",
@@ -65,6 +67,15 @@ SUPPLIER_SELECTION_TEXT = "이름이 일치하는 협력사가 여러 곳입니�
 ARTICLE_LOOKUP_NOTICE = "검색된 법령 근거로 답변했습니다. 일부 조문 전문은 가져오지 못했습니다."
 SUPPLIER_LOOKUP_NOTICE = "일부 협력사 상세 정보를 가져오지 못했습니다. 확인된 자료로 답변했습니다."
 MAX_SUPPLIER_OPTIONS = 10
+_BUSINESS_ID = re.compile(r"(?<![A-Za-z0-9_-])(?:SUP|RFQ)-[A-Za-z0-9_-]+", re.IGNORECASE)
+_SUGGESTION_CITATION = re.compile(r"\[\s*E?\d+(?:\s*,\s*E?\d+)*\s*\]", re.IGNORECASE)
+# 공개 오류 코드별 안내 (docs/contracts/check-offer.md 3절). 오류 원문 대신 고칠 방법만 알린다
+ERROR_NOTICES = {
+    "RFQ_NOT_FOUND": "RFQ 번호를 찾지 못했습니다. 번호를 확인해 주세요.",
+    "SUPPLIER_NOT_FOUND": "협력사를 찾지 못했습니다. 협력사 ID나 이름을 확인해 주세요.",
+    "SUPPLIER_AMBIGUOUS": "이름이 여러 협력사에 해당합니다. 협력사 ID로 다시 알려 주세요.",
+    "VALUE_OUT_OF_RANGE": "입력한 값이 허용 범위를 벗어났습니다. 단가와 일수는 0보다 크게, 비중은 0~100% 사이로 알려 주세요.",
+}
 
 
 class _SupplierCandidate(BaseModel):
@@ -84,7 +95,8 @@ class _SupplierMatches(BaseModel):
 
 def supplier_options(outcome: SubQueryOutcome) -> list[str]:
     """Read selection labels only from a successful structured supplier lookup."""
-    if outcome.intent != "supplier_detail" or outcome.status != "missing_args" or "supplier" not in outcome.missing:
+    if (outcome.intent not in {"supplier_detail", "offer_check"} or outcome.status != "missing_args"
+            or "supplier" not in outcome.missing):
         return []
     options: dict[str, str] = {}
     for call in outcome.calls:
@@ -188,7 +200,8 @@ def plan(decomposition: DecompositionResult, routing: RouteResult) -> Plan:
             case "error":
                 # 오류 원문은 로그로만. 내부 주소나 예외 이름이 화면에 나가지 않게
                 log.warning("하위 질문 %s 도구 오류: %s", o.id, [c.error for c in o.calls if c.error])
-                p.notices.append(f"{part} 부분은 자료를 가져오지 못했습니다.")
+                code = next((c.error_code for c in o.calls if c.error_code in ERROR_NOTICES), None)
+                p.notices.append(f"{part}: {ERROR_NOTICES[code]}" if code else f"{part} 부분은 자료를 가져오지 못했습니다.")
             case "skipped":
                 # 원인(empty, error)을 이미 안내했으면 따로 말하지 않는다. 그 밖의 경우만 짧게
                 if not statuses & {"empty", "error"}:
@@ -212,6 +225,16 @@ def clarification_text(p: Plan) -> str:
 
 def with_notices(text: str, notices: list[str]) -> str:
     return text if not notices else text + "\n\n" + "\n".join(f"※ {n}" for n in notices)
+
+
+def grounded_suggestions(questions: list[str], evidence: list[Evidence], allowed: list[str]) -> list[str]:
+    """추천의 인용 표기와 확인되지 않은 숫자 및 업무 ID만 제거한다. 의미 전체를 판정하지 않는다."""
+    sources = [*allowed, *(f"{item.label}\n{item.text}" for item in evidence)]
+    known_ids = {match.upper() for source in sources for match in _BUSINESS_ID.findall(source)}
+    return [question for question in questions
+            if not _SUGGESTION_CITATION.search(question)
+            and all(identifier.upper() in known_ids for identifier in _BUSINESS_ID.findall(question))
+            and verify.check(question, evidence, allowed).ok]
 
 
 class AnswerGenerator:
@@ -263,6 +286,7 @@ class AnswerGenerator:
         extra = ""
         draft: GenerationDraft | None = None
         report = None
+        citable = {e.id for e in evidence if e.citable}
         for attempt in range(1, self.settings.max_attempts + 1):
             text = await self.backend.generate(SYSTEM_PROMPT, user + extra)
             if text is None:   # 거절 또는 잘림
@@ -270,25 +294,37 @@ class AnswerGenerator:
             try:
                 draft = GenerationDraft.model_validate_json(text)
             except ValidationError as err:
+                # 앞 시도의 초안과 검사 결과는 남긴다. 재시도가 형식 오류여도 앞 초안을 가려서 답할 수 있다
                 log.warning("생성 결과 형식 오류 (시도 %d): %s", attempt, err.error_count())
-                extra = "\n\n직전 출력이 JSON 형식을 어겼다. {\"answer\": ..., \"used_evidence\": [...]} 형식으로 다시 출력해라."
-                draft = None
+                extra = ("\n\n직전 출력이 JSON 형식을 어겼다. "
+                         "{\"answer\": ..., \"used_evidence\": [...], \"suggested_questions\": [...]} 형식으로 다시 출력해라.")
                 continue
             report = verify.check(draft.answer, evidence, allowed)
             report.attempts = attempt
-            if report.ok:
+            uncited = p.answerable and citable and not set(verify.cited_ids(draft.answer)) & citable
+            if report.ok and not (uncited and attempt < self.settings.max_attempts):
                 break
+            if report.ok:
+                # 도구 근거로 답하고도 인용을 하나도 안 붙이면 "근거 자료 없음"으로 보인다 (#177)
+                log.info("인용 없음 (시도 %d)", attempt)
+                extra = "\n\n" + verify.MISSING_CITATION_FEEDBACK
+                continue
             log.info("근거 검사 실패 (시도 %d): %s", attempt, report.model_dump(exclude={"attempts", "masked"}))
             extra = "\n\n" + verify.feedback(report)
 
         if draft is None:
             return Answer(kind="failed", text=GENERATION_FAILED_TEXT, evidence=evidence)
 
-        body = draft.answer
+        body = verify.fix_digit_grouping(draft.answer)
         if report and not report.ok:
             body = verify.mask(body, report)
             report.masked = True
+        if p.answerable:
+            body = verify.cite_used_evidence(body, draft.used_evidence, citable)
         body, citations = verify.render_citations(body, evidence)
+        # 분해가 추정한 값이나 가정을 새 추천의 사실 근거로 확대하지 않는다.
+        suggestions = (grounded_suggestions(draft.suggested_questions, evidence, [decomposition.original_query])
+                       if report and report.ok and not report.masked and not p.missing and not p.options else [])
         return Answer(kind="answer", text=with_notices(body, p.notices), citations=citations,
-                      options=p.options, grounded=bool(citations), notices=p.notices,
+                      options=p.options, suggested_questions=suggestions, grounded=bool(citations), notices=p.notices,
                       evidence=evidence, verification=report)

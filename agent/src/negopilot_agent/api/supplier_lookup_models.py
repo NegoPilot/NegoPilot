@@ -1,4 +1,4 @@
-"""v2 live supplier lookup contracts. Same shapes as v0.2 with business-mcp data sources."""
+"""Live supplier lookup contracts. Same shapes as v0.2 with business-mcp data sources."""
 
 from typing import Annotated, Literal
 

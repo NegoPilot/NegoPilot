@@ -23,7 +23,7 @@
 | --- | --- | --- |
 | Tool | `list_laws(as_of?)` | 법령 목록, 기준일에 시행 중인 판, 시행 예정 판 |
 | Tool | `get_article(law, article_no, as_of?)` | 조문 전문(항 단위), 인용 문구, 시행 예정 개정 여부 |
-| Tool | `search_regulation(query, laws?, as_of?, top_k?, include_addenda?)` | 항 단위 검색 결과와 인용 문구 |
+| Tool | `search_regulation(query, laws?, as_of?, top_k?, include_addenda?)` | 항 단위 검색 결과와 인용 문구. 결과에 나온 정의 용어의 정의 항을 뒤에 붙임 |
 | Resource | `law://catalog` | 법령 목록 |
 | Resource | `law://{law_key}/{article_no}` | 조문 전문 텍스트 (예: `law://subcontract_act/제4조`) |
 
@@ -31,7 +31,9 @@
 - `law`에는 `subcontract_act` 같은 키나 `하도급법` 같은 별칭을 쓸 수 있습니다.
 - `article_no`는 `제4조`, `4`, `16조의2` 모두 됩니다.
 - 결과의 `citation` 값(예: `「하도급거래 공정화에 관한 법률」 제4조②(부당한 하도급대금의 결정 금지) [시행 2026-10-02]`)을 Agent 답변에 그대로 인용하도록 설계했습니다.
-- 검색은 한글 문자 bigram + BM25입니다. `1차 협력사`, `단가` 같은 현업 표현은 `원사업자`, `하도급대금` 같은 법령 용어를 덧붙여 검색합니다 (`server.py`의 `GLOSSARY`).
+- 검색은 한글 문자 bigram + BM25입니다. `1차 협력사`, `단가` 같은 현업 표현은 `원사업자`, `하도급대금` 같은 법령 용어를 덧붙여 검색합니다 (`server.py`의 `GLOSSARY`). 긴 표현부터 찾고, 이미 찾은 부분은 짧은 표현이 다시 쓰지 않습니다 (`1차 협력사`에는 `원사업자`만 붙습니다).
+- 검색 결과 조문에 `주요 원재료`처럼 그 법령 제2조에서 정의한 용어가 나오면, 정의 항을 `type: "정의"`로 top_k 뒤에 최대 2개 붙입니다. 의무 조문만으로는 "원재료 비용이 하도급대금의 10% 이상" 같은 기준이 빠지기 때문입니다 (#167). 원사업자처럼 그 법령 항의 5%를 넘게 나오는 흔한 용어와 시행령의 "대통령령으로 정하는 …"은 붙이지 않습니다. 상생협력법 제2조처럼 한 항에 여러 용어를 정의하면 그 용어의 호만 잘라 씁니다.
+- 검색 색인은 법령 조합과 시행판마다 하나씩 만들어 최대 32개까지 캐시합니다 (오래 안 쓴 것부터 버림). 기준일이 달라도 시행판이 같으면 같은 색인을 씁니다.
 
 ## 실행
 
@@ -64,6 +66,27 @@ GitHub API 호출 제한에 걸리면 수집 작업은 실패한다. 필요하�
 
 개발자가 내장 파일 자체를 다시 만들 때 사용하는 기존 `scripts/fetch_laws.py`와 `scripts/build_index.py`는 그대로 유지한다. 관리 화면의 최신화는 이 명령의 `main`을 실행하지 않고 격리된 임시 경로에서 수집과 파싱 함수만 사용한다.
 
+## 검색 방식 비교 평가
+
+`eval/eval_retrieval.py`는 `eval/retrieval_gold.json`의 질문 56개로 검색 방식마다 정답 조문이 몇 위에 나오는지 잰다. 서버의 실제 검색 경로(BM25+확장)는 바꾸지 않는다. 저장소 루트에서 Docker로 돌릴 때는 아래처럼 켤 방식과 기준을 넘긴다.
+
+```bash
+docker compose -f compose.retrieval-eval.yaml run --rm --build law-retrieval-eval
+RETRIEVERS=bm25,hybrid-bge-m3 MIN_HIT_AT_5=0.85 docker compose -f compose.retrieval-eval.yaml run --rm law-retrieval-eval
+```
+
+| 이름 | 방식 |
+| --- | --- |
+| `bm25` | BM25+동의어 확장 (현재 서버) |
+| `bm25-noexp` | BM25, 확장 없음 |
+| `bge-m3`, `openai-small` | 벡터 검색 |
+| `bge-m3-exp`, `openai-small-exp` | 확장한 질문으로 벡터 검색 |
+| `hybrid-bge-m3`, `hybrid-openai-small` | BM25+확장과 벡터를 RRF로 합침 |
+
+`RETRIEVERS`를 비우면 `bm25,bm25-noexp,bge-m3,hybrid-bge-m3`를 평가한다. `MIN_HIT_AT_5`를 주면 고른 방식 중 하나라도 "원문 질문 (전체) / 전체 법령" Hit@5가 기준보다 낮을 때 종료 코드 1로 끝난다. 결과 JSON은 `eval/results/local/`에 남는다.
+
+임베딩은 `eval/.cache/`를 컨테이너와 같이 쓴다. 색인 문장이 같으면 다시 계산하지 않는다. 캐시가 없으면 bge-m3는 컨테이너 CPU로 계산하고, `openai-small`은 `OPENAI_API_KEY`가 있어야 한다. Docker 없이 돌릴 때는 `uv run --with numpy python eval/eval_retrieval.py --help`를 본다.
+
 ## 폴더 구조
 
 ```
@@ -74,6 +97,7 @@ scripts/fetch_laws.py                       원문 내려받기 (한 번만 실�
 scripts/build_index.py                      원문 → 색인
 server.py                                   MCP Server
 tests/test_server.py                        MCP Client 테스트
+eval/eval_retrieval.py                      검색 방식 비교 평가 (eval/retrieval_gold.json)
 ```
 
 ## 알아둘 점

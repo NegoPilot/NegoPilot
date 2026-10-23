@@ -1,6 +1,6 @@
 // Spring 공개 API의 응답 형식. 계약이 바뀌면 이 파일을 같은 PR에서 고친다.
-// - 협력사 조회: docs/contracts/supplier-lookup.md (v0.3, /api/v2 live)
-// - 생성 답변 대화: docs/contracts/agent-generation.md (v0.3, /api/v2)
+// - 협력사 조회: docs/contracts/supplier-lookup.md (v0.3, live)
+// - 생성 답변 대화: docs/contracts/agent-generation.md (v0.3)
 
 export interface Envelope<T> {
   schema_version: '0.3'
@@ -99,7 +99,7 @@ export interface SupplierSearchParams {
   limit?: number
 }
 
-// ── 생성 답변 대화 (docs/contracts/agent-generation.md v0.3, /api/v2) ──
+// ── 생성 답변 대화 (docs/contracts/agent-generation.md v0.3) ──
 
 export interface ChatContext {
   /** 0..1개. 대명사를 해석하는 보조 데이터일 뿐 기업 사실은 도구 결과로 확인한다 */
@@ -135,6 +135,8 @@ export interface Answer {
   text: string
   citations: Citation[]
   options: string[]
+  /** 후속 질문. 과거 응답에는 없을 수 있으며 개수 제한은 없다. */
+  suggested_questions?: string[]
   /** false면 화면에 "근거 자료 없음" */
   grounded: boolean
   notices: string[]
@@ -148,6 +150,7 @@ export interface ToolCall {
   args: Record<string, unknown>
   result: unknown
   error: string | null
+  error_code?: 'RFQ_NOT_FOUND' | 'SUPPLIER_NOT_FOUND' | 'SUPPLIER_AMBIGUOUS' | 'VALUE_OUT_OF_RANGE' | null
 }
 
 export interface RouteOutcome {

@@ -159,6 +159,51 @@ graph.add_node("generate", make_generate_node())   # 상태: decomposition, rout
 
 OpenAI를 선택한 Generation도 `OPENAI_API_KEY`를 사용합니다. 분해와 Generation은 서로 다른 백엔드를 선택할 수 있습니다. EFFORT와 FALLBACKS는 Claude 전용 설정입니다.
 
+## LangSmith 추적 (`negopilot_agent.tracing`)
+
+질문 하나가 분해 → MCP 도구 호출 → 생성을 거치는 과정을 LangSmith에서 한 실행으로 볼 수 있습니다. **기본은 꺼져 있고**, `agent/.env`에 아래 두 값이 모두 있을 때만 켜집니다.
+
+```bash
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=...          # 각자 발급. 커밋하지 않는다
+LANGSMITH_PROJECT=negopilot    # 선택
+```
+
+| 기록되는 것 | 어떻게 |
+| --- | --- |
+| 그래프 실행과 노드(`decompose_query`, `route`, `generate`) | LangGraph가 자동으로 기록 |
+| LLM 호출의 입출력과 토큰 | OpenAI·Anthropic 클라이언트를 `langsmith.wrappers`로 감싼다 (`OpenAIBackend`, `AnthropicBackend`). Ollama는 기록하지 않는다 |
+| MCP 도구 호출 (`business-mcp.check_offer` 등) | `Router._call`이 tool 실행으로 기록. 실패한 호출은 오류로 남는다 |
+| HTTP 실행의 `request_id`와 실행 모드 | 실행 메타데이터 (`negopilot.query`) |
+
+- **외부 전송:** 추적을 켜면 질문, 협력사 데이터, 법령 근거가 LangSmith로 전송됩니다. 내용은 빼고 실행 구조·시간·토큰만 남기려면 `LANGSMITH_HIDE_INPUTS=true`, `LANGSMITH_HIDE_OUTPUTS=true`를 함께 씁니다.
+- **꺼져 있을 때:** 클라이언트를 감싸지 않고 기록도 만들지 않으므로, 동작과 성능이 추적 도입 전과 같습니다.
+- **테스트와 CI:** `tests/conftest.py`가 항상 끕니다. Docker Compose 기본 실행도 켜지 않습니다.
+- **평가 스크립트:** `ask.py`와 평가 스크립트도 `agent/.env`를 읽습니다. 그래서 추적을 켜 두면 평가 실행도 전부 기록됩니다. 대량 평가 때는 끄는 것을 권장합니다.
+
+### LangSmith 데이터셋과 실험 (`scripts/eval_langsmith.py`)
+
+Generation 평가 세트(dev, validation)를 LangSmith 데이터셋으로 올리고, 실제 그래프를 실험으로 돌려 개선 전후를 문항 단위로 비교합니다. `LANGSMITH_API_KEY`가 필요하고, `run`은 모델 키와 MCP 서버 두 개도 필요합니다 (`eval_pipeline.py`와 같음).
+
+```bash
+uv run python scripts/eval_langsmith.py upload --set validation      # 데이터셋 negopilot-generation-validation 만들기·동기화
+uv run python scripts/eval_langsmith.py run --set validation --description "mask 수정 후"
+uv run python scripts/eval_langsmith.py run --set validation --repeat 3 --no-judge   # 채점 없이 3회 반복
+```
+
+| 항목 | 내용 |
+| --- | --- |
+| 데이터셋 | 예제 하나 = 정답 파일 항목 하나. 입력은 질문만, 기대 출력은 `kind`, `points`, `must_evidence`, 정답 분해의 intent. `upload`를 다시 실행하면 바뀐 예제만 고치고, 로컬에 없는 예제는 지우지 않고 경고만 합니다 |
+| 실험 이름 | `<세트>-<커밋 7자리>[-dirty]` (`--prefix`로 앞부분 변경). 메타데이터에 분해·생성·채점 모델을 남깁니다 |
+| 실행 기록 | `run` 동안만 추적을 켜서 예제마다 노드·LLM·MCP 호출이 함께 남습니다 |
+| 평가자 | `eval_pipeline.py`와 같은 기준: `kind_ok`, `intent_match`, `grounded_when_needed`, `must_evidence`, `retried`, `masked`, `tool_errors`, `execution_error`. `--no-judge`가 아니면 LLM 채점으로 `point_coverage`, `points_covered`, `points_total`, `unsupported_claims` |
+| 채점 분리 | 대상은 그래프만 실행하고 채점은 평가자에서 따로 합니다. 실험의 시간·토큰은 Agent 실행만입니다 |
+| 끝에 출력하는 요약 | 정답 포인트 커버율은 `eval_pipeline.py` 보고서처럼 포인트 수로 가중합니다 (LangSmith 화면의 `point_coverage` 평균은 문항 평균이라 다를 수 있음) |
+
+- 개선 전후 비교는 LangSmith에서 두 실험을 골라 비교 화면으로 봅니다. 모델, 협력사 DB, 법령 색인을 같게 두고 비교합니다.
+- 검증 세트 실험의 오답을 보고 프롬프트를 고치지 않습니다. 프롬프트 수정은 dev 세트로 합니다.
+- 질문, 협력사 데이터, 법령 근거, 답변이 LangSmith로 전송됩니다.
+
 ## 실행
 
 ```bash
@@ -182,11 +227,12 @@ uv run python scripts/bench_latency.py --set validation             # 전체 그
 측정은 `negopilot_agent.timing.collect()` 안에서만 기록되고, v2 HTTP API는 요청마다 같은 요약을 `negopilot_agent.api.generation_execution` 로거(INFO)에 남깁니다.
 
 Generation 평가는 `shared/fixtures/routing` 11개를 입력으로 쓰고, 정답은 [`eval_data/generation_gold.json`](eval_data/generation_gold.json)에 있습니다 (기대 답변 종류, 근거에 꼭 있어야 할 문구, 답변에 담길 정답 포인트).
-`--set validation`은 [`eval_data/generation_validation/`](eval_data/generation_validation/) 12개(질문, 정답 분해 결과, 실제 MCP Routing 결과를 한 파일에)를 입력으로, [`eval_data/generation_validation_gold.json`](eval_data/generation_validation_gold.json)을 정답으로 씁니다. 분해 검증 세트와 같이 점수만 보고, 오답을 보고 프롬프트를 고치지 않습니다.
+`--set validation`은 [`eval_data/generation_validation/`](eval_data/generation_validation/) 15개(질문, 정답 분해 결과, 실제 MCP Routing 결과를 한 파일에)를 입력으로, [`eval_data/generation_validation_gold.json`](eval_data/generation_validation_gold.json)을 정답으로 씁니다. 분해 검증 세트와 같이 점수만 보고, 오답을 보고 프롬프트를 고치지 않습니다.
 `--offline`은 모델 없이 근거 포함률과 프롬프트 크기만 재고, 기본 모드는 답변 종류, 첫 시도 근거 검사 통과율, 재생성·가림 비율, 정답 포인트 커버율과 근거 없는 주장 수(gpt-4.1-mini 채점), 생성 시간을 잽니다.
+`--set dev_law`는 법령의 예외·단서·간주 규정을 묻는 개발용 질문 3개입니다. 생성 프롬프트를 고칠 때 검증 세트 대신 봅니다. `--repeat`을 2 이상 주면 회차별 정답 포인트와 회차 간 표준편차, 평균의 표준오차를 함께 출력합니다. 같은 코드도 회차마다 2~6pp 흔들리므로, 변경 전후 비교는 같은 날 같은 입력으로 6회 이상 돌리고 차이가 표준오차보다 충분히 클 때만 개선으로 봅니다.
 
 평가는 fixture의 질문을 넣고 상태, 하위 질문 개수, intent, 엔티티, 의존 관계를 기대 결과와 비교합니다.
-`--set dev`(기본, `shared/fixtures/decomposition` 11개)는 프롬프트를 고칠 때 보는 개발용이고, `--set validation`(`shared/fixtures/validation` 24개)은 점수만 확인하는 검증용입니다. 검증 세트의 오답을 보고 프롬프트를 고치지 않습니다.
+`--set dev`(기본, `shared/fixtures/decomposition` 11개)는 프롬프트를 고칠 때 보는 개발용이고, `--set validation`(`shared/fixtures/validation` 53개)은 점수만 확인하는 검증용입니다. 검증 세트의 오답을 보고 프롬프트를 고치지 않습니다.
 temperature 0이어도 결과가 흔들리므로 변경 전후를 비교할 때는 `--repeat 3` 이상을 씁니다.
 원본 결과는 `eval_results/`(git 제외)에 저장되고, 공유할 결과는 [`eval_reports/`](eval_reports/)에 정리합니다.
 프롬프트·모델·effort를 바꾸면 다시 돌려 전후를 비교하세요.
@@ -197,16 +243,25 @@ temperature 0이어도 결과가 흔들리므로 변경 전후를 비교할 때�
 | 2026-10-21 | gpt-4.1-mini | 개발용 55% (1회, #40 반영 전) | [2026-10-21_gpt-4.1-mini.md](eval_reports/2026-10-21_gpt-4.1-mini.md) |
 | 2026-10-21 | gpt-4.1-mini / llama3.1:8b | **검증용 88% / 33%** (3회 평균) | [2026-10-21_validation-set.md](eval_reports/2026-10-21_validation-set.md) |
 | 2026-10-21 | gpt-4.1-mini (#72 프롬프트 보강) | 검증용 79% → **94~97%**, 개발용 21개 67% → 90% (3회 평균) | PR 본문 |
+| 2026-10-21 | gpt-4.1-mini (#98 간결한 출력 형식) | 정확도 유지, 분해 시간 2.58초 → 1.66초, 출력 토큰 518 → 344 | PR 본문 |
+| 2026-10-21 | gpt-4.1-mini (#114 검증 세트 50개로 확대) | 검증용 50개 92% | PR 본문 |
+| 2026-10-22 | gpt-4.1-mini (#151 check_offer v2 사례 3개 추가) | 검증용 53개 94% (1회), 새 사례 3/3 | [2026-10-22_check-offer-v2-pipeline.md](eval_reports/2026-10-22_check-offer-v2-pipeline.md) |
 
 프롬프트 예시는 개발용·검증용 fixture와 겹치지 않게 따로 두었습니다 (테스트로 확인).
 
 ## Python 내부 HTTP API (`negopilot_agent.api`)
 
-FastAPI 진입점은 `negopilot_agent.api.app:app`입니다. [쿼리 실행 HTTP 계약 v0.1](../docs/contracts/agent-http.md)과 [협력사 대화 HTTP 계약 v0.2](../docs/contracts/supplier-chat.md) 및 [Generation HTTP 계약 v0.3](../docs/contracts/agent-generation.md)의 Python 내부 경로를 제공합니다. 브라우저는 Spring의 공개 API를 호출하고 Spring이 내부 키를 붙여 Python에 요청합니다.
+전체 서비스를 Docker로 실행하려면 [로컬 Docker 안내](../docs/LOCAL_DOCKER.md)를 따른다. 루트 `compose.yaml`은 두 단계 모두 OpenAI `gpt-4.1-mini`를 기본으로 쓰는 live 구성이다. 기본 OpenAI 실행에는 루트 `.env`에 모델 키를 넣어야 한다. `compose.test.yaml`을 추가한 별도 테스트 구성은 모델 키 없이 stub 채팅을 실행한다. 아래 uvicorn 명령은 Docker 시작기를 거치지 않는 독립 실행 방법이다.
 
-기존 v0.1의 `/internal/v1/query-executions`는 `QueryDecomposer`와 `Router`를 실행해 구조화된 결과를 반환합니다. 기존 v0.2의 `/internal/v1/chat/responses`는 fixture를 조회해 템플릿 응답을 반환합니다. 이 두 기존 실행 경로는 `AnswerGenerator`와 전체 그래프를 호출하지 않으므로 `generation_status: NOT_IMPLEMENTED`를 유지합니다. 이 값은 코어 Generation의 구현 여부와 별개입니다.
+FastAPI 진입점은 `negopilot_agent.api.app:app`입니다. [Generation HTTP 계약 v0.3](../docs/contracts/agent-generation.md)과 [협력사 live 조회 계약](../docs/contracts/supplier-lookup.md) 및 [관리자 법령 계약](../docs/contracts/admin-laws.md)의 Python 내부 경로를 제공합니다. 브라우저는 Spring의 공개 API를 호출하고 Spring이 내부 키를 붙여 Python에 요청합니다.
 
-새 `/internal/v2/query-executions`는 실제 `build_graph`와 `AnswerGenerator`를 실행하고 `schema_version: "0.3"` 응답에 최종 `Answer`를 포함합니다. 생성 답변을 사용할 클라이언트는 Spring의 `/api/v2/agent/queries` 또는 `/api/v2/conversations` 경로를 사용합니다. 기존 v0.1과 v0.2 경로 및 응답 형식은 호환성을 위해 유지합니다.
+| Python 내부 경로 | 동작 |
+| --- | --- |
+| `POST /internal/query-executions` | 실제 `build_graph`와 `AnswerGenerator`를 실행하고 `schema_version: "0.3"` 응답에 최종 `Answer`를 포함 |
+| `GET /internal/business/catalog`, `/internal/suppliers`, `/internal/suppliers/{supplier_id}` | 실행 모드와 관계없이 business-mcp의 협력사 데이터 조회 |
+| `/internal/admin/laws/**` | 관리자 법령 조회와 최신화 |
+
+과거 fixture 기반 v0.1 질의 실행(`/internal/v1/query-executions`)과 v0.2 협력사 조회·템플릿 대화(`/internal/v1/business`, `/internal/v1/suppliers`, `/internal/v1/chat/responses`)는 #141에서 제거했습니다. 생성 답변을 사용할 클라이언트는 Spring의 `/api/agent/queries` 또는 `/api/conversations` 경로를 사용합니다.
 
 ### stub 서버 시작
 
@@ -228,7 +283,7 @@ uv run uvicorn negopilot_agent.api.app:app --host 127.0.0.1 --port 9200
 ```bash
 export AGENT_INTERNAL_API_KEY='replace-with-a-local-test-key'
 curl --fail http://127.0.0.1:9200/health
-curl --fail-with-body http://127.0.0.1:9200/internal/v1/query-executions \
+curl --fail-with-body http://127.0.0.1:9200/internal/query-executions \
   -H "X-Internal-Api-Key: ${AGENT_INTERNAL_API_KEY}" \
   -H 'Content-Type: application/json' \
   --data '{"request_id":"11111111-1111-4111-8111-111111111111","query":"하도급법 제4조 보여줘","history":[]}'
@@ -250,6 +305,8 @@ curl --fail-with-body http://127.0.0.1:9200/internal/v1/query-executions \
 | Spring | `SERVER_ADDRESS` | `127.0.0.1` | Spring 수신 주소 |
 | Spring | `SERVER_PORT` | `8080` | Spring 수신 포트 |
 
+위 표는 독립 실행의 기본값입니다. 루트 Docker의 live 구성은 Python 제한을 300초로 지정하고 Spring 제한을 310초로 지정합니다. 테스트 override는 각각 30초와 35초를 사용합니다.
+
 Spring을 함께 실행하려면 별도 터미널의 저장소 루트에서 다음 명령을 사용합니다. Java 21과 Maven 3.6.3 이상이 필요합니다. 상세 설정은 [backend 안내](../backend/README.md)를 참고합니다.
 
 ```bash
@@ -261,61 +318,22 @@ mvn -f backend/pom.xml -B -ntp spring-boot:run
 
 내부 키는 두 서버의 환경 변수에 둡니다. 프런트엔드에 넣지 않습니다. 처리 제한을 변경할 때는 Python의 제한 시간과 Spring의 응답 대기 시간을 함께 확인합니다. HTTP 요청을 자동으로 재시도하지 않습니다.
 
-### v0.1 쿼리 실행
+### 협력사 조회
 
-`POST /internal/v1/query-executions`의 `request_id`는 필수 UUID입니다. `query`는 공백만 있는 값을 제외한 1..4000자입니다. `history`는 생략할 수 있으며 최대 20개입니다. 각 항목은 `role`과 `content`만 받습니다. role은 `user` 또는 `assistant`입니다. 요청에 정의되지 않은 필드는 400 `VALIDATION_ERROR`로 거절합니다.
-
-stub 모드에서 지원하는 질문은 다음 세 개입니다. 실제 Router에 fixture 분해 결과와 가짜 ToolCaller를 연결합니다. 모델과 MCP 및 DB를 호출하지 않습니다. 반환하는 법령 내용은 테스트용 데이터입니다.
-
-| 질문 | 분해 fixture | `execution_status` |
-| --- | --- | --- |
-| 하도급법 제4조 보여줘 | `01_law_article.json` | `COMPLETED` |
-| 그 업체 괜찮아? | `09_clarify.json` | `NEEDS_INPUT` |
-| ㅁㄴㅇㄹ 그거 저번처럼 해줘 | `11_failed.json` | `FAILED` |
-
-다른 stub 질문은 400 `VALIDATION_ERROR`입니다. `COMPLETED`는 분해와 Routing 처리가 끝났다는 뜻입니다. 생성 답변이나 도구 성공을 일괄 보장하는 값은 아닙니다. 상세 결과는 공용 `RouteResult`의 상태와 `referenced_articles`를 포함해 반환합니다. 오류 설명은 HTTP 응답 사본에서 정제합니다. 참조 조문 조회 오류만으로 본래 성공한 outcome을 실패로 바꾸지 않습니다.
-
-### v0.2 협력사 조회와 템플릿 대화
-
-다음 경로는 `stub`에서만 사용할 수 있습니다. `live`에서는 503 `DEMO_MODE_REQUIRED`와 `retryable: false`를 반환합니다. 데이터 원본은 [supplier-chat.json](../docs/contracts/fixtures/supplier-chat.json)입니다. 모든 기업과 수치는 가상 데이터입니다. 협력사 DB를 읽는 live 조회는 `/internal/v2/business/catalog`, `/internal/v2/suppliers`, `/internal/v2/suppliers/{supplier_id}`이며 실행 모드와 관계없이 `BUSINESS_MCP_URL`의 business-mcp를 호출합니다. 규칙은 [협력사 live 조회 계약](../docs/contracts/supplier-lookup.md)을 따릅니다.
-
-| Python 내부 경로 | 동작 |
-| --- | --- |
-| `GET /internal/v1/business/catalog` | 공정별 소재와 지역 목록 |
-| `GET /internal/v1/suppliers` | 필터 조건에 맞는 기업 검색 |
-| `GET /internal/v1/suppliers/{supplier_id}` | 선택 기업 상세 조회 |
-| `POST /internal/v1/chat/responses` | 선택 기업의 템플릿 응답 |
-
-기업 검색은 `process`가 필수입니다. `material`과 `region`은 선택입니다. `iatf_required`와 `iso14001_required`의 기본값은 `false`이며 인증 여부 전체를 뜻합니다. `limit`은 1..100이며 기본값은 20입니다. 알 수 없는 query parameter와 중복 parameter는 거절합니다. 기업 ID는 대소문자를 구분하며 `^[A-Za-z0-9_-]{1,100}$` 형식입니다. 존재하지 않는 ID는 404 `SUPPLIER_NOT_FOUND`입니다.
+`/internal/business/catalog`, `/internal/suppliers`, `/internal/suppliers/{supplier_id}`는 실행 모드와 관계없이 `BUSINESS_MCP_URL`의 business-mcp를 호출합니다. 모델은 호출하지 않습니다. 검색은 `process`가 필수이고 알 수 없는 parameter와 중복 parameter는 400 `VALIDATION_ERROR`입니다. 기업 ID는 `SUP-[0-9]{4,18}` 형식입니다. 상세 규칙은 [협력사 live 조회 계약](../docs/contracts/supplier-lookup.md)을 따릅니다.
 
 ```bash
-curl --fail-with-body --get http://127.0.0.1:9200/internal/v1/suppliers \
+curl --fail-with-body --get http://127.0.0.1:9200/internal/suppliers \
   -H "X-Internal-Api-Key: ${AGENT_INTERNAL_API_KEY}" \
   --data-urlencode 'process=다이캐스팅' \
   --data-urlencode 'material=ADC12'
-curl --fail-with-body http://127.0.0.1:9200/internal/v1/chat/responses \
-  -H "X-Internal-Api-Key: ${AGENT_INTERNAL_API_KEY}" \
-  -H 'Content-Type: application/json' \
-  --data '{"request_id":"22222222-2222-4222-8222-222222222222","conversation_id":"33333333-3333-4333-8333-333333333333","query":"이 회사에 대해 알려줘","history":[],"context":{"selected_supplier_ids":["SUP-0034"]}}'
 ```
-
-Python 직접 호출에서는 `request_id`와 `conversation_id` 및 `query`와 `history` 및 `context`를 모두 보냅니다. 선택 기업은 최대 한 곳입니다. 지원하는 질문은 아래 세 개입니다.
-
-1. 이 회사에 대해 알려줘
-2. 이 회사의 재무 상태를 알려줘
-3. 납기와 품질은 어때?
-
-별칭 `이 회사의 재무 상태와 납기 지표를 알려줘`는 개요 응답으로 처리합니다. 기업 미선택 시 기업 선택 안내가 질문 분류보다 우선합니다. 지원하지 않는 질문은 `NEEDS_INPUT`과 지원 질문 목록으로 안내합니다. Python은 대화 이력을 저장하지 않으며 일반적인 후속 질문을 해석하지 않습니다.
-
-응답의 `presentation.renderer`는 `template`입니다. 완료 응답은 선택 기업의 카드 한 개와 이에 연결된 stub 근거 한 개를 포함합니다. 근거의 `executed: false`는 실제 MCP를 호출하지 않았다는 뜻입니다. `on_time_delivery_rate`와 `debt_ratio`는 fixture의 백분율을 그대로 사용합니다. 화면에서 100을 곱하지 않습니다. null과 빈 재무 목록은 정보 없음으로 표시합니다.
-
-대화 생성과 조회 및 저장은 Spring의 `/api/v1/conversations` 경로가 담당합니다. Spring은 메모리에 최대 100개 메시지를 유지하고 최신 20개를 Python에 전달합니다. 재시작하면 대화가 초기화됩니다. Python 직접 호출 예시는 Spring의 대화 생성이나 저장을 수행하지 않습니다.
 
 ### live 설정과 검증 범위
 
-`AGENT_EXECUTION_MODE=live`에서는 v0.1 경로가 기존 QueryDecomposer와 실제 McpToolCaller를 연결합니다. 위의 분해 및 Routing 환경 변수를 재사용합니다. 현재 기본 모델은 [DecomposerSettings](src/negopilot_agent/decomposition/decomposer.py)의 `DEFAULT_MODELS`에 정의돼 있습니다. `anthropic`은 `claude-opus-5-5`이며 `openai`는 `gpt-4.1-mini`입니다. [모델 백엔드](src/negopilot_agent/decomposition/backends.py)는 이 설정을 받아 호출합니다.
+`AGENT_EXECUTION_MODE=live`에서는 `/internal/query-executions`가 QueryDecomposer와 실제 McpToolCaller를 연결합니다. 위의 분해 및 Routing 환경 변수를 재사용합니다. 현재 기본 모델은 [DecomposerSettings](src/negopilot_agent/decomposition/decomposer.py)의 `DEFAULT_MODELS`에 정의돼 있습니다. `anthropic`은 `claude-opus-5-5`이며 `openai`는 `gpt-4.1-mini`입니다. [모델 백엔드](src/negopilot_agent/decomposition/backends.py)는 이 설정을 받아 호출합니다.
 
-기본 모델을 사용하려면 `NEGOPILOT_DECOMPOSER_MODEL`을 설정하지 않아야 합니다. `.env.example`의 `NEGOPILOT_DECOMPOSER_MODEL=`을 그대로 불러오면 빈 문자열이 선택됩니다. 이 경우 HTTP 경로는 503 `UPSTREAM_UNAVAILABLE`을 반환합니다. 기본 모델을 선택할 때는 환경 파일에서 해당 줄을 제거하거나 환경 파일을 불러온 뒤 아래 명령을 실행합니다.
+직접 uvicorn을 실행하면서 기본 모델을 사용하려면 `NEGOPILOT_DECOMPOSER_MODEL`을 설정하지 않아야 합니다. `agent/.env.example`의 `NEGOPILOT_DECOMPOSER_MODEL=`을 그대로 불러오면 빈 문자열이 선택됩니다. 이 경우 HTTP 경로는 503 `UPSTREAM_UNAVAILABLE`을 반환합니다. 기본 모델을 선택할 때는 환경 파일에서 해당 줄을 제거하거나 환경 파일을 불러온 뒤 아래 명령을 실행합니다.
 
 ```bash
 unset NEGOPILOT_DECOMPOSER_MODEL
@@ -323,22 +341,22 @@ unset NEGOPILOT_DECOMPOSER_MODEL
 
 Claude에는 유효한 인증이 필요합니다. OpenAI에는 Python 서버 환경의 `OPENAI_API_KEY`가 필요합니다. 이 키는 Spring이나 프런트엔드에 전달하지 않습니다. Routing에는 `BUSINESS_MCP_URL`과 `LAW_MCP_URL`에 지정한 서버가 필요합니다.
 
-HTTP 경로는 SDK의 전송 오류 재시도를 끕니다. OpenAI 클라이언트도 `AsyncOpenAI(max_retries=0)`으로 만들고 요청 종료 시 제한 시간 안에서 `await client.close()`를 수행합니다. SDK의 재시도와 비동기 자원 해제 방식은 [공식 Python SDK 문서](https://developers.openai.com/api/reference/python)를 참고합니다. 분해 코어의 출력 형식 오류 재시도는 기존 규칙을 유지합니다. Generation 환경 변수는 기존 v0.1 실행과 v0.2 템플릿 경로에 사용하지 않습니다. 새 v2 전체 그래프 경로에서는 Generation 설정도 사용합니다.
+HTTP 경로는 SDK의 전송 오류 재시도를 끕니다. OpenAI 클라이언트도 `AsyncOpenAI(max_retries=0)`으로 만들고 요청 종료 시 제한 시간 안에서 `await client.close()`를 수행합니다. SDK의 재시도와 비동기 자원 해제 방식은 [공식 Python SDK 문서](https://developers.openai.com/api/reference/python)를 참고합니다. 분해 코어의 출력 형식 오류 재시도는 기존 규칙을 유지합니다. v2 전체 그래프 경로는 Generation 설정도 사용합니다.
 
 비용 없는 단위 테스트는 저장소 루트에서 다음 명령으로 실행합니다. 테스트는 가짜 모델과 ToolCaller 및 ASGI 전송을 사용합니다.
 
 ```bash
 cd agent
-uv run --locked python -m pytest tests/test_api.py tests/test_supplier_chat.py tests/test_http_openapi_contract.py -q
+uv run --locked python -m pytest tests/test_api.py tests/test_supplier_lookup_live.py tests/test_http_openapi_contract.py -q
 ```
 
-위 명령은 기존 v0.1과 v0.2 HTTP 계약을 검사합니다. 실제 LLM 연결과 실제 MCP 서버 및 메일 발송과 DB seed를 검증하지 않습니다. v2 전체 그래프 검사는 아래 안내를 따릅니다. 로그인과 승인 및 영구 대화 저장은 이 HTTP 범위에 포함하지 않습니다.
+위 명령은 앱 공통 동작과 협력사 조회 및 고정 OpenAPI 명세를 검사합니다. 실제 LLM 연결과 실제 MCP 서버 및 메일 발송과 DB seed를 검증하지 않습니다. 전체 그래프 검사는 아래 안내를 따릅니다. 로그인과 승인 및 영구 대화 저장은 이 HTTP 범위에 포함하지 않습니다.
 
 실제 Spring과 Python을 임시 포트에서 함께 실행하는 검사는 [HTTP 통합 검증 안내](../scripts/integration/README.md)를 따릅니다. 이 검사도 stub 응답을 사용합니다.
 
 ### v2 전체 그래프 실행과 schema v0.3
 
-`POST /internal/v2/query-executions`는 최신 `build_graph`의 분해와 Routing 및 Generation을 한 번 실행합니다. 최종 답변은 실제 `AnswerGenerator`가 만듭니다. 기본 모드는 `live`이며 모델이나 MCP 연결 실패를 숨기거나 `stub` 응답으로 자동 전환하지 않습니다. 내부 키와 `AGENT_REQUEST_TIMEOUT_SECONDS` 설정을 재사용하며 전체 그래프에 하나의 처리 제한 시간을 적용합니다.
+`POST /internal/query-executions`는 최신 `build_graph`의 분해와 Routing 및 Generation을 한 번 실행합니다. 최종 답변은 실제 `AnswerGenerator`가 만듭니다. 기본 모드는 `live`이며 모델이나 MCP 연결 실패를 숨기거나 `stub` 응답으로 자동 전환하지 않습니다. 내부 키와 `AGENT_REQUEST_TIMEOUT_SECONDS` 설정을 재사용하며 전체 그래프에 하나의 처리 제한 시간을 적용합니다.
 
 요청의 `request_id`는 필수 UUID입니다. `query`는 공백만 있는 값을 제외한 1..4000 code point이며 입력 원문을 보존합니다. `history`는 생략하면 빈 배열이며 최대 20개입니다. `context`는 생략하면 `{"selected_supplier_ids":[]}`입니다. 정의되지 않은 필드와 명시적인 null은 거절합니다.
 
@@ -362,7 +380,7 @@ Python 서버가 stub으로 실행 중일 때 다음 요청으로 기업 문맥�
 
 ```bash
 export AGENT_INTERNAL_API_KEY='replace-with-a-local-test-key'
-curl --fail-with-body http://127.0.0.1:9200/internal/v2/query-executions \
+curl --fail-with-body http://127.0.0.1:9200/internal/query-executions \
   -H "X-Internal-Api-Key: ${AGENT_INTERNAL_API_KEY}" \
   -H 'Content-Type: application/json' \
   --data '{"request_id":"44444444-4444-4444-8444-444444444444","query":"이 회사에 대해 알려줘","history":[],"context":{"selected_supplier_ids":["SUP-0034"]}}'
@@ -380,7 +398,7 @@ curl --fail-with-body http://127.0.0.1:9200/internal/v2/query-executions \
 
 일부 Routing 오류가 있어도 코어가 답변을 만들면 완료로 처리합니다. 부분 실패는 `routing`과 `answer.notices`에 남깁니다. 고정 안내도 Generation이 처리한 결과이므로 `COMPLETED`가 항상 모델 호출이나 모든 도구의 성공을 뜻하지는 않습니다. `verification.masked: true`와 검증 오류 목록이 함께 있는 보정 결과도 보존합니다.
 
-대화 저장이 필요하면 Spring의 `/api/v2/conversations`를 사용합니다. Python의 v2 실행 자체는 상태를 저장하지 않습니다. Spring은 같은 대화의 요청을 직렬로 처리하고 최신 20개 메시지를 전달합니다. 저장된 긴 assistant 본문은 유지하며 모델에 전달할 때만 4000 code point로 제한합니다. HTTP 오류나 `execution_status: FAILED`에서는 기존 메시지와 문맥을 유지합니다. 메모리 저장은 재시작하면 초기화됩니다.
+대화 저장이 필요하면 Spring의 `/api/conversations`를 사용합니다. Python의 v2 실행 자체는 상태를 저장하지 않습니다. Spring은 대화를 PostgreSQL에 저장하고 최신 20개 메시지를 전달합니다. 같은 대화에 생성 중인 요청이 있으면 `409 CONVERSATION_BUSY`로 거절합니다. 저장된 긴 assistant 본문은 유지하며 모델에 전달할 때만 4000 code point로 제한합니다. HTTP 오류나 `execution_status: FAILED`에서는 기존 메시지와 문맥을 유지합니다. 상세 규칙은 [이력 v0.4 계약](../docs/contracts/history.md)을 따릅니다.
 
 ### v2 live 모델 선택과 비용 없는 검사
 
@@ -397,11 +415,13 @@ curl --fail-with-body http://127.0.0.1:9200/internal/v2/query-executions \
 | `NEGOPILOT_DECOMPOSER_FALLBACKS` | `1` |
 | `NEGOPILOT_GENERATOR_FALLBACKS` | `1` |
 
-기본 모델을 사용하려면 두 MODEL 환경 변수를 빈 문자열로 지정하지 않고 미설정으로 둡니다. 환경 파일을 불러온 뒤 아래 명령으로 제거할 수 있습니다. FALLBACKS는 기존 Claude 서버 측 대체 모델 설정이며 HTTP 실행 모드를 stub으로 전환하는 설정이 아닙니다.
+직접 uvicorn을 실행할 때 기본 모델을 사용하려면 두 MODEL 환경 변수를 빈 문자열로 지정하지 않고 미설정으로 둡니다. 환경 파일을 불러온 뒤 아래 명령으로 제거할 수 있습니다. FALLBACKS는 기존 Claude 서버 측 대체 모델 설정이며 HTTP 실행 모드를 stub으로 전환하는 설정이 아닙니다.
 
 ```bash
 unset NEGOPILOT_DECOMPOSER_MODEL NEGOPILOT_GENERATOR_MODEL
 ```
+
+Docker 시작기 `deploy/local/agent_start.py`는 MODEL이 미설정이거나 빈 문자열이면 공급자 기본값을 적용합니다. 공백만 있는 모델 값은 거절합니다. 서버를 열기 전에 선택한 공급자와 모델 및 필수 키 설정을 검사하며 키가 없으면 시작을 중단합니다. 네트워크 호출을 하지 않으므로 키의 유효성이나 모델 사용 권한 및 실제 연결 성공은 확인하지 않습니다. 이 시작 전 검사는 Docker 전용이며 Agent 코어와 직접 uvicorn 실행의 동작은 바꾸지 않습니다.
 
 두 단계 모두 기본값인 OpenAI(gpt-4.1-mini)를 쓰려면 Python 서버를 시작할 셸에서 아래 값을 설정합니다. BACKEND 변수는 생략해도 openai이며, 다른 값이 남아 있을 수 있어 예시에서는 명시합니다. `OPENAI_API_KEY`에는 유효한 키를 지정해야 합니다. 위의 서버 시작 예시에서 실행 모드를 `live`로 바꾸고 서버를 시작합니다.
 
@@ -429,7 +449,7 @@ uv run --locked python -m pytest -q
 
 ### 채팅에서 바로 질문하기
 
-기업을 미리 선택하지 않아도 v2 대화 API로 질문할 수 있습니다. 지역만으로 기업을 검색하거나 이름으로 기업을 찾고 관련 법령을 조회합니다. 기업 후보가 여러 곳이거나 필수 거래 조건이 없을 때만 추가로 묻습니다. 조회 0건과 연결 실패는 추가 입력 부족과 구분합니다.
+기업을 미리 선택하지 않아도 Spring 대화 API로 질문할 수 있습니다. 지역만으로 기업을 검색하거나 이름으로 기업을 찾고 관련 법령을 조회합니다. 기업 후보가 여러 곳이거나 필수 거래 조건이 없을 때만 추가로 묻습니다. 조회 0건과 연결 실패는 추가 입력 부족과 구분합니다.
 
 [직접 질문 계약](../docs/contracts/direct-chat.md)에 질문별 처리 기준과 stub 예시 및 추가 질문 이후의 대화 규칙을 정리했습니다. 기업명 조회에는 최신 business-mcp의 `find_suppliers`가 필요합니다. Agent와 business-mcp를 함께 갱신해 실행하세요.
 
@@ -438,7 +458,7 @@ uv run --locked python -m pytest -q
 
 회원 인증과 승인 및 세션과 개인 채팅 이력 저장은 Spring이 담당한다. Python의 Generation 요청과 응답은 v0.3을 유지한다. [회원 계약](../docs/contracts/membership.md)과 [이력 계약](../docs/contracts/history.md)을 참고한다.
 
-`/internal/v1/admin/laws` 아래의 버전 조회와 최신화 API는 `AGENT_INTERNAL_API_KEY`로 인증한다. 조회는 law-mcp의 읽기 도구를 사용한다. 최신화는 별도의 HTTP 제어 경로를 사용하며 Agent 도구로 노출하지 않는다. stub 모드에서도 관리자 법령 조회와 최신화는 실제 law-mcp에 연결한다.
+`/internal/admin/laws` 아래의 버전 조회와 최신화 API는 `AGENT_INTERNAL_API_KEY`로 인증한다. 조회는 law-mcp의 읽기 도구를 사용한다. 최신화는 별도의 HTTP 제어 경로를 사용하며 Agent 도구로 노출하지 않는다. stub 모드에서도 관리자 법령 조회와 최신화는 실제 law-mcp에 연결한다.
 
 - `LAW_MCP_URL`은 법령 서버의 `/mcp` 주소다. 기본값은 `http://localhost:9103/mcp`다.
 - `LAW_ADMIN_API_KEY`는 Python과 법령 서버 사이의 별도 관리 키다. 프런트로 전달하지 않는다.
@@ -480,3 +500,52 @@ Ollama 호출에는 OpenAI 또는 Anthropic 키를 전달하지 않습니다. �
 `OLLAMA_TIMEOUT_SECONDS`는 전체 Agent 실행 제한을 늘리지 않습니다. 로컬 모델의 속도에 맞춰 `AGENT_REQUEST_TIMEOUT_SECONDS`와 Spring 및 프런트의 제한 시간을 별도로 정렬해야 합니다. 이 설정은 프롬프트나 모델 가중치를 바꾸지 않으며 답변 품질을 보장하지 않습니다.
 
 `tests/test_ollama_backend.py`는 실제 모델 호출 없이 native 요청 스키마와 옵션 및 v1/v2 선택과 클라이언트 종료 및 503/504 처리와 자동 재시도 부재를 검사합니다.
+
+## 전체 그래프 품질·토큰·시간 평가
+
+`eval_generation.py`는 저장된 Routing으로 생성만 평가합니다. `eval_pipeline.py`는
+Generation 개발 11개/검증 12개의 질문과 정답을 재사용하지만, 실제 분해부터 MCP 조회와
+생성까지 새로 실행하고 최종 답변을 채점합니다. DB·MCP 서버와 모델 키가 필요하며
+모델 및 채점 호출 비용이 발생합니다. 검증 세트는 점수 확인에만 사용합니다.
+
+```bash
+# agent 폴더에서 실행. 서버 준비는 위 실행 안내 참고
+uv run python scripts/eval_pipeline.py --set dev --limit 3 --repeat 3
+uv run python scripts/eval_pipeline.py --set validation --repeat 3
+# 추가 채점 비용 없이 답변 종류·필수 근거·토큰·시간만 기록
+uv run python scripts/eval_pipeline.py --set dev --limit 3 --no-judge
+```
+
+결과는 `eval_results/pipeline-*.json`에 질문마다 저장됩니다. `rows`에는 실제 분해·Routing·
+전체 답변(인용·검증 포함), 필수 근거 포함, 재생성·가림, 토큰과 시간 기록이 있습니다.
+`summary.agent`와 `summary.judge`는 토큰·호출 수·시간을 분리합니다. Agent 시간에는
+채점 시간을 포함하지 않으며, 금액 비용은 산출하지 않습니다. 실패 호출의 기록도 보존합니다.
+
+요약에는 다음 지표도 있습니다 (#116).
+
+| 키 | 뜻 |
+| --- | --- |
+| `intent_match` | 실제 분해의 intent 목록이 정답 분해와 같은 비율 |
+| `grounded_when_needed` | 근거가 필요한 답변(개념 설명·범위 밖 제외)에 근거 표시가 붙은 비율 |
+| `cross_judge` | `--cross-judge MODEL`을 주면 같은 답변을 다른 모델로 한 번 더 채점해 포인트 커버, 근거 없는 주장 수, 포인트 판정 일치율을 비교 |
+
+```bash
+uv run python scripts/eval_pipeline.py --set validation --cross-judge gpt-5.4-mini
+```
+
+`point_coverage`는 모든 정답 포인트를 채점한 경우에만 값이 나옵니다. 채점 생략/오류가
+있으면 null이며, `scored_points`와 `expected_points`로 평가 범위를 확인합니다.
+`point_coverage_lower_bound`는 미채점과 실행 실패를 0점으로 둔 하한입니다.
+답변 종류가 틀린 경우 포인트는 0점입니다. 생성 모델과 같은 모델로 채점할 수 있으므로
+중요한 법령 답변은 사람이 별도로 확인해야 합니다.
+
+현재 평가는 단일 질문 기준입니다. 대화 이력과 동시 사용자 부하는 포함하지 않습니다.
+기업 데이터가 바뀌면 기업별 정답과 저장된 기준 데이터도 별도로 검토해야 합니다.
+
+실행 전 business DB의 관리 스키마도 준비해야 합니다. 기존 DB에서 `status` 또는
+`certification_source` 열이 없다는 오류가 나면 평가를 멈추고 DB를 백업한 뒤
+[`migrate_management.py`](../mcp-servers/business-mcp/scripts/migrate_management.py)를
+스키마 변경 계정의 명시적인 `DATABASE_URL`로 실행합니다. 기존 DB에서는 seed를 다시
+실행하지 않습니다. 자세한 절차는 [business-mcp SETUP](../mcp-servers/business-mcp/SETUP.md)을
+따릅니다. 적용 후 MCP의 `get_supplier`, `rank_suppliers`가 성공하는지 확인하고 평가합니다.
+`summary.tool_errors`는 그래프가 오류를 처리해 응답을 돌려준 경우에도 도구 오류를 셉니다.

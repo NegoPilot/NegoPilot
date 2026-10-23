@@ -11,6 +11,8 @@ from negopilot_agent.api.settings import ApiSettings
 
 @pytest.fixture(scope="module")
 def law_server():
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "mcp-servers/law-mcp"))
     path = Path(__file__).resolve().parents[2] / "mcp-servers/law-mcp/server.py"
     spec = importlib.util.spec_from_file_location("admin_law_test_server", path)
     module = importlib.util.module_from_spec(spec)
@@ -28,7 +30,7 @@ def client(law_server):
 
 
 HEADERS = {"X-Internal-Api-Key": "test-only-key"}
-ROOT = "/internal/v1/admin/laws"
+ROOT = "/internal/admin/laws"
 
 
 def test_reads_loaded_catalog_exact_versions_and_articles(client, law_server):

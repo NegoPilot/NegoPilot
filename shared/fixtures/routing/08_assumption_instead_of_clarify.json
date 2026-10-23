@@ -149,6 +149,9 @@
                   "fin_year": 2025,
                   "operating_margin": 0.001,
                   "debt_ratio": 1.06,
+                  "certification_source": "MOCK",
+                  "capability_source": "MOCK",
+                  "quality_source": "MOCK",
                   "last_price": 3840,
                   "scores": {
                     "price": 1.0,
@@ -179,6 +182,9 @@
                   "fin_year": 2025,
                   "operating_margin": 0.004,
                   "debt_ratio": 1.78,
+                  "certification_source": "MOCK",
+                  "capability_source": "MOCK",
+                  "quality_source": "MOCK",
                   "last_price": 4300,
                   "scores": {
                     "price": 0.281,
@@ -209,6 +215,9 @@
                   "fin_year": 2025,
                   "operating_margin": 0.05,
                   "debt_ratio": 0.92,
+                  "certification_source": "MOCK",
+                  "capability_source": "MOCK",
+                  "quality_source": "MOCK",
                   "last_price": 4040,
                   "scores": {
                     "price": 0.688,
@@ -239,6 +248,9 @@
                   "fin_year": 2025,
                   "operating_margin": 0.024,
                   "debt_ratio": 3.0,
+                  "certification_source": "MOCK",
+                  "capability_source": "MOCK",
+                  "quality_source": "MOCK",
                   "last_price": 4230,
                   "scores": {
                     "price": 0.391,
@@ -270,6 +282,9 @@
                   "fin_year": 2025,
                   "operating_margin": 0.013,
                   "debt_ratio": 1.83,
+                  "certification_source": "MOCK",
+                  "capability_source": "MOCK",
+                  "quality_source": "MOCK",
                   "last_price": 4480,
                   "scores": {
                     "price": 0.0,

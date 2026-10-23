@@ -38,6 +38,9 @@ jobs:
       - run: uv python install 3.12
       - run: uv sync --locked
       - run: uv run --locked python -m pytest -q
+      - name: Verify Docker Agent startup settings without provider calls
+        if: matrix.component == 'agent'
+        run: uv run --locked python -B -m unittest discover -s ../deploy/local -p 'test_*.py'
 
   business-mcp:
     name: Python (mcp-servers/business-mcp)
@@ -124,10 +127,10 @@ jobs:
               for key in ("tests", "failures", "errors", "skipped")
           }
           required = {
-              "com.negopilot.backend.AuthMembershipPostgresTest",
-              "com.negopilot.backend.AuthBootstrapLocalUserPostgresTest",
-              "com.negopilot.backend.PersistentConversationServiceTest",
-              "com.negopilot.backend.AdminSupplierPostgresTest",
+              "com.negopilot.backend.auth.AuthMembershipPostgresTest",
+              "com.negopilot.backend.auth.AuthBootstrapLocalUserPostgresTest",
+              "com.negopilot.backend.chat.PersistentConversationServiceTest",
+              "com.negopilot.backend.admin.supplier.AdminSupplierPostgresTest",
           }
           executed = {
               suite.get("name") for suite in suites
@@ -160,16 +163,20 @@ jobs:
       - run: npm run build
 
   docker-compose:
-    name: Docker Compose (local onboarding)
+    name: Docker Compose (isolated stub onboarding)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
+      # Every compose command below uses this overlay, including diagnostics and cleanup.
+      COMPOSE_FILE: compose.yaml:compose.test.yaml
       COMPOSE_PROJECT_NAME: negopilot-ci
-      LOCAL_WEB_PORT: "5173"
+      TEST_WEB_PORT: "5173"
     steps:
       - uses: actions/checkout@v4
+      - name: Verify live and isolated test configuration without starting containers
+        run: python3 -B tests/integration/compose_config_test.py
       - run: docker compose config --quiet
-      - name: Build and start the full local stack
+      - name: Build and start the isolated stub stack
         run: docker compose up --build -d --wait --wait-timeout 180
       - name: Verify default user, signup approval, MCP lookup and isolated follow-up chats
         run: python3 scripts/integration/compose_smoke.py --state /tmp/negopilot-compose-state.json

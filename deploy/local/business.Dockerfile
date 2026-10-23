@@ -13,7 +13,7 @@ ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 RUN useradd --system --uid 10001 --no-create-home negopilot
 COPY --from=builder /app/.venv /app/.venv
-COPY --chown=10001:10001 mcp-servers/business-mcp/server.py ./server.py
+COPY --chown=10001:10001 mcp-servers/business-mcp/server.py mcp-servers/business-mcp/rules.py ./
 COPY --chown=10001:10001 mcp-servers/business-mcp/company_size.py ./company_size.py
 COPY --chown=10001:10001 mcp-servers/business-mcp/data/legal_size_rules.json ./data/legal_size_rules.json
 USER 10001

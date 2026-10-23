@@ -76,6 +76,10 @@
               "fin_year": 2025,
               "operating_margin": 0.095,
               "debt_ratio": 0.09,
+              "status": "ACTIVE",
+              "certification_source": "MOCK",
+              "capability_source": "MOCK",
+              "quality_source": "MOCK",
               "capabilities": [
                 {
                   "process": "단조",
@@ -193,6 +197,10 @@
               "fin_year": 2025,
               "operating_margin": 0.009,
               "debt_ratio": 3.9,
+              "status": "ACTIVE",
+              "certification_source": "MOCK",
+              "capability_source": "MOCK",
+              "quality_source": "MOCK",
               "capabilities": [
                 {
                   "process": "사출",

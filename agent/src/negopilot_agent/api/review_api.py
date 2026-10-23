@@ -27,6 +27,7 @@ class ReviewOffer(BaseModel):
     payment_days: int = Field(gt=0)
     price_linkage: bool
     raw_material_ratio: float | None = Field(default=None, ge=0, le=1)
+    energy_ratio: float | None = Field(default=None, ge=0, le=1)
     contract_days: int = Field(gt=0)
     linkage_waived_by_agreement: bool = False
     supplier_size: ReviewCompanyFacts
@@ -60,7 +61,7 @@ class ReviewDecomposer:
 
 
 def add_review_routes(app, settings, authenticate, error_response, caller=None):
-    @app.post("/internal/v2/legal-reviews", dependencies=[Depends(authenticate)])
+    @app.post("/internal/legal-reviews", dependencies=[Depends(authenticate)])
     async def review(body: ReviewRequest):
         try:
             async with asyncio.timeout(settings.request_timeout_seconds):

@@ -33,7 +33,7 @@ from negopilot_agent.routing import McpToolCaller
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "shared" / "fixtures"
 CONTRACT = ROOT / "docs" / "contracts" / "agent-generation.openapi.json"
-PATH = "/internal/v2/query-executions"
+PATH = "/internal/query-executions"
 API_KEY = "generation-contract-test-key"
 PRIVATE = "private-generation-test-detail"
 HEADERS = {"X-Internal-Api-Key": API_KEY}
@@ -384,7 +384,7 @@ async def test_model_rewritten_query_is_restored_before_generation(monkeypatch):
 
 @pytest.mark.parametrize("case,name", [
     ("today_as_of", "01_law_article"),
-    ("disallowed_as_of", "06_general_knowledge"),
+    ("disallowed_as_of", "02_parallel_suppliers"),   # offer_check는 check_offer v2부터 as_of를 받는다
     ("disallowed_input", "03_rank_then_law"),
     ("both", "03_rank_then_law"),
 ])
@@ -449,6 +449,29 @@ async def test_routing_error_uses_final_answer_status_and_safe_generator_input(m
     assert first["message"] == "Routing details are unavailable."
     assert PRIVATE not in caplog.text and API_KEY not in caplog.text
     assert len(harness.answer_backend.requests) == (1 if partial else 0)
+
+
+@pytest.mark.parametrize("code", ["RFQ_NOT_FOUND", "SUPPLIER_NOT_FOUND", "SUPPLIER_AMBIGUOUS",
+                                 "VALUE_OUT_OF_RANGE", "DB_UNAVAILABLE", "INTERNAL"])
+async def test_only_public_tool_error_codes_reach_http_response(monkeypatch, caplog, code):
+    class FailingCaller(SupplierCaller):
+        async def __call__(self, server, tool, args):
+            raise RuntimeError(f"[{code}] {PRIVATE} {API_KEY}")
+
+    harness = Harness(monkeypatch, decomposition(supplier_part()), FailingCaller())
+    body = payload()
+    data = assert_wire(await post(harness.app, body))
+    harness.assert_completed_graph(data, body)
+    assert data["execution_status"] == "COMPLETED"
+    assert data["answer"]["kind"] == "no_result"
+    call = data["routing"]["outcomes"][0]["calls"][0]
+    assert call["error"] == "Tool execution failed."
+    if code in {"DB_UNAVAILABLE", "INTERNAL"}:
+        assert "error_code" not in call
+        assert code not in json.dumps(data)
+    else:
+        assert call["error_code"] == code
+    assert PRIVATE not in caplog.text and API_KEY not in caplog.text
 
 
 @pytest.mark.parametrize("partial", [False, True])
@@ -578,7 +601,9 @@ async def test_failed_reference_lookup_preserves_primary_evidence(monkeypatch, c
     assert data["execution_status"] == "COMPLETED" and data["error"] is None
     outcome = data["routing"]["outcomes"][0]
     assert outcome["status"] == "ok" and outcome["calls"] == routing["outcomes"][0]["calls"]
-    assert len(outcome["referenced_articles"]) == 3 and caller.remaining == []
+    # 녹화된 결과가 지목한 조문 수만큼 조회를 시도한다 (check_offer v2에서는 항별로 조문이 늘 수 있다)
+    expected = len(routing["outcomes"][0]["referenced_articles"])
+    assert expected > 0 and len(outcome["referenced_articles"]) == expected and caller.remaining == []
     assert all(item["error"] == "Tool execution failed." for item in outcome["referenced_articles"])
     assert all(item["kind"] != "referenced_article" for item in data["answer"]["evidence"])
     assert PRIVATE not in caplog.text and API_KEY not in caplog.text
@@ -692,8 +717,8 @@ async def test_offer_check_preserves_explicit_historical_date_through_http(monke
     dec, routing = load_recorded("05_offer_check")
     dec.sub_queries[0].entities.as_of = "2025-01-01"
     for outcome in routing["outcomes"]:
-        for call in outcome["calls"]:
-            if call["tool"] == "check_offer":
+        for call in outcome["calls"] + outcome["referenced_articles"]:
+            if call["tool"] in {"check_offer", "get_article"}:
                 call["args"]["as_of"] = "2025-01-01"
     caller = ReplayCaller(routing)
     harness = Harness(monkeypatch, dec, caller)

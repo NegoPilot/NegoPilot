@@ -22,9 +22,11 @@
     uv run python scripts/eval_generation.py --backend openai           # gpt-4.1-mini 생성 + 채점 (OPENAI_API_KEY)
     uv run python scripts/eval_generation.py --backend openai --repeat 3 --report eval_reports/2026-10-21_generation.md
     uv run python scripts/eval_generation.py --backend openai --no-judge --only 05 07
+    uv run python scripts/eval_generation.py --backend openai --cross-judge gpt-5.4-mini   # 같은 답변을 다른 모델로도 채점
     uv run python scripts/eval_generation.py --backend openai --repeat 3 --set validation
 
-채점은 OpenAI(--judge-model, 기본 gpt-4.1-mini)로 한다. 결과 원본은 eval_results/(git 제외)에 저장한다.
+채점은 OpenAI(--judge-model, 기본 gpt-4.1-mini)로 한다. 생성 모델과 같으면 점수가 후할 수 있어,
+--cross-judge로 같은 답변을 다른 모델로 한 번 더 채점하고 두 채점의 포인트 판정 일치율을 본다. 결과 원본은 eval_results/(git 제외)에 저장한다.
 """
 
 import argparse
@@ -41,6 +43,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT.parent / "shared" / "src")]
 
 from negopilot_shared import DecompositionResult, RouteResult  # noqa: E402
+from negopilot_agent import timing  # noqa: E402
 
 from negopilot_agent.generation import AnswerGenerator, GeneratorSettings, build_evidence  # noqa: E402
 from negopilot_agent.generation.answer import Answer, Evidence  # noqa: E402
@@ -50,6 +53,8 @@ FIXTURES = ROOT.parent / "shared" / "fixtures"
 SETS = {   # 이름 → (정답 파일, 입력 폴더)
     "dev": (ROOT / "eval_data" / "generation_gold.json", FIXTURES / "routing"),
     "validation": (ROOT / "eval_data" / "generation_validation_gold.json", ROOT / "eval_data" / "generation_validation"),
+    # 법령 예외·단서 질문만 모은 개발용 세트. 생성 프롬프트를 고칠 때 본다
+    "dev_law": (ROOT / "eval_data" / "generation_dev_law_gold.json", ROOT / "eval_data" / "generation_dev_law"),
 }
 CHARS_PER_TOKEN = 1.7   # 한국어 위주 텍스트의 대략값. 비교용이라 정확할 필요는 없다
 
@@ -122,21 +127,34 @@ async def judge(client, model: str, item: dict, answer: Answer) -> dict:
     points = "\n".join(f"{i}. {p}" for i, p in enumerate(item["points"]))
     evidence = "\n\n".join(f"[{e.id}] {e.label}\n{e.text}" for e in answer.evidence) or "(근거 없음)"
     user = f"<points>\n{points}\n</points>\n\n<evidence>\n{evidence}\n</evidence>\n\n<answer>\n{answer.text}\n</answer>"
-    response = await client.chat.completions.create(
-        model=model, temperature=0,
-        messages=[{"role": "system", "content": JUDGE_SYSTEM}, {"role": "user", "content": user}],
-        response_format={"type": "json_schema",
-                         "json_schema": {"name": "GenerationJudgement", "schema": JUDGE_SCHEMA, "strict": True}},
-    )
+    with timing.span("llm", model) as meta:
+        response = await client.chat.completions.create(
+            model=model, temperature=0,
+            messages=[{"role": "system", "content": JUDGE_SYSTEM}, {"role": "user", "content": user}],
+            response_format={"type": "json_schema",
+                             "json_schema": {"name": "GenerationJudgement", "schema": JUDGE_SCHEMA, "strict": True}},
+        )
+        if usage := getattr(response, "usage", None):
+            details = getattr(usage, "prompt_tokens_details", None)
+            meta.update(input_tokens=usage.prompt_tokens, output_tokens=usage.completion_tokens,
+                        cached_tokens=getattr(details, "cached_tokens", 0) or 0)
+    if response.choices[0].finish_reason != "stop" or response.choices[0].message.refusal:
+        raise ValueError("채점 응답이 거절되거나 잘렸습니다")
     result = json.loads(response.choices[0].message.content or "{}")
-    covered = {p["index"] for p in result.get("points", []) if p.get("covered")}
-    return {"points_covered": len(covered & set(range(len(item["points"])))),
+    marks = result["points"]
+    if (len(marks) != len(item["points"])
+            or {p["index"] for p in marks} != set(range(len(item["points"])))
+            or any(type(p["covered"]) is not bool for p in marks)
+            or not isinstance(result["unsupported_claims"], list)):
+        raise ValueError("채점 포인트가 누락되거나 중복됐습니다")
+    covered = {p["index"] for p in marks if p["covered"]} & set(range(len(item["points"])))
+    return {"points_covered": len(covered), "covered_points": sorted(covered),
             "uncovered_points": [p for i, p in enumerate(item["points"]) if i not in covered],
             "unsupported_claims": result.get("unsupported_claims", [])}
 
 
 async def run_case(gen: AnswerGenerator | None, judge_client, judge_model: str, item: dict,
-                   input_dir: Path = FIXTURES / "routing") -> dict:
+                   input_dir: Path = FIXTURES / "routing", cross_model: str | None = None) -> dict:
     query, dec, routing = load_case(item["fixture"], input_dir)
     row = {"fixture": item["fixture"], "query": query, **offline_metrics(item, dec, routing)}
     if gen is None:
@@ -151,11 +169,38 @@ async def run_case(gen: AnswerGenerator | None, judge_client, judge_model: str, 
                 "citations": [c.label for c in answer.citations]})
     if judge_client is not None and item["points"] and answer.kind == "answer":
         row.update(await judge(judge_client, judge_model, item, answer))
+        if cross_model:
+            row["cross"] = await judge(judge_client, cross_model, item, answer)
     return row
 
 
 def pct(n: float, d: float) -> str:
     return f"{n / d * 100:.0f}% ({n:g}/{d:g})" if d else "-"
+
+
+def cross_summary(rows: list[dict]) -> list[str]:
+    """같은 답변을 두 모델이 채점한 결과 비교. 일치율 = (답변, 정답 포인트) 짝 중 두 채점이 같게 판정한 비율."""
+    total = sum(r["points"] for r in rows)
+    agree = sum(r["points"] - len(set(r["covered_points"]) ^ set(r["cross"]["covered_points"])) for r in rows)
+    return [f"| 정답 포인트 커버 (교차 채점) | {pct(sum(r['cross']['points_covered'] for r in rows), total)} |",
+            f"| 근거 없는 주장 (교차 채점, 답변당) | {statistics.mean(len(r['cross']['unsupported_claims']) for r in rows):.2f}개 |",
+            f"| 포인트 판정 일치율 (두 채점) | {pct(agree, total)} |"]
+
+
+def spread_lines(runs: list[list[dict]]) -> list[str]:
+    """회차별 정답 포인트 커버와 흩어짐. 변경 전후 차이가 이 폭보다 작으면 소음으로 본다."""
+    per_run = []
+    for run in runs:
+        judged = [r for r in run if "points_covered" in r]
+        if judged and sum(r["points"] for r in judged):
+            per_run.append(100 * sum(r["points_covered"] for r in judged) / sum(r["points"] for r in judged))
+    if len(per_run) < 2:
+        return []
+    stdev = statistics.stdev(per_run)
+    # 평균의 표준오차. 회차를 늘리면 줄어든다 (n회 → 1/√n)
+    sem = stdev / len(per_run) ** 0.5
+    return [f"| 정답 포인트 커버 회차별 | {', '.join(f'{v:.0f}%' for v in per_run)} |",
+            f"| 회차 간 표준편차 / 평균의 표준오차 | {stdev:.1f}pp / {sem:.1f}pp |"]
 
 
 def summarize(runs: list[list[dict]]) -> str:
@@ -178,6 +223,11 @@ def summarize(runs: list[list[dict]]) -> str:
         if judged:
             lines.append(f"| 정답 포인트 커버 | {pct(sum(r['points_covered'] for r in judged), sum(r['points'] for r in judged))} |")
             lines.append(f"| 근거 없는 주장 (답변당 평균) | {statistics.mean(len(r['unsupported_claims']) for r in judged):.2f}개 |")
+            if len(runs) > 1:
+                lines += spread_lines(runs)
+            crossed = [r for r in judged if "cross" in r]
+            if crossed:
+                lines += cross_summary(crossed)
         if model_rows:
             secs = [r["seconds"] for r in model_rows]
             lines.append(f"| 생성 시간 (평균 / 최대) | {statistics.mean(secs):.1f}초 / {max(secs):.1f}초 |")
@@ -215,6 +265,7 @@ async def main() -> int:
     parser.add_argument("--only", nargs="*", help="fixture 번호나 이름 일부 (예: 05 07)")
     parser.add_argument("--no-judge", action="store_true", help="정답 포인트·근거 없는 주장 채점을 건너뜀")
     parser.add_argument("--judge-model", default="gpt-4.1-mini")
+    parser.add_argument("--cross-judge", help="같은 답변을 이 모델로도 채점해 비교 (예: gpt-5.4-mini)")
     parser.add_argument("--report", help="요약 표를 이 경로의 Markdown 파일로도 저장")
     args = parser.parse_args()
 
@@ -240,7 +291,8 @@ async def main() -> int:
             import openai
             judge_client = openai.AsyncOpenAI()
     head = "오프라인 (모델 호출 없음)" if args.offline else (
-        f"생성 {settings.backend} · {settings.model} · 채점 {'없음' if args.no_judge else args.judge_model}")
+        f"생성 {settings.backend} · {settings.model} · 채점 {'없음' if args.no_judge else args.judge_model}"
+        + (f" + 교차 {args.cross_judge}" if args.cross_judge and not args.no_judge else ""))
     head += f" · {args.set} 세트"
     print(f"{head} · fixtures {len(items)}개 × {1 if args.offline else args.repeat}회\n")
 
@@ -248,7 +300,8 @@ async def main() -> int:
     for n in range(1 if args.offline else args.repeat):
         rows = []
         for item in items:
-            row = await run_case(gen, judge_client, args.judge_model, item, input_dir)
+            row = await run_case(gen, judge_client, args.judge_model, item, input_dir,
+                                 cross_model=None if args.no_judge else args.cross_judge)
             rows.append(row)
             if not args.offline:
                 print(f"[{n + 1}] {item['fixture']}: {row['kind']} · 첫 시도 {'통과' if row['first_try_ok'] else '-'}"
@@ -263,6 +316,7 @@ async def main() -> int:
     tag += "" if args.set == "dev" else f"_{args.set}"
     out = out_dir / f"generation_{datetime.now():%Y%m%d_%H%M%S}_{tag}.json"
     out.write_text(json.dumps({"mode": tag, "set": args.set, "judge_model": None if args.no_judge or args.offline else args.judge_model,
+                               "cross_judge": None if args.no_judge or args.offline else args.cross_judge,
                                "runs": runs}, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"\n원본: {out.relative_to(ROOT)}")
     if args.report:

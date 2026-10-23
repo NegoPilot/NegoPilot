@@ -39,9 +39,9 @@ async def test_endpoint_authentication_and_validation_before_execution():
     app=create_app(ApiSettings(internal_api_key='test-review-key'))
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://test') as c:
         body={'request_id':str(uuid4()),'query':'검토','offer':offer()}
-        response=await c.post('/internal/v2/legal-reviews',json=body)
+        response=await c.post('/internal/legal-reviews',json=body)
         assert response.status_code==401
         body['offer']['unit_price']=0
-        response=await c.post('/internal/v2/legal-reviews',json=body,headers={'X-Internal-Api-Key':'test-review-key'})
+        response=await c.post('/internal/legal-reviews',json=body,headers={'X-Internal-Api-Key':'test-review-key'})
         assert response.status_code==400
         assert response.json()['error']['code']=='VALIDATION_ERROR'

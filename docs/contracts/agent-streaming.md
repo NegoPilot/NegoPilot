@@ -26,11 +26,11 @@
 
 | 경로 | 역할 | 응답 |
 | --- | --- | --- |
-| POST /internal/v2/query-executions/stream | Python 전체 Agent 실행 (스트리밍) | SSE |
-| POST /api/v2/agent/queries/stream | Spring 상태 없는 생성 답변 (스트리밍) | SSE |
-| POST /api/v2/conversations/{conversation_id}/messages/stream | Spring 대화 메시지 (스트리밍) | SSE |
+| POST /internal/query-executions/stream | Python 전체 Agent 실행 (스트리밍) | SSE |
+| POST /api/agent/queries/stream | Spring 상태 없는 생성 답변 (스트리밍) | SSE |
+| POST /api/conversations/{conversation_id}/messages/stream | Spring 대화 메시지 (스트리밍) | SSE |
 
-- 요청 본문은 각 기존 경로(`/internal/v2/query-executions`, `/api/v2/agent/queries`, `/api/v2/conversations/{id}/messages`)와 **같다.** 검증 규칙도 같다
+- 요청 본문은 각 기존 경로(`/internal/query-executions`, `/api/agent/queries`, `/api/conversations/{id}/messages`)와 **같다.** 검증 규칙도 같다
 - 요청 검증 실패(400), 내부 인증 실패(401), 없는 대화(404)처럼 **실행을 시작하기 전에 정해지는 오류는 SSE가 아니라 기존 JSON 오류 envelope**로 응답한다
 - 실행을 시작하면 HTTP 200과 `Content-Type: text/event-stream`으로 응답하고, 이후의 오류는 `error` 이벤트로 보낸다
 - 응답 헤더: `Cache-Control: no-cache`, `X-Accel-Buffering: no` (프록시가 이벤트를 모아 두지 않게)
@@ -66,7 +66,7 @@ data: {"schema_version":"stream-0.1","request_id":"…","stage":"decompose","sta
 
 ### 3.2 `result`: 최종 결과 (종료)
 
-- `data`는 v0.3 실행 응답(`/internal/v2/query-executions`의 200 본문) **전체**. Spring 대화 경로는 기존 메시지 응답(`conversation_id`, `response_id` 포함) 전체
+- `data`는 v0.3 실행 응답(`/internal/query-executions`의 200 본문) **전체**. Spring 대화 경로는 기존 메시지 응답(`conversation_id`, `response_id` 포함) 전체
 - `execution_status`가 FAILED여도 `result`로 보낸다 (v0.3과 같다)
 - 보낸 뒤 서버는 연결을 닫는다
 
@@ -152,7 +152,7 @@ Python 구현을 기다리지 않고 Spring 중계와 Vue 화면을 만들 수 �
 
 ```bash
 # Python (stub 모드)
-curl -N -X POST http://127.0.0.1:9200/internal/v2/query-executions/stream \
+curl -N -X POST http://127.0.0.1:9200/internal/query-executions/stream \
   -H "X-Internal-Api-Key: $KEY" -H "Content-Type: application/json" \
   -d '{"request_id":"<uuid>","query":"하도급법 제4조 보여줘","history":[],"context":{"selected_supplier_ids":[]}}'
 ```
@@ -171,7 +171,7 @@ curl -N -X POST http://127.0.0.1:9200/internal/v2/query-executions/stream \
 | 순서 | 할 일 | 담당 | 시작 조건 |
 | --- | --- | --- | --- |
 | 1 | 이 계약 문서 머지 | Agent·Backend·Frontend 승인 | - |
-| 2 | Python `/internal/v2/query-executions/stream` | Agent | 1 |
+| 2 | Python `/internal/query-executions/stream` | Agent | 1 |
 | 3 | Spring 중계 경로 2개 | Backend | 1. 9절 예시 파일로 Python 없이 시작 |
 | 4 | Vue 단계 표시 | Frontend | 1. 9절 예시 파일로 Python·Spring 없이 시작 |
 | 5 | 세 개를 이어 통합 확인 (10절) | 전원 | 2~4 |

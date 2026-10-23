@@ -1,8 +1,8 @@
-import { request } from './client'
+import { API_PATHS, request } from './client'
 import type { Catalog, Envelope, SupplierDetail, SupplierList, SupplierSearchParams } from './types'
 
 export async function getCatalog(): Promise<Catalog> {
-  const res = await request<Envelope<Catalog>>('/api/v2/business/catalog')
+  const res = await request<Envelope<Catalog>>(API_PATHS.businessCatalog)
   return res.data
 }
 
@@ -15,11 +15,11 @@ export async function searchSuppliers(params: SupplierSearchParams): Promise<Sup
   if (params.iso14001_required) query.set('iso14001_required', 'true')
   if (params.min_monthly_capacity !== undefined) query.set('min_monthly_capacity', String(params.min_monthly_capacity))
   if (params.limit !== undefined) query.set('limit', String(params.limit))
-  const res = await request<Envelope<SupplierList>>(`/api/v2/suppliers?${query.toString()}`)
+  const res = await request<Envelope<SupplierList>>(`${API_PATHS.suppliers}?${query.toString()}`)
   return res.data
 }
 
 export async function getSupplier(supplierId: string): Promise<SupplierDetail> {
-  const res = await request<Envelope<SupplierDetail>>(`/api/v2/suppliers/${encodeURIComponent(supplierId)}`)
+  const res = await request<Envelope<SupplierDetail>>(`${API_PATHS.suppliers}/${encodeURIComponent(supplierId)}`)
   return res.data
 }

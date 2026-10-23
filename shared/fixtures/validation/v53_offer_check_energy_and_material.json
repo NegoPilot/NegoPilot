@@ -1,0 +1,32 @@
+{
+  "note": "원재료 비중과 에너지 비중을 둘 다 말하면 각각",
+  "query": "SUP-0034한테 RFQ-2026-001 개당 3,840원에 대금은 45일 뒤 지급, 연동은 안 넣을 거야. 원재료가 30%, 전기·가스 같은 에너지가 15% 차지해. 하도급법상 문제 될까?",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "SUP-0034한테 RFQ-2026-001 개당 3,840원에 대금은 45일 뒤 지급, 연동은 안 넣을 거야. 원재료가 30%, 전기·가스 같은 에너지가 15% 차지해. 하도급법상 문제 될까?",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "SUP-0034에 RFQ-2026-001 단가 3,840원, 지급 45일, 연동 약정 없음, 원재료 비중 30%, 에너지 비중 15% 협상안의 하도급법 위반 여부",
+        "original_text": "SUP-0034한테 RFQ-2026-001 개당 3,840원에 대금은 45일 뒤 지급, 연동은 안 넣을 거야. 원재료가 30%, 전기·가스 같은 에너지가 15% 차지해. 하도급법상 문제 될까?",
+        "intent": "offer_check",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {
+          "supplier": "SUP-0034",
+          "rfq_id": "RFQ-2026-001",
+          "unit_price": 3840,
+          "payment_days": 45,
+          "price_linkage": false,
+          "raw_material_ratio": 0.3,
+          "energy_ratio": 0.15
+        },
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}

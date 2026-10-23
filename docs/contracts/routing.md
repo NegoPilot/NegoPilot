@@ -26,7 +26,7 @@ for sq in decomposition.sub_queries:
 | 3 | 일부만 성공 | **된 부분은 답하고, 안 된 부분만 밝힌다.** 되묻기·안내는 답변 끝에 모은다 |
 | 4 | 도구 결과 | `calls[].result`는 **MCP 도구 반환값 그대로**. 프롬프트가 너무 길어지면 Routing이 intent별로 필드를 추리는 방식으로 바꾼다 |
 | 5 | 법 근거 인용 | `search_regulation` 결과는 항 단위 citation을 인용한다. 해당 항에 없는 설명은 출처와 본문을 확인한 `get_article` 조문 전문을 인용할 수 있다 |
-| 6 | 결과에 붙은 조문 | `rank_suppliers`(flags)·`check_offer`의 `law_refs`는 **Routing이 `get_article`로 미리 조회**해 `referenced_articles`에 넣는다 (최대 5개) |
+| 6 | 결과에 붙은 조문 | `rank_suppliers`(flags)·`get_supplier`·`check_offer`의 `law_refs`는 **Routing이 `get_article`로 미리 조회**해 `referenced_articles`에 넣는다 (최대 5개). `check_offer`에 `as_of`를 넘겼으면 같은 날 시행판을 조회하고, 같은 조문은 항이 달라도 한 번만 조회한다. `law_refs[].paragraph`로 지목된 항은 Generation이 근거에 먼저 넣는다 |
 | 7 | 사용자 문구 | 사용자에게 보일 문장은 **Generation이 쓴다.** `message`·`halt_reason`·`error`는 개발·로그용이라 그대로 보여 주지 않는다 |
 | 8 | 형식 버전 | `schema_version` 필드. 형식 변경은 PR + Routing·Generation 담당 승인 |
 
@@ -68,6 +68,8 @@ for sq in decomposition.sub_queries:
 | `referenced_articles` | 결과의 `law_refs`를 미리 조회한 `get_article`. 조회가 실패해도 하위 질문은 `ok`이고 그 항목의 `error`만 채워진다 |
 | `missing` | `missing_args`일 때 확정되지 않은 엔티티 이름. 기업명 후보가 여러 곳이면 `supplier`이며 `calls`에 후보 조회 결과가 남는다 |
 
+`ToolCall.error_code`는 선택 필드입니다. 공개 코드 `RFQ_NOT_FOUND`와 `SUPPLIER_NOT_FOUND` 및 `SUPPLIER_AMBIGUOUS`와 `VALUE_OUT_OF_RANGE`만 전달합니다. 코드가 없으면 Agent는 필드를 생략하며 Spring은 생략과 명시적인 `null`을 모두 받습니다. 코드 값은 `error`가 있는 실패 호출에만 넣습니다. `DB_UNAVAILABLE`과 알 수 없는 코드는 공개하지 않습니다. 기존 5개 필드로 저장된 응답과 fixtures도 계속 유효합니다. 오류 원문은 `error_code` 유무와 관계없이 정제합니다.
+
 ## 3. status별 Generation 처리
 
 | status | 뜻 | Generation |
@@ -80,7 +82,7 @@ for sq in decomposition.sub_queries:
 | `missing_args` | 필수 인자가 없거나 기업명 후보 중 대상이 미확정 | 필요한 항목만 묻는다. 구조화된 기업 후보는 `Answer.options`로 제시한다 |
 | `empty` | 조회 결과가 0건이거나 inputs에서 필요한 값을 찾을 수 없음 | 결과가 없다고 안내한다. 해당 조회만으로 생성 모델을 호출하지 않는다 |
 | `skipped` | 앞 하위 질문이 `ok`가 아님 | 따로 말하지 않거나 짧게 언급 |
-| `error` | 도구 호출 실패 | 그 부분만 "자료를 가져오지 못했습니다" 같은 일반 문구. 오류 원문은 로그에만 |
+| `error` | 도구 호출 실패 | 그 부분만 "자료를 가져오지 못했습니다" 같은 일반 문구. 오류 원문은 로그에만. 호출에 공개 오류 코드(`error_code`)가 있으면 코드별 안내 문구를 쓴다 ([협상안 검사 계약](check-offer.md) 3절) |
 
 ## 4. 도구별 `result` 모양
 
@@ -89,15 +91,15 @@ for sq in decomposition.sub_queries:
 | `list_rfqs` | `[{rfq_id, oem_name, vehicle, part_name, process, material, annual_volume, target_price, required_cert, due_date}]` (마감일 순) | RFQ ID |
 | `search_suppliers` | `[{supplier_id, name, region, defect_ppm, on_time_rate, ...}]` (불량률 순) | 업체 ID |
 | `find_suppliers` | `{matches: [{supplier_id, name, region}], total, match_type}`. 정확한 이름 일치를 우선하며 total은 반환 제한 전 기업 수 | 기업 구분에만 사용한다. 상세 정보 근거로 만들지 않는다 |
-| `get_supplier` | `{supplier_id, name, source(DART/MOCK), ..., capabilities, financials, recent_quotes}` | 업체 ID, `source` |
+| `get_supplier` | `{supplier_id, name, source(DART/MOCK), ..., capabilities, financials, recent_quotes, flags, law_refs}` | 업체 ID, `source` |
 | `rank_suppliers` | `{rfq, ranked: [{supplier_id, name, total_score, notes, flags}], excluded: [{supplier_id, name, reason}], ...}` | 업체 ID, 제외 사유 |
-| `check_offer` | `{verdict, supplier, rfq, offer, violations, warnings, info, law_refs}` (각 항목 `{code, severity, message, law_refs}`) | `verdict`, 항목 `message`, `referenced_articles`의 `citation` |
-| `search_regulation` | `[{law_name, article_no, paragraph, title, text, citation, effective_date, source_url, score}]` | **`citation` 그대로** |
+| `check_offer` | `{verdict, supplier, rfq, offer, violations, warnings, info, law_refs}` (각 항목 `{code, severity, message, law_refs}`). v2 입력·출력·오류는 [협상안 검사 계약](check-offer.md) | `verdict`, 항목 `message`, `referenced_articles`의 `citation` |
+| `search_regulation` | `[{law_name, type(조문/정의/부칙), article_no, paragraph, title, text, citation, effective_date, source_url, score}]`. `type=정의`는 결과 조문에 나온 정의 용어의 정의 항(제2조)으로, top_k 뒤에 최대 2개 붙는다 | **`citation` 그대로** |
 | `get_article` | `{law_name, article_no, title, paragraphs, citation, effective_date, source_url, upcoming_changes}` | 설명 참고, `citation` |
 
 ## 직접 질문의 결과 처리
 
-이름으로 기업 상세를 요청하면 `find_suppliers`를 호출한다. 한 곳이면 확인된 ID로 상세를 조회한다. 여러 곳이면 `missing_args`로 대상만 묻는다. 후보가 없으면 `empty`다. 예외 원문에서 기업 이름이나 후보 ID를 추출하지 않는다.
+이름으로 기업 상세를 요청하면 `find_suppliers`를 호출한다. 한 곳이면 확인된 ID로 상세를 조회한다. 여러 곳이면 `missing_args`로 대상만 묻는다. 후보가 없으면 `empty`다. 협상안 검사(`offer_check`)도 같은 방식으로 대상을 먼저 확정한 뒤 그 ID로 `check_offer`를 호출한다([협상안 검사 계약](check-offer.md)). 예외 원문에서 기업 이름이나 후보 ID를 추출하지 않는다.
 
 `search_suppliers`와 `list_rfqs` 및 `search_regulation`의 빈 목록은 조회 결과 없음이다. 이때 `calls`가 있는 `empty`로 표시한다. 그 결과를 필요로 하는 질문은 건너뛰며 독립 질문은 계속한다. inputs의 선택어로 필요한 값을 추출하지 못하는 기존 `empty`는 호출 기록이 없으며 이전 전역 중단 정책을 유지한다.
 

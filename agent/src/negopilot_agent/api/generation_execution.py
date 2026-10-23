@@ -14,7 +14,7 @@ from negopilot_agent.decomposition import DecomposerSettings, QueryDecomposer
 from negopilot_agent.decomposition.backends import AnthropicBackend, Backend, OpenAIBackend, OllamaBackend
 from negopilot_agent.generation import Answer, AnswerGenerator, GeneratorSettings
 from negopilot_agent.generation.backends import GenerationAnthropicBackend, GenerationOpenAIBackend, GenerationOllamaBackend
-from negopilot_agent import timing
+from negopilot_agent import timing, tracing
 from negopilot_agent.graph import build_graph
 from negopilot_agent.routing import McpToolCaller, ToolCaller
 
@@ -37,6 +37,8 @@ class LazyModelBackend:
 
     def __init__(self, phase: Literal["decomposition", "generation"]) -> None:
         self.phase = phase
+        # 분해기가 프롬프트 출력 형식을 정할 때 읽는다 (openai 분해는 짧은 형식). 클라이언트는 만들지 않는다
+        self.COMPACT_OUTPUT = phase == "decomposition" and DecomposerSettings().backend == "openai"
         self._backend: Backend | None = None
         self._close: Callable[[], Awaitable[None]] | None = None
 
@@ -133,7 +135,7 @@ class GenerationExecutor:
                     "query": request.query,
                     "history": [entry.model_dump() for entry in request.history],
                     "context": request.context.model_dump(),
-                })
+                }, config=tracing.run_config(str(request.request_id), self.settings.mode))
             # 단계별 시간과 호출 수. 질문 원문은 남기지 않는다
             log.info("request %s timings %s", request.request_id, timings.summary())
             decomposition = state["decomposition"]

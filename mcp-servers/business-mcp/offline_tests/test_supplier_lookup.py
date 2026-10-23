@@ -15,6 +15,8 @@ SPEC = importlib.util.spec_from_file_location("business_mcp_offline_server", SER
 server = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = server
 SPEC.loader.exec_module(server)
+REAL_QUERY = server.query
+SPEC_DB_POOL = server.db_pool
 
 CAPABILITIES = [
     {"process": "다이캐스팅", "material": "ADC12"},
@@ -32,6 +34,9 @@ def no_database(monkeypatch):
 
     monkeypatch.setattr(server, "query", blocked)
     monkeypatch.setattr(server.psycopg, "connect", blocked)
+    monkeypatch.setattr(server, "db_pool", blocked)
+    # 소재 목록 캐시가 앞 테스트의 가짜 응답을 다음 테스트로 넘기지 않게 한다
+    monkeypatch.setattr(server, "_materials_cache", None)
 
 
 def mock_query(monkeypatch, *responses):
@@ -347,23 +352,124 @@ def test_get_supplier_retains_its_flat_overview_and_detail_shape(monkeypatch):
     capabilities = [{"process": "프레스", "material": "SPCC", "monthly_capacity": 1000}]
     financials = [{"bsns_year": 2025, "revenue": 1000000, "source": "MOCK"}]
     quotes = [{"unit_price": 100, "quoted_at": "2026-01-01"}]
-    calls = mock_query(monkeypatch, [{"exists": 1}], [overview], capabilities, financials, quotes)
+    calls = mock_query(monkeypatch, [candidate()], [overview], capabilities, financials, quotes)
 
     assert server.get_supplier("1") == {
-        **overview, "capabilities": capabilities, "financials": financials, "recent_quotes": quotes,
+        **overview, "flags": [], "law_refs": [],
+        "capabilities": capabilities, "financials": financials, "recent_quotes": quotes,
     }
     assert len(calls) == 5
-    assert all(params == ("SUP-0001",) for _, params in calls)
+    assert calls[0][1] == ("SUP-0001", server.SUPPLIER_CANDIDATES_SHOWN)   # find_suppliers와 같은 ID 조회
+    assert all(params == ("SUP-0001",) for _, params in calls[1:])
 
 
-@pytest.mark.parametrize(("supplier", "rows", "error"), [
-    ("한빛", [{"supplier_id": "SUP-0001", "name": "한빛정밀"},
-              {"supplier_id": "SUP-0002", "name": "한빛금속"}], "2곳이다"),
-    ("없는 기업", [], "해당하는 협력사가 없다"),
-    ("SUP-9999", [], "SUP-9999 협력사가 없다"),
+def test_get_supplier_flags_existing_contract_terms(monkeypatch):
+    """기존 계약 조건을 rank_suppliers와 같은 규칙으로 점검하고 조문을 law_refs로 모은다 (#180)."""
+    overview = {"supplier_id": "SUP-0001", "name": "한빛정밀", "payment_days": 90, "years_dealing": 3,
+                "price_linkage": False, "raw_material_ratio": 0.4, "source": "MOCK"}
+    mock_query(monkeypatch, [candidate()], [overview], [], [], [])
+
+    r = server.get_supplier("1")
+    assert [f["code"] for f in r["flags"]] == ["PAYMENT_DAYS_OVER_60", "LINKAGE_TERMS_MISSING"]
+    refs = {(ref["law"], ref["article_no"]) for f in r["flags"] for ref in f["law_refs"]}
+    assert {(ref["law"], ref["article_no"]) for ref in r["law_refs"]} == refs
+    assert len(r["law_refs"]) == len(refs)
+
+
+@pytest.mark.parametrize(("supplier", "responses", "error"), [
+    # 정확 일치가 여러 곳
+    ("한빛", [[candidate("SUP-0001", "한빛", total=2), candidate("SUP-0002", "한빛", total=2)]],
+     r"\[SUPPLIER_AMBIGUOUS\] '한빛'에 해당하는 협력사가 2곳이다.*SUP-0001 한빛, SUP-0002 한빛"),
+    # 정확 일치는 없고 부분 일치가 여러 곳
+    ("한빛", [[], [candidate("SUP-0001", "한빛정밀", total=12), candidate("SUP-0002", "한빛금속", total=12)]],
+     r"\[SUPPLIER_AMBIGUOUS\] .*12곳이다"),
+    ("없는 기업", [[], []], r"\[SUPPLIER_NOT_FOUND\] '없는 기업'에 해당하는 협력사가 없다"),
+    ("SUP-9999", [[]], r"\[SUPPLIER_NOT_FOUND\] SUP-9999 협력사가 없다"),
+    ("sup 1", [[], []], r"\[SUPPLIER_NOT_FOUND\]"),   # 공백이 있으면 ID가 아니라 이름으로 찾는다
 ])
-def test_get_supplier_preserves_ambiguous_and_missing_errors(monkeypatch, supplier, rows, error):
-    calls = mock_query(monkeypatch, rows)
+def test_get_supplier_preserves_ambiguous_and_missing_errors(monkeypatch, supplier, responses, error):
+    calls = mock_query(monkeypatch, *responses)
     with pytest.raises(ToolError, match=error):
         server.get_supplier(supplier)
-    assert len(calls) == 1
+    assert len(calls) == len(responses)
+
+
+@pytest.mark.parametrize(("supplier", "responses"), [
+    ("SUP-0001", [[candidate()]]),
+    (" (주) 한빛 정밀 ", [[candidate()]]),
+    ("한빛", [[], [candidate("SUP-0003", "한빛정밀")]]),
+])
+def test_find_and_resolve_use_the_same_rule(monkeypatch, supplier, responses):
+    find_calls = mock_query(monkeypatch, *responses)
+    found = server.find_suppliers(supplier)
+    resolve_calls = mock_query(monkeypatch, *responses)
+    resolved = server.resolve_supplier_id(supplier)
+
+    assert found["total"] == 1
+    assert resolved == found["matches"][0]["supplier_id"]
+    # 같은 SQL을 같은 순서로 부른다 (보여 줄 후보 수만 다를 수 있다)
+    assert [sql for sql, _ in find_calls] == [sql for sql, _ in resolve_calls]
+    assert [params[:-1] for _, params in find_calls] == [params[:-1] for _, params in resolve_calls]
+
+
+def test_exact_name_wins_over_partial_matches_for_resolve(monkeypatch):
+    # 예전 resolve는 부분 일치 목록에서 정확 일치를 골랐다. 이제 find_suppliers처럼 정확 일치를 먼저 찾는다
+    calls = mock_query(monkeypatch, [candidate("SUP-0007", "한빛")])
+    assert server.resolve_supplier_id("(주)한빛") == "SUP-0007"
+    assert calls[0][1] == (server.COMPANY_SUFFIX, "한빛", server.SUPPLIER_CANDIDATES_SHOWN)
+
+
+def test_material_list_is_cached_within_ttl(monkeypatch):
+    calls = mock_query(monkeypatch, CAPABILITIES, [], [])
+    server.search_suppliers(material="ADC12")
+    server.search_suppliers(material="PA66")
+    assert sum("SELECT DISTINCT c.process, c.material" in sql for sql, _ in calls) == 1
+
+
+def test_material_list_is_reloaded_after_ttl(monkeypatch):
+    monkeypatch.setattr(server, "MATERIALS_TTL_SECONDS", 0)
+    calls = mock_query(monkeypatch, CAPABILITIES, [], CAPABILITIES, [])
+    server.search_suppliers(material="ADC12")
+    server.search_suppliers(material="ADC12")
+    assert sum("SELECT DISTINCT c.process, c.material" in sql for sql, _ in calls) == 2
+
+
+def test_material_added_after_caching_is_found_without_waiting_for_ttl(monkeypatch):
+    added = CAPABILITIES + [{"process": "단조", "material": "SCM440"}]
+    calls = mock_query(monkeypatch, CAPABILITIES, [], added, [])
+    server.search_suppliers(material="ADC12")              # 캐시에 SCM440 없음
+    assert server.search_suppliers(material="SCM440") == []   # 캐시에 없으니 DB를 한 번 더 읽는다
+    assert calls[-1][1] == [["SCM440"], 20]
+
+
+def test_unknown_material_with_warm_cache_reloads_once_then_fails(monkeypatch):
+    calls = mock_query(monkeypatch, CAPABILITIES, [], CAPABILITIES)
+    server.search_suppliers(material="ADC12")
+    with pytest.raises(ToolError, match="전체 공정에 소재 'unavailable'가 없다"):
+        server.search_suppliers(material="unavailable")
+    assert len(calls) == 3
+
+
+def test_catalog_always_reads_current_materials(monkeypatch):
+    calls = mock_query(monkeypatch, CAPABILITIES, [], [], [], [], CAPABILITIES)
+    server.search_suppliers(material="ADC12")     # 캐시를 채운다
+    server.catalog()                               # regions, counts, rfqs, 소재 목록
+    assert sum("SELECT DISTINCT c.process, c.material" in sql for sql, _ in calls) == 2
+
+
+def test_database_down_is_reported_as_db_unavailable(monkeypatch):
+    monkeypatch.setattr(server, "query", REAL_QUERY)
+    monkeypatch.setattr(server, "db_pool", SPEC_DB_POOL)
+    monkeypatch.setattr(server, "DATABASE_URL", "postgresql://nobody@127.0.0.1:1/none?connect_timeout=1")
+    monkeypatch.setattr(server, "DB_WAIT_SECONDS", 0.5)
+    monkeypatch.setattr(server, "_pool", None)
+    try:
+        with pytest.raises(ToolError, match=r"^\[DB_UNAVAILABLE\]"):
+            server.query("SELECT 1")
+    finally:
+        if server._pool is not None:
+            server._pool.close()
+
+
+def test_pool_is_not_opened_on_import():
+    assert server._pool is None

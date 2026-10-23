@@ -28,6 +28,11 @@ const MESSAGES: Record<string, string> = {
   NETWORK_ERROR: '네트워크에 연결할 수 없습니다.',
   CLIENT_TIMEOUT: '응답 시간이 초과됐습니다.',
   EMPTY_RESPONSE: '서버 응답이 비어 있습니다.',
+  MEMBER_NOT_FOUND: '회원을 찾을 수 없습니다. 목록을 새로 확인해 주세요.',
+  SELF_CHANGE_FORBIDDEN: '본인의 역할이나 계정 상태는 변경할 수 없습니다.',
+  INVALID_STATUS_TRANSITION: '현재 상태에서는 처리할 수 없습니다. 목록을 새로 확인해 주세요.',
+  MEMBER_NOT_ACTIVE: '활성 상태인 회원만 역할을 변경할 수 있습니다.',
+  LAST_ADMIN_REQUIRED: '활성 관리자 계정이 최소 한 개 필요합니다.',
 }
 
 export interface ErrorView {

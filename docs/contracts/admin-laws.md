@@ -1,12 +1,12 @@
 # 관리자 법령 조회와 최신화 API
 
-공개 경로는 Spring의 `/api/v1/admin/laws`다. Python 내부 경로는 `/internal/v1/admin/laws`다. 공개 API는 로그인한 `ACTIVE` 관리자만 사용할 수 있다. POST에는 로그인 세션과 CSRF 헤더가 필요하다. 내부 API는 서버에 설정된 `X-Internal-Api-Key`를 사용한다.
+공개 경로는 Spring의 `/api/admin/laws`다. Python 내부 경로는 `/internal/admin/laws`다. 공개 API는 로그인한 `ACTIVE` 관리자만 사용할 수 있다. POST에는 로그인 세션과 CSRF 헤더가 필요하다. 내부 API는 서버에 설정된 `X-Internal-Api-Key`를 사용한다.
 
 Spring은 내부 응답의 `{"schema_version":"1.0","data":...}`를 검증한 뒤 `data`만 공개 응답으로 반환한다. 클라이언트의 인증 헤더와 쿠키를 Python으로 전달하지 않는다.
 
 ## 경로
 
-아래 표의 경로 앞에 `/api/v1/admin/laws`를 붙인다. 내부 API는 같은 경로 구조에 `/internal/v1/admin/laws`를 사용한다.
+아래 표의 경로 앞에 `/api/admin/laws`를 붙인다. 내부 API는 같은 경로 구조에 `/internal/admin/laws`를 사용한다.
 
 | 메서드와 하위 경로 | 성공 상태 | 의미 |
 | --- | --- | --- |
@@ -33,7 +33,7 @@ Spring은 내부 응답의 `{"schema_version":"1.0","data":...}`를 검증한 �
 ## 법령 목록
 
 ```http
-GET /api/v1/admin/laws
+GET /api/admin/laws
 ```
 
 공개 응답 형식:
@@ -116,7 +116,7 @@ type ArticleDetail = VersionSummary & {
 화면을 열면 다음 요청으로 최근 작업을 확인할 수 있다.
 
 ```http
-GET /api/v1/admin/laws/refresh-jobs
+GET /api/admin/laws/refresh-jobs
 ```
 
 작업이 없을 때:
@@ -127,10 +127,10 @@ GET /api/v1/admin/laws/refresh-jobs
 
 작업이 있으면 `item`에 아래 Job 객체가 들어간다. 직접 ID로 조회하면 Job 객체 자체를 반환한다.
 
-사용자가 최신화를 실행하면 본문 없이 POST한다. `GET /api/v1/auth/csrf`의 `header_name`과 `token`으로 받은 CSRF 헤더를 로그인 세션 쿠키와 함께 보낸다.
+사용자가 최신화를 실행하면 본문 없이 POST한다. `GET /api/auth/csrf`의 `header_name`과 `token`으로 받은 CSRF 헤더를 로그인 세션 쿠키와 함께 보낸다.
 
 ```http
-POST /api/v1/admin/laws/refresh-jobs
+POST /api/admin/laws/refresh-jobs
 ```
 
 202 응답 예시:
@@ -150,7 +150,7 @@ POST /api/v1/admin/laws/refresh-jobs
 반환된 `job_id`로 상태를 조회한다. 202는 접수 성공이며 최신화 완료를 뜻하지 않는다.
 
 ```http
-GET /api/v1/admin/laws/refresh-jobs/74af7d24-2c46-47a9-a281-7b3a11b54482
+GET /api/admin/laws/refresh-jobs/74af7d24-2c46-47a9-a281-7b3a11b54482
 ```
 
 | status | finished_at | dataset_id | error_code |
@@ -166,7 +166,7 @@ GET /api/v1/admin/laws/refresh-jobs/74af7d24-2c46-47a9-a281-7b3a11b54482
 ## 관리자 데이터 요약
 
 ```http
-GET /api/v1/admin/data/summary
+GET /api/admin/data/summary
 ```
 
 이 경로도 활성 관리자만 사용할 수 있다. 쿼리 파라미터는 받지 않는다. 기업과 법령의 연결 상태를 각각 조회하며 한쪽이 실패해도 다른 쪽의 결과를 반환한다.

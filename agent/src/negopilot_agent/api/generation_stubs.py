@@ -165,7 +165,10 @@ class GenerationStubToolCaller:
         if server == "law-mcp" and tool == "search_regulation":
             fixture = json.loads((FIXTURE_DIRECTORY.parent / "routing" / "07_number_needs_grounding.json").read_text())
             call = fixture["routing"]["outcomes"][0]["calls"][0]
-            if args != call["args"]:
+            # Router appends the user's wording to the decomposed question, so match on that question only.
+            if (not args.get("query", "").startswith(PAYMENT_QUERY)
+                    or {k: v for k, v in args.items() if k != "query"}
+                    != {k: v for k, v in call["args"].items() if k != "query"}):
                 raise ValueError("No fixture is configured for this regulation search")
             return [deepcopy(hit) | {"stub": True} for hit in call["result"]]
         if server == "law-mcp" and tool == "get_article":

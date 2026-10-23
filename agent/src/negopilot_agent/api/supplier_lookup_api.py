@@ -1,7 +1,9 @@
-"""v2 live supplier lookup routes. Always read business-mcp, independent of AGENT_EXECUTION_MODE."""
+"""Internal live supplier lookup routes. Always read business-mcp, independent of AGENT_EXECUTION_MODE."""
 
 import asyncio
+import re
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -9,15 +11,38 @@ from pydantic import ValidationError
 
 from .business_supplier_service import BusinessSupplierService, BusinessUnavailable
 from .models import ErrorResponse
+from .paths import INTERNAL_ROOT
 from .settings import ApiSettings
-from .supplier_chat_api import parse_search
-from .supplier_chat_models import StrictModel
+from .supplier_chat_models import SUPPLIER_ID_PATTERN, StrictModel, SupplierSearch
 from .supplier_chat_service import SupplierNotFound
 from .supplier_lookup_models import (
     LiveCatalogResponse, LiveSupplierDetailResponse, LiveSupplierId, LiveSupplierSearchResponse,
 )
 
-LOOKUP_V2_PREFIX = "/internal/v2"
+
+def invalid_supplier_detail_path(path: str, prefix: str = INTERNAL_ROOT + "/suppliers/") -> bool:
+    return path.startswith(prefix) and re.fullmatch(SUPPLIER_ID_PATTERN, path[len(prefix):]) is None
+
+
+def parse_search(request: Request) -> SupplierSearch:
+    pairs = request.query_params.multi_items()
+    values: dict[str, Any] = dict(pairs)
+    if len(pairs) != len(values):
+        raise ValueError("Duplicate query parameters")
+    if set(values) - {"process", "material", "region", "iatf_required", "iso14001_required",
+                      "min_monthly_capacity", "limit"}:
+        raise ValueError("Unknown query parameter")
+    for field in ("iatf_required", "iso14001_required"):
+        if field in values:
+            if values[field] not in {"true", "false"}:
+                raise ValueError("Boolean query parameter must be true or false")
+            values[field] = values[field] == "true"
+    for field in ("min_monthly_capacity", "limit"):
+        if field in values:
+            if not re.fullmatch(r"[0-9]+", values[field]):
+                raise ValueError(f"{field} must be an integer")
+            values[field] = int(values[field])
+    return SupplierSearch.model_validate(values)
 
 
 def add_supplier_lookup_routes(
@@ -28,7 +53,7 @@ def add_supplier_lookup_routes(
     service: BusinessSupplierService | None = None,
 ) -> None:
     router = APIRouter(
-        prefix=LOOKUP_V2_PREFIX,
+        prefix=INTERNAL_ROOT,
         dependencies=[Depends(authenticate)],
         responses={status: {"model": ErrorResponse} for status in (400, 401, 404, 500, 503, 504)},
     )

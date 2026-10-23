@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
+import { openAssistant, setAssistantConversation } from '@/stores/assistant'
 import { ensureSession, session } from '@/stores/session'
 
 declare module 'vue-router' {
@@ -15,8 +16,17 @@ declare module 'vue-router' {
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: { name: 'chat' } },
-    { path: '/chat/:conversationId?', name: 'chat', component: () => import('@/views/ChatView.vue'), meta: { title: 'AI 대화' } },
+    { path: '/', redirect: { name: 'home' } },
+    {
+      // AI 대화는 별도 화면 없이 오른쪽 패널로 연다. 예전 대화 링크와 홈 질문은 홈 위에 패널을 띄운다
+      path: '/chat/:conversationId?',
+      name: 'chat',
+      redirect: (to) => {
+        if (typeof to.params.conversationId === 'string') setAssistantConversation(to.params.conversationId)
+        openAssistant(typeof to.query.q === 'string' ? to.query.q : '')
+        return { name: 'home' }
+      },
+    },
     {
       path: '/overview',
       name: 'home',
@@ -124,13 +134,13 @@ export const router = createRouter({
 router.beforeEach(async (to) => {
   await ensureSession()
   if (to.meta.layout === 'public') {
-    if (session.value?.status === 'ACTIVE' && ['login', 'signup', 'signup-pending'].includes(String(to.name))) return { name: 'chat' }
+    if (session.value?.status === 'ACTIVE' && ['login', 'signup', 'signup-pending'].includes(String(to.name))) return { name: 'home' }
     if (session.value?.status === 'PENDING' && to.name !== 'signup-pending') return { name: 'signup-pending' }
     return true
   }
   if (!session.value) return { name: 'login', query: { redirect: to.fullPath } }
   if (session.value.status === 'PENDING') return { name: 'signup-pending' }
-  if (to.meta.layout === 'admin' && session.value.role !== 'ADMIN') return { name: 'chat' }
+  if (to.meta.layout === 'admin' && session.value.role !== 'ADMIN') return { name: 'home' }
   return true
 })
 
@@ -138,6 +148,12 @@ window.addEventListener('negopilot:unauthenticated', () => {
   if (router.currentRoute.value.meta.layout !== 'public') {
     void router.replace({ name: 'login', query: { redirect: router.currentRoute.value.fullPath } })
   }
+})
+
+// 다른 탭에서 계정이 바뀌면 지금 화면의 접근 조건을 새 회원으로 다시 확인한다
+window.addEventListener('negopilot:member-changed', () => {
+  const { path, query, hash } = router.currentRoute.value
+  void router.replace({ path, query, hash, force: true })
 })
 
 router.afterEach((to) => {

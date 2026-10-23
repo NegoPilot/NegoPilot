@@ -12,6 +12,8 @@ from fastapi import Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
+from .paths import ADMIN_LAWS
+
 
 class RefreshJob(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
@@ -110,14 +112,14 @@ def add_refresh_routes(app, settings, authenticate, error_response, control=None
         except Exception:
             return error_response(503, None, 'UPSTREAM_UNAVAILABLE', 'Law service unavailable.', True)
 
-    @app.post('/internal/v1/admin/laws/refresh-jobs', dependencies=dependencies)
+    @app.post(ADMIN_LAWS + '/refresh-jobs', dependencies=dependencies)
     async def start(request: Request):
         return await run(request)
 
-    @app.get('/internal/v1/admin/laws/refresh-jobs', dependencies=dependencies)
+    @app.get(ADMIN_LAWS + '/refresh-jobs', dependencies=dependencies)
     async def latest(request: Request):
         return await run(request)
 
-    @app.get('/internal/v1/admin/laws/refresh-jobs/{job_id}', dependencies=dependencies)
+    @app.get(ADMIN_LAWS + '/refresh-jobs/{job_id}', dependencies=dependencies)
     async def get(job_id: str, request: Request):
         return await run(request, '/' + job_id, job_id)

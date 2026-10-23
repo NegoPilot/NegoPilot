@@ -1,7 +1,9 @@
 """Offline helper regressions. No application process or model is started."""
 import copy
 import importlib.util
+import json
 from pathlib import Path
+import re
 import sys
 import tempfile
 import unittest
@@ -49,7 +51,58 @@ def cited_response():
     return body
 
 
+def stored(seq, role, content, response, *, message_id=None):
+    return {"seq": seq, "message_id": message_id or str(uuid.uuid4()), "role": role, "content": content,
+            "created_at": "2026-10-22T00:00:00Z", "response": response}
+
+
+def snapshot(messages, count, *, next_cursor=None):
+    return {"messages": messages, "message_count": count, "next_cursor": next_cursor}
+
+
 class GenerationHelpersTest(unittest.TestCase):
+    def test_optional_suggestions_preserve_old_responses_and_have_no_count_limit(self):
+        body = execution_response()
+        smoke.validate_generation(body)
+        for count in (0, 1, 4, 12):
+            with self.subTest(count=count):
+                body["answer"]["suggested_questions"] = [f"후속 질문 {index}" for index in range(count)]
+                smoke.validate_generation(body)
+        body["answer"]["suggested_questions"] = ["🙂" * 120]
+        smoke.validate_generation(body)
+
+    def test_suggestions_reject_invalid_items_without_weakening_answer_contract(self):
+        for suggestions in (None, "질문", [1], [""], [" "], [" 질문"], ["질문", "질문"], ["🙂" * 121]):
+            with self.subTest(suggestions=suggestions):
+                body = execution_response()
+                body["answer"]["suggested_questions"] = suggestions
+                with self.assertRaises(AssertionError):
+                    smoke.validate_generation(body)
+
+    def test_history_excludes_unchosen_suggested_questions(self):
+        response = execution_response()
+        response["answer"]["suggested_questions"] = ["보내지 않은 추천 질문"]
+        messages = [{"role": "assistant", "content": "답변 본문", "response": response}]
+        self.assertEqual(smoke.history(messages), [{"role": "assistant", "content": "답변 본문"}])
+
+    def test_suggestion_helper_and_openapi_share_python_and_bom_whitespace_boundaries(self):
+        contract = json.loads(smoke.CONTRACT.read_text())
+        pattern = contract["components"]["schemas"]["Answer"]["properties"]["suggested_questions"]["items"]["pattern"]
+        whitespace = "\t\n\v\f\r\x1c\x1d\x1e\x1f \x85\xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+        for boundary in whitespace:
+            for question in (boundary, boundary + "후속 질문", "후속 질문" + boundary):
+                with self.subTest(codepoint=ord(boundary), question=question):
+                    body = execution_response()
+                    body["answer"]["suggested_questions"] = [question]
+                    with self.assertRaises(AssertionError):
+                        smoke.validate_generation(body)
+                    self.assertIsNone(re.search(pattern, question))
+            question = "후속" + boundary + "질문"
+            body = execution_response()
+            body["answer"]["suggested_questions"] = [question]
+            smoke.validate_generation(body)
+            self.assertIsNotNone(re.search(pattern, question))
+
     def test_history_uses_latest_twenty_and_counts_unicode_code_points(self):
         text = "🙂" * 4100
         messages = [{"role": "user" if i % 2 == 0 else "assistant", "content": str(i)} for i in range(22)]
@@ -173,14 +226,29 @@ class GenerationHelpersTest(unittest.TestCase):
         response = execution_response()
         response.update(conversation_id=str(uuid.uuid4()), response_id=str(uuid.uuid4()))
         response["answer"]["text"] = smoke.LONG_TEXT
-        messages = [{"message_id": str(uuid.uuid4()), "role": "user", "content": "질문", "response": None},
-                    {"message_id": response["response_id"], "role": "assistant", "content": smoke.LONG_TEXT,
-                     "response": response}]
-        runner.assert_saved({"messages": messages}, messages)
+        messages = [stored(1, "user", "질문", None),
+                    stored(2, "assistant", smoke.LONG_TEXT, response, message_id=response["response_id"])]
+        runner.assert_saved(snapshot(messages, 2), messages)
         changed = copy.deepcopy(messages)
         changed[-1]["content"] = smoke.LONG_TEXT[:4000]
         with self.assertRaises(AssertionError):
-            runner.assert_saved({"messages": changed}, changed)
+            runner.assert_saved(snapshot(changed, 2), changed)
+
+    def test_snapshot_shows_latest_fifty_of_all_kept_pairs_with_cursor(self):
+        runner = smoke.GenerationSmoke(Path("unused.jar"))
+        expected = []
+        for seq in range(1, 105, 2):
+            response = execution_response()
+            response.update(conversation_id=str(uuid.uuid4()), response_id=str(uuid.uuid4()))
+            expected += [stored(seq, "user", "질문", None),
+                         stored(seq + 1, "assistant", response["answer"]["text"], response,
+                                message_id=response["response_id"])]
+        window = expected[-50:]
+        runner.assert_saved(snapshot(window, 104, next_cursor="55"), expected)
+        with self.assertRaises(AssertionError):
+            runner.assert_saved(snapshot(window, 104, next_cursor=None), expected)
+        with self.assertRaises(AssertionError):
+            runner.assert_saved(snapshot(window, 100, next_cursor="55"), expected)
 
     def test_main_cancellation_closes_owned_runner_and_removes_jar_snapshot(self):
         runner = mock.Mock(results=[], responses=[])
@@ -198,6 +266,7 @@ class GenerationHelpersTest(unittest.TestCase):
             with mock.patch.object(smoke, "ROOT", root), mock.patch.object(smoke, "CONTRACT", contract), \
                     mock.patch.object(smoke, "GenerationSmoke", return_value=runner) as factory, \
                     mock.patch.object(sys, "argv", ["generation_smoke.py", "--jar", str(jar), "--report", str(report)]), \
+                    mock.patch.object(smoke.shutil, "which", return_value="/usr/bin/docker"), \
                     mock.patch("builtins.print"):
                 self.assertEqual(smoke.main(), 130)
             runner.close.assert_called_once_with()
@@ -212,11 +281,13 @@ class GenerationHelpersTest(unittest.TestCase):
         last.close.side_effect = RuntimeError("cleanup test " + runner.key)
         runner.processes = [first, last]
         runner.relay = mock.Mock()
+        runner.database = mock.Mock()
         runner.close()
         runner.close()
         first.close.assert_called_once_with()
         last.close.assert_called_once_with()
         runner.relay.close.assert_called_once_with()
+        runner.database.close.assert_called_once_with()
         self.assertEqual(len(runner.results), 1)
         self.assertEqual(runner.results[0]["name"], "cleanup.last")
         self.assertEqual(runner.results[0]["status"], "FAIL")

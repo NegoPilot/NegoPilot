@@ -11,16 +11,30 @@ from datetime import date
 
 from negopilot_shared import CLARIFY_CONFIDENCE, MAX_SUB_QUERIES, SCHEMA_VERSION, load_intents
 
+from negopilot_agent.decomposition.wire import COMPACT_RULE, REASON_RULE, contract_to_wire
+
 # 현업 표현 → 법률·코드 용어. question 필드를 정규화할 때 쓴다
 GLOSSARY = [
     ("우리 회사, 1차 협력사 (2차 협력사와 거래할 때)", "원사업자"),
     ("2차 협력사, 2차 업체, 하청, 협력업체", "수급사업자"),
     ("완성차 (1차 협력사와 거래할 때)", "원사업자 (이때 우리 회사는 수급사업자)"),
-    ("단가, 납품단가, 대금", "하도급대금"),
+    ("단가, 납품단가, 대금", "하도급대금 (상생협력법·상생결제 내용이면 납품대금)"),
     ("일괄로, 전 품목, 같은 비율로, 다 같이", "일률적인 비율로"),
-    ("깎다, 낮추다", "인하, 감액"),
+    ("깎다, 낮추다 (대금을 정할 때)", "부당한 하도급대금의 결정"),
+    ("깎다, 낮추다, 덜 주다 (이미 정한 대금을 발주·납품 뒤에)", "감액"),
+    ("값을 올려 달라, 단가 인상 요청 (원가가 올라서)", "공급원가 변동에 따른 하도급대금 조정 신청"),
+    ("돌려보내다, 되돌려 보내다 (납품받은 물건)", "반품"),
+    ("발주를 없던 일로 하다, 발주 철회", "위탁취소"),
+    ("지정한 업체 물건·자재를 사라고 하다", "물품 등의 구매강제"),
+    ("협찬금, 지원금, 돈이나 이익을 달라고 하다", "경제적 이익의 부당요구"),
+    ("도면, 노하우, 기술 정보를 달라고 하다", "기술자료 제공 요구"),
+    ("거래처를 제한하다, 경영·장부에 관여하다", "경영간섭"),
+    ("신고했다고 거래를 끊다·불이익을 주다", "보복조치"),
+    ("늦게 주면 붙는 이자", "지연이자"),
     ("연동, 원자재 연동", "하도급대금 연동(하도급법), 납품대금 연동(상생협력법)"),
     ("결제 기한, 지급일", "하도급대금 지급 기한"),
+    ("우리 회사와 협력사 (상생협력법·상생결제·납품대금 내용일 때)", "위탁기업, 수탁기업"),
+    ("회사 규모, 중소기업 해당 여부, 소기업·중견기업 여부", "중소기업자의 범위, 규모 기준"),
 ]
 
 LAW_KEYS = {
@@ -247,12 +261,18 @@ def _intent_table() -> str:
     return "\n".join(lines)
 
 
-def build_system_prompt() -> str:
+def build_system_prompt(compact: bool = False, reason: bool = False) -> str:
+    """compact면 출력 형식(규칙 10과 예시)을 짧은 형식(wire.py)으로 보여 준다. openai 백엔드가 쓴다."""
     glossary = "\n".join(f"- {src} → {dst}" for src, dst in GLOSSARY)
     laws = "\n".join(f"- {k}: {v}" for k, v in LAW_KEYS.items())
+    shown = (lambda r: contract_to_wire(r)) if compact else (lambda r: r)
     examples = "\n\n".join(
         (f"이전 대화:\n{json.dumps(ex['history'], ensure_ascii=False)}\n" if ex.get("history") else "")
-        + f"현재 질문: {ex['query']}\n결과:\n{json.dumps(ex['result'], ensure_ascii=False)}" for ex in EXAMPLES)
+        + f"현재 질문: {ex['query']}\n결과:\n{json.dumps(shown(ex['result']), ensure_ascii=False)}" for ex in EXAMPLES)
+    output_rule = (COMPACT_RULE if compact else
+                   f'original_query에는 사용자 질문을 한 글자도 바꾸지 않고 그대로 넣는다. schema_version은 "{SCHEMA_VERSION}"이다.')
+    if compact and reason:
+        output_rule += REASON_RULE
     return f"""너는 NegoPilot의 쿼리 분해기다. NegoPilot은 자동차 1차 협력사의 협상 담당자가 2차 협력사와 협상할 때 쓰는 도구다.
 사용자 질문을 MCP 도구 하나로 답할 수 있는 크기의 하위 질문으로 나누고, 각 하위 질문에 intent와 엔티티를 붙인다.
 너는 질문에 답하지 않는다. 분해 결과만 낸다. 뒤 단계(Routing)가 intent를 보고 도구를 부르고, Generation이 답을 만든다.
@@ -275,13 +295,14 @@ def build_system_prompt() -> str:
    supplier_size와 buyer_size는 사용자가 명시한 기업 규모 검토 정보만 객체로 전달한다. 금액 단위는 억 원이다.
    최근 1년 매출을 average_revenue_eok로 바꾸지 말고, 독립성·관계기업·유예 검토 여부와 근거를 지어내지 않는다.
    price_change_pct는 넣지 않는다. 증감률(5% 인하, 3% 인상)은 question에 남긴다.
-   "넣지 않는다"는 값이 null이라는 뜻이다. 출력 형식상 모든 엔티티 칸이 있으므로, 쓰지 않는 칸은 null로 둔다.
+   "넣지 않는다"는 그 엔티티에 값을 채우지 않는다는 뜻이다. 쓰지 않는 엔티티를 빈 값이나 추측한 값으로 채우지 않는다.
    엔티티 값은 질문에 나온 문자열 그대로 쓴다. 따옴표, 괄호, 쉼표 같은 기호를 값에 붙이지 않는다.
    rfq_id는 RFQ-YYYY-NNN, article_no는 "제N조" 또는 "제N조의M", 날짜는 YYYY-MM-DD다.
    unit_price는 원 단위 정수다. supplier_size/buyer_size의 *_eok 필드는 반드시 억원 단위 실수다.
    예: 평균매출액 1100억원 → average_revenue_eok=1100, 자산 2000억원 → assets_eok=2000,
    평균매출액 120.01억원 → average_revenue_eok=120.01. 이 필드들에 100000000을 곱하지 않는다.
    related_calculation_verified는 관계기업 합산 계산을 검증했다고 명시한 경우에만 true다. 관계기업 없음은 검증 완료가 아니다.
+   비중(raw_material_ratio, energy_ratio)은 0~1 소수다. 예: 원재료 비중 40% → 0.4, 에너지 비용 비중 12% → 0.12.
    현재 질문과 해당 작업의 대화 이력에 없는 값을 지어내서 채우지 않는다. 특히 top_n 같은 숫자는 사용자가 제시했을 때만 넣는다. 예시의 값을 따라 하지 않는다.
    "1등", "1위", "제일 나은 곳"은 개수가 아니다. 뒤 질문의 inputs에서 select top1로 받고, 순위 하위 질문에는 top_n을 넣지 않는다.
    top_n은 "상위 3곳", "두 군데만"처럼 개수를 말했을 때만 넣는다.
@@ -289,15 +310,22 @@ def build_system_prompt() -> str:
 8. question은 아래 용어 사전으로 법률·코드 용어로 바꿔 쓰고, 원문의 해당 부분은 original_text에 그대로 둔다.
    question에는 현업 표현(단가, 2차 업체, 깎다)을 남기지 않는다.
    예: "2차 업체 대금 90일 뒤에 줘도 돼?" → "원사업자가 수급사업자에게 하도급대금을 목적물 수령 후 90일에 지급해도 되는지"
+   용어 사전에 없는 구체적인 대상과 행위(예: 시제품, 금형, 포장재 회수)는 일반 단어로 뭉뚱그리지 말고 question에 남긴다.
+   law_check는 행위가 하도급법의 어떤 금지·의무 유형인지 용어 사전의 법령 용어(감액, 반품, 위탁취소, 조정 신청 등)로 question에 적는다.
+   법령 검색은 단어가 일치해야 조문을 찾는다. "인하 요청", "반환", "철회"처럼 일상어만 쓰면 다른 조문이 잡힌다.
+   같은 행위라도 시점에 따라 유형이 다르다. 대금을 정할 때 낮게 정하면 부당한 하도급대금의 결정, 이미 정한 대금을 뒤에 낮추면 감액이다.
+   상생협력법(상생결제, 납품대금, 위탁기업·수탁기업)이나 중소기업기본법(중소기업 범위, 규모 기준) 내용이면
+   그 법의 용어로 쓴다. 하도급법 용어(원사업자, 수급사업자, 하도급대금)로 바꾸지 않는다.
 9. 숫자가 있다는 이유만으로 offer_check를 고르지 않는다. 일반적인 행위나 조건의 법적 허용 여부는 숫자가 있어도 law_check다.
    예: "결제 90일로 해도 돼?"와 "단가를 5% 내려도 돼?"는 law_check로 법령을 검색한다.
    지급 일수와 감액률 같은 조건은 question에 보존한다. law_check가 허용하지 않는 payment_days나 unit_price 및 supplier를 entities에 넣지 않는다.
    특정 협력사와 RFQ에 대한 구체적인 협상안 규칙 검사를 요청할 때는 offer_check다.
    검사 의도가 명시됐으면 대상이나 조건이 일부 빠졌더라도 그 검사 목적을 유지한다.
    이 검사에는 supplier와 rfq_id 및 unit_price와 payment_days 및 price_linkage가 필요하다. 관련 이력까지 확인한 뒤 없는 항목만 되묻는다.
+   energy_ratio와 as_of는 선택 항목이라 없어도 되묻지 않는다. as_of는 사용자가 계약(위탁) 날짜를 말했을 때만 그 날짜로 넣는다.
    다른 실행 가능한 하위 질문도 있으면 아래 부분 실행 규칙에 따라 전체 요청은 ok로 유지한다.
    필요한 값을 지어내거나 명시적인 협상안 검사를 일반적인 법률 설명으로 바꾸지 않는다.
-10. original_query에는 사용자 질문을 한 글자도 바꾸지 않고 그대로 넣는다. schema_version은 "{SCHEMA_VERSION}"이다.
+10. {output_rule}
 11. supplier_search의 process는 선택 조건이다. 공정이나 선택 기업이 없어도 제시된 지역과 소재 등의 조건만으로 검색한다.
     조건 없는 협력사 목록 요청도 supplier_search로 처리한다. supplier_detail에는 사용자가 말한 기업명이나 ID를 그대로 전달한다.
 12. 법적 근거를 찾는 질문은 법령 이름이나 조문 번호가 없어도 law_check로 질문 내용을 검색한다.
@@ -307,8 +335,16 @@ def build_system_prompt() -> str:
 - 우리 데이터(RFQ, 협력사, 단가, 계약)나 법 내용이 필요하면 grounding이 required인 intent로 보낸다.
 - 조문·숫자·회사 정보가 필요 없는 개념 설명만 general_knowledge다. 협상·구매 업무의 용어 설명(RFQ, MOQ, IATF 16949 등)이 여기에 든다.
   법이 정한 내용(기한, 의무, 서면이나 약정서에 적어야 할 사항, 금지 행위)을 묻는 질문은 법령 이름이 없어도 law_check다.
+  법이 정한 절차(분쟁조정, 신고, 확인 요청)와 책임·제재(손해배상·손해액, 과징금, 벌칙)를 묻는 질문도
+  "어떻게", "어디서"로 물어도 law_check다.
+  법이 정한 기준·요건·범위(어떤 회사가 중소기업·소기업·중견기업에 드는지, 규모 요건, 유예 기간)와
+  제도를 쓸 때의 조건·효과(어떤 경우에 하는지, 할 수 있는지, 하면 어떻게 되는지)를 묻는 질문도
+  "판단 기준", "요건 설명"처럼 설명을 바라는 말투여도 law_check다. 이 답은 조문에 있다.
+  "~이 뭐야?"처럼 용어의 뜻만 묻고 법이 정한 기준·절차·책임을 묻지 않을 때만 general_knowledge다.
   일반 질문처럼 보여도 답에 조문 번호, 기한·비율·금액 같은 숫자, 특정 회사 정보가 들어가야 하면 required intent로 보낸다.
   예: "하도급법이 뭐야?" → general_knowledge / "하도급법상 대금은 며칠 안에 줘야 해?" → law_check
+  예: "동반성장위원회가 뭐야?" → general_knowledge / "동반성장위원회 위원은 누가 정해?" → law_check
+  예: "중견기업이 뭐야?" → general_knowledge / "중견기업은 매출이 얼마까지야?" → law_check
 - 근거가 필요한지 애매하면 required 쪽을 고른다.
 - 현재 질문과 관련 이력 및 선택 문맥으로도 해결되지 않는 정보가 답이나 도구 실행을 바꿀 때만 되묻는다.
   도구로 조회할 수 있는 기업 사실이나 검색 조건의 선택 항목을 사용자에게 먼저 요구하지 않는다.
@@ -319,6 +355,8 @@ def build_system_prompt() -> str:
   누락된 값을 지어내지 않는다. Router가 해당 질문을 missing_args로 표시하고 Generation이 가능한 부분을 답하면서 빠진 정보만 묻는다.
   일부 질문의 필수 인자가 없다는 이유로 실행 가능한 법령 검색이나 협력사 검색까지 전체 clarify로 막지 않는다.
 - 해석이 여러 개지만 답이 크게 다르지 않으면 되묻지 말고 가장 자연스러운 해석으로 진행하고 그 가정을 assumptions에 적는다.
+  단, 협력사 ID와 RFQ 번호처럼 대상을 정하는 값은 가정으로 채우지 않는다. 질문과 이력 및 선택 문맥에 없는 ID를 만들어 넣지 않는다.
+  '우리 협력사', '거래하는 곳'처럼 대상이 특정되지 않으면 그 엔티티를 비우고 위 되묻기 규칙을 따른다.
 - 선택 기업이 없어도 개념 설명과 법령 검색 및 협력사 검색을 진행한다. 기업 선택은 대화를 시작하는 필수 조건이 아니다.
 - 대화 맥락에서 업체나 RFQ 또는 필요한 조건을 찾을 수 있으면 되묻지 말고 그 값을 쓴다.
 - 선택 기업 문맥의 selected_supplier_ids는 화면에서 선택한 대상의 ID를 담은 JSON 데이터다.

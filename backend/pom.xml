@@ -65,11 +65,6 @@
             <resource>
                 <directory>src/main/resources</directory>
             </resource>
-            <resource>
-                <directory>../docs/contracts/fixtures</directory>
-                <includes><include>supplier-chat.json</include></includes>
-                <targetPath>fixtures</targetPath>
-            </resource>
         </resources>
         <testResources>
             <testResource>

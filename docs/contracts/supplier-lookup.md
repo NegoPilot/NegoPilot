@@ -1,18 +1,28 @@
-# 협력사 live 조회 API v2
+# 협력사 live 조회 API
 
-협력사 DB를 읽는 조회 HTTP 계약이다. business-mcp(PostgreSQL)의 실제 협력사 데이터를 반환한다. 검색 요청 규칙과 응답 구조는 [협력사 조회와 선택 기업 챗봇 API v0.2](supplier-chat.md)의 조회 API를 따른다. 기업 ID와 출처 및 버전 표시는 아래 v2 규칙을 적용한다. 명세는 [supplier-lookup.openapi.json](supplier-lookup.openapi.json)이다.
+협력사 DB를 읽는 조회 HTTP 계약이다. business-mcp(PostgreSQL)의 실제 협력사 데이터를 반환한다. 명세는 [supplier-lookup.openapi.json](supplier-lookup.openapi.json)이다.
 
 ## 범위와 책임
 
-연결 흐름은 Vue → Spring → Python FastAPI → business-mcp 순서다. v1 조회 경로는 지금처럼 stub 전용으로 fixture를 읽는다. v2 조회 경로는 AGENT_EXECUTION_MODE와 관계없이 항상 business-mcp를 읽는다. 어느 경로도 모델을 호출하지 않는다. 대화 경로는 이 계약에 포함하지 않는다.
+연결 흐름은 Vue → Spring → Python FastAPI → business-mcp 순서다. 조회 경로는 AGENT_EXECUTION_MODE와 관계없이 항상 business-mcp를 읽으며 모델을 호출하지 않는다. 대화 경로는 이 계약에 포함하지 않는다. 과거 fixture 기반 v1 조회 경로(`/api/v1/suppliers`, `/internal/v1/suppliers` 등)는 #130과 #141에서 제거됐다.
 
 | Spring 공개 경로 | Python 내부 경로 | 응답 data |
 | --- | --- | --- |
-| GET /api/v2/business/catalog | GET /internal/v2/business/catalog | processes와 regions |
-| GET /api/v2/suppliers | GET /internal/v2/suppliers | items와 returned_count 및 limit |
-| GET /api/v2/suppliers/{supplier_id} | GET /internal/v2/suppliers/{supplier_id} | SupplierDetail |
+| GET /api/business/catalog | GET /internal/business/catalog | processes와 regions |
+| GET /api/suppliers | GET /internal/suppliers | items와 returned_count 및 limit |
+| GET /api/suppliers/{supplier_id} | GET /internal/suppliers/{supplier_id} | SupplierDetail |
 
-조회 성공 응답은 `{schema_version:"0.3",mode:"live",data:{...}}`다. 검색 query parameter와 오류 봉투는 v1과 같다. 검색 조건은 `process`와 `material` 및 `region`이다. 인증 조건은 `iatf_required`와 `iso14001_required`다. `min_monthly_capacity`와 `limit`도 지원한다.
+조회 성공 응답은 `{schema_version:"0.3",mode:"live",data:{...}}`다. 오류 응답은 `{request_id,error:{code,message,retryable}}`다.
+
+## 요청과 응답
+
+카탈로그 `processes`는 `{process:string,materials:string[]}[]`이고 `regions`는 `string[]`이다. 카탈로그와 상세 요청에는 query parameter를 붙이지 않는다. 붙어 오면 400 `VALIDATION_ERROR`다.
+
+검색 query parameter는 `process`가 필수다. `material`과 `region`은 선택이다. 각 문자열은 앞뒤 공백 제거 후 1..100자다. `iatf_required`와 `iso14001_required`는 `true` 또는 `false`이며 기본값은 `false`다. `false`는 인증 여부를 따지지 않고, `true`면 각각 IATF 16949와 ISO 14001 인증이 있는 기업만 반환한다. `min_monthly_capacity`는 선택이며 정수 1..10000000이다. 월 생산능력이 이 값 이상인 capability만 `matched_capabilities`에 포함한다. `limit`은 정수 1..100이며 기본값은 20이다. 알 수 없는 parameter와 같은 parameter의 반복은 400으로 거절한다. 빈 선택값은 프런트가 생략한다. `returned_count`는 반환 기업 수다. `total`과 `offset`은 제공하지 않는다.
+
+`SupplierSummary`는 `supplier_id`와 `name` 및 `region`과 `iatf16949`와 `iso14001` 및 `matched_capabilities`와 `provenance`를 갖는다. `matched_capabilities`는 검색 조건에 맞는 `{process,material,monthly_capacity}[]`다.
+
+`SupplierDetail`은 `supplier_id`와 `name` 및 `region`과 `iatf16949`와 `iso14001` 및 `capabilities`와 `quality`와 `financials` 및 `recent_quotes`와 `existing_contract` 및 `provenance`를 갖는다. `quality`는 `{defect_ppm:number|null,on_time_delivery_rate:number|null}`다. `financials`는 `{year,revenue_krw,operating_profit_krw,debt_ratio,source}[]`이며 금액과 비율은 값이 없으면 `null`이다. `recent_quotes`는 `{process,material,unit_price_krw,quoted_at}[]`이며 `quoted_at`은 YYYY-MM-DD다. `existing_contract`는 `null` 또는 `{payment_days:integer,price_linkage:boolean}`다. `on_time_delivery_rate`와 `debt_ratio`는 이미 백분율로 환산한 값이므로 화면에서 100을 곱하지 않는다. `_krw`는 원 단위다. `null`과 빈 `financials`는 0으로 바꾸지 않는다.
 
 ## 데이터 출처
 

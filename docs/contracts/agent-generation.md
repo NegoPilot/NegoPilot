@@ -1,8 +1,8 @@
 # 최신 Agent Generation HTTP 계약 v0.3
 
-기준 main은 `4cad84287086f83f5a858ee9084f005557b81bff`이다. Spring과 Python 사이에서 최신 `build_graph`의 분해와 Routing 및 Generation을 한 번 실행한다. 기존 v0.1 질의 실행과 v0.2 fixture 대화 경로는 호환성 검사용으로 유지한다. 생성 답변을 사용할 클라이언트는 아래 v2 공개 경로를 호출한다. 기본 실행 모드는 live이며 실패할 때 stub으로 전환하지 않는다.
+기준 main은 `4cad84287086f83f5a858ee9084f005557b81bff`이다. Spring과 Python 사이에서 최신 `build_graph`의 분해와 Routing 및 Generation을 한 번 실행한다. 생성 답변을 사용할 클라이언트는 아래 공개 경로를 호출한다. 과거 v0.1 질의 실행과 v0.2 fixture 대화 경로는 #130과 #141에서 제거됐다. 기본 실행 모드는 live이며 실패할 때 stub으로 전환하지 않는다.
 
-Agent 요청과 실행 응답의 정적 스키마는 [OpenAPI v0.3](agent-generation.openapi.json)에 있다. 해당 파일의 메모리 대화 스냅샷은 `legacy-test` 호환 계약이다. 기본 실행의 로그인과 CSRF는 [회원 계약](membership.md)을 따른다. 영속 대화의 v0.4 스냅샷과 추가 경로는 [개인 이력 계약](history.md)을 따른다.
+Agent 요청과 실행 응답 및 `/health`의 정적 스키마는 [OpenAPI v0.3](agent-generation.openapi.json)에 있다. 대화 생성과 조회 응답은 이 파일에 두지 않는다. 기본 실행의 로그인과 CSRF는 [회원 계약](membership.md)을 따른다. 영속 대화의 v0.4 스냅샷과 추가 경로는 [개인 이력 계약](history.md)을 따른다.
 
 기업 선택 없이 채팅에서 질문하는 흐름과 필요한 정보만 추가로 묻는 기준은 [직접 질문 계약](direct-chat.md)에 있다. 기존 schema 0.3의 요청과 응답을 그대로 사용한다.
 
@@ -12,11 +12,11 @@ Agent 요청과 실행 응답의 정적 스키마는 [OpenAPI v0.3](agent-genera
 
 | 경로 | 역할 |
 | --- | --- |
-| POST /api/v2/agent/queries | Spring의 상태 없는 생성 답변 API |
-| POST /internal/v2/query-executions | Python의 전체 Agent 실행 |
-| POST /api/v2/conversations | 기본 실행은 PostgreSQL 대화 생성. 상세는 이력 v0.4 계약 |
-| GET /api/v2/conversations/{conversation_id} | 대화 문맥과 저장 메시지 조회 |
-| POST /api/v2/conversations/{conversation_id}/messages | 저장 문맥과 이력으로 생성 답변 요청 |
+| POST /api/agent/queries | Spring의 상태 없는 생성 답변 API |
+| POST /internal/query-executions | Python의 전체 Agent 실행 |
+| POST /api/conversations | 기본 실행은 PostgreSQL 대화 생성. 상세는 이력 v0.4 계약 |
+| GET /api/conversations/{conversation_id} | 대화 문맥과 저장 메시지 조회. 상세는 이력 v0.4 계약 |
+| POST /api/conversations/{conversation_id}/messages | 저장 문맥과 이력으로 생성 답변 요청 |
 
 질의 요청은 `request_id`와 `query` 및 `history`와 `context`다. 내부 API의 request_id는 필수 UUID다. 공개 질의 API에서는 생략하면 Spring이 만든다. query는 1..4000 code point이며 공백만 있는 문자열은 거절한다. 원문은 보존한다. history는 생략 시 빈 배열이며 최대 20개다. 항목은 user 또는 assistant role과 1..4000자의 content만 갖는다. context는 생략 시 `{selected_supplier_ids:[]}`다. 응답의 decomposition.original_query는 전달된 query와 일치해야 한다. 정의되지 않은 필드와 명시적인 null은 거절한다.
 
@@ -41,7 +41,7 @@ HTTP 200은 다음 필드를 모두 포함한다.
 | answer | 최신 Generation Answer의 전체 JSON |
 | error | null 또는 code와 message 및 retryable |
 
-Answer는 kind와 text 및 citations와 options 및 grounded와 notices 및 evidence와 verification을 포함한다. 코어 Answer를 직렬화하며 verification.ok 같은 Python property를 추가하지 않는다. Answer의 근거와 인용 및 검증 정보를 화면이 사용할 수 있게 그대로 보존한다. HTTP 응답의 answer.text는 비어 있거나 공백만일 수 없다. 이런 결과는 내부 오류로 처리하고 대화에 저장하지 않는다. schema와 mode 및 Answer를 포함한 필드는 생략하지 않는다.
+Answer는 kind와 text 및 citations와 options 및 grounded와 notices 및 evidence와 verification을 포함한다. 코어 Answer를 직렬화하며 verification.ok 같은 Python property를 추가하지 않는다. Answer의 근거와 인용 및 검증 정보를 화면이 사용할 수 있게 그대로 보존한다. HTTP 응답의 answer.text는 비어 있거나 공백만일 수 없다. 이런 결과는 내부 오류로 처리하고 대화에 저장하지 않는다. schema와 mode 및 Answer를 포함한 기존 필수 필드는 생략하지 않는다. 아래의 suggested_questions만 선택 필드다.
 
 | answer.kind | execution_status | generation_status | error |
 | --- | --- | --- | --- |
@@ -57,19 +57,23 @@ Answer는 kind와 text 및 citations와 options 및 grounded와 notices 및 evid
 
 인용 번호와 evidence ID는 고유해야 한다. citation.evidence_id는 citable=true인 evidence를 가리키며 label과 source_url도 일치해야 한다. verification.masked=true이면서 오류 목록이 남는 것은 코어의 정상적인 보정 결과다. 이를 실패로 바꾸지 않는다. clarify 같은 고정 안내에는 인용 없이 grounded=true가 올 수 있다.
 
-Routing 진단 필드는 v0.1의 고정 문구로 정제한 사본을 Generator에 전달한다. HTTP 응답의 Routing도 같은 규칙을 적용한다. 도구 result와 업무 데이터 및 인용은 보존한다. 모델 출력 문자열을 정해진 테스트 문장으로 교체하지 않는다.
+Routing 진단 필드는 고정 문구로 정제한 사본을 Generator에 전달한다. 도구 오류는 `Tool execution failed.`, outcome 메시지는 `Routing details are unavailable.`, 중단 사유는 `Routing halted because a dependency returned no results.`로 바꾼다. HTTP 응답의 Routing도 같은 규칙을 적용한다. 도구 result와 업무 데이터 및 인용은 보존한다. 모델 출력 문자열을 정해진 테스트 문장으로 교체하지 않는다.
 
-## 기존 메모리 대화 저장 계약
+### 추천 질문과 선택 답변
 
-이 절은 `legacy-test` 프로필에만 적용한다. 기본 실행에서는 [이력 v0.4](history.md)에 따라 모든 메시지를 PostgreSQL에 보존한다.
+`answer.suggested_questions`는 선택 필드인 `string[]`다. 필드가 없는 과거 응답은 추천 없음으로 처리한다. 빈 배열도 허용한다. 기존 `schema_version="0.3"`과 필수 필드는 유지하며 정의되지 않은 다른 필드는 계속 거절한다.
 
-대화 생성 요청은 `{context:Context}`다. 기업 정보는 fixture와 비교하지 않는다. snapshot은 schema_version="0.3"과 conversation_id 및 context와 storage="memory" 및 messages를 갖는다. 대화 ID는 기존 API와 같은 표준 UUID 형식이며 대소문자를 구분한다.
+추천 질문은 정상 `answer`의 본문과 같은 Generation 호출에서 생성한다. 추가 모델 호출을 하지 않으며 기존 출력 토큰 상한을 유지한다. 질문 수에는 고정 제한이 없다. 빈 항목과 중복을 제거하며 각 문구는 앞뒤 공백이 없는 1..120 Unicode code point 문자열이다. 모델의 추천 목록만 잘못된 경우에는 해당 목록을 비우고 정상 본문 처리를 계속한다. 본문 근거 검사로 마스킹한 답변이나 추가 정보 요청 및 거절과 조회 결과 없음 및 실패 응답에는 새 추천을 생성하지 않는다.
 
-메시지 요청은 `{query:string,context?:Context}`다. query는 앞뒤 공백을 제거한 뒤 검사한다. context를 생략하면 저장된 문맥을 쓴다. request_id와 history는 클라이언트가 지정하지 않는다. Spring이 최신 저장 메시지 20개를 전달한다. 생성된 긴 assistant 본문은 저장할 때 보존하며 모델 이력으로 보낼 때만 최대 4000 code point로 제한한다. 앞부분을 자른 결과가 공백만 남으면 전송용 이력에서 앞 공백을 제외한 뒤 다시 제한한다. 추가 질문의 선택지는 다음 입력의 번호를 해석할 수 있도록 전송용 assistant 이력에 번호와 함께 포함한다. 저장된 본문은 바꾸지 않는다. 전체 전송 길이 제한을 지키며 선택지 블록을 일부만 잘라 잘못된 번호를 만들지 않는다.
+`answer.options`는 추가 정보를 받기 위한 선택 답변이다. 선택 답변이 필요한 상황에서는 이를 우선하고 일반 후속 질문과 혼합하지 않는다. 추천 질문을 본문에 붙이거나 인용과 근거 검증 결과에 합치지 않는다.
 
-메시지 응답은 실행 응답에 conversation_id와 response_id를 추가한다. response_id는 Spring이 생성한다. 저장 메시지는 message_id와 role 및 content와 response를 갖는다. user의 response는 null이며 assistant의 response에는 전체 메시지 응답을 저장한다. assistant.message_id는 response_id와 같다.
+화면에서는 추천 질문과 기존 선택 답변의 실제 문구를 버튼에 표시한다. 버튼 클릭은 입력창을 해당 문구로 즉시 교체하고 포커스를 이동한다. 사용자 전송 전에는 API 요청이나 대화 저장이 발생하지 않는다. 빈 대화의 예시 질문도 같은 방식으로 동작한다. 최신 AI 응답의 버튼만 활성화하며 과거 선택지는 기록으로 표시한다. 응답 대기와 대화 로딩 중에는 버튼을 비활성화한다.
 
-같은 대화는 직렬로 처리한다. COMPLETED와 NEEDS_INPUT일 때 user와 assistant를 함께 저장하고 새 context를 확정한다. HTTP 오류와 잘못된 응답 및 execution_status=FAILED에서는 메시지와 문맥을 보존한다. 대화별 최대 100개 메시지를 쌍 단위로 유지한다. 재시작하면 초기화된다.
+배포할 때는 선택 필드를 허용하는 Spring과 프런트를 먼저 반영한 뒤 새 필드를 출력하는 Agent를 반영한다. 기존 Spring 검증기는 추가 필드를 거절하므로 Agent만 먼저 교체하지 않는다. 과거 저장 응답은 변경하거나 마이그레이션하지 않는다.
+
+## 대화 메시지 응답
+
+`POST /api/conversations/{conversation_id}/messages`의 성공 응답은 위 실행 응답에 Spring이 발급한 `conversation_id`와 `response_id`를 더한 객체다. 저장과 실패 처리, 이력 전달, 중복 방지 규칙은 [이력 v0.4 계약](history.md)을 따른다.
 
 ## 오류와 검증 모드
 

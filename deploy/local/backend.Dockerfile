@@ -4,7 +4,6 @@ WORKDIR /workspace
 COPY backend/pom.xml backend/pom.xml
 RUN mvn -B -ntp -f backend/pom.xml dependency:go-offline
 COPY backend/src backend/src
-COPY docs/contracts/fixtures/supplier-chat.json docs/contracts/fixtures/supplier-chat.json
 RUN mvn -B -ntp -f backend/pom.xml -Dmaven.test.skip=true package
 
 FROM eclipse-temurin:21-jre

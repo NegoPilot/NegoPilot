@@ -4,7 +4,7 @@ import { companyInput, newCompany, numberOrNull, reviewOffer } from '@/api/revie
 import { ApiError } from '@/api/client'
 
 const form = reactive({ supplier: '', rfq_id: '', as_of: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }),
-  unit_price: '', payment_days: '', price_linkage: '', raw_material_ratio: '', contract_days: '', linkage_waived_by_agreement: false })
+  unit_price: '', payment_days: '', price_linkage: '', raw_material_ratio: '', energy_ratio: '', contract_days: '', linkage_waived_by_agreement: false })
 const companies = reactive([{ role: 'supplier', label: '공급자', data: newCompany() }, { role: 'buyer', label: '구매자', data: newCompany() }])
 const numericFields = [{ key: 'average_revenue_eok', label: '평균매출액 (억원)' }, { key: 'assets_eok', label: '자산총액 (억원)' }] as const
 const triFields = [{ key: 'independence_met', label: '독립성 요건 충족' }, { key: 'has_related_enterprises', label: '관계기업 있음' }, { key: 'seat_manufacturing', label: '의자·좌석 제조업 해당' }, { key: 'deemed_sme', label: '유예·간주 중소기업 해당' }] as const
@@ -14,6 +14,7 @@ const result = ref<Awaited<ReturnType<typeof reviewOffer>> | null>(null)
 const payload = computed(() => ({ ...form, supplier: form.supplier.trim(), rfq_id: form.rfq_id.trim(),
   unit_price: Number(form.unit_price), payment_days: Number(form.payment_days), contract_days: Number(form.contract_days),
   price_linkage: form.price_linkage === 'true', raw_material_ratio: numberOrNull(form.raw_material_ratio) === null ? null : Number(form.raw_material_ratio) / 100,
+  energy_ratio: numberOrNull(form.energy_ratio) === null ? null : Number(form.energy_ratio) / 100,
   supplier_size: companyInput(companies[0]!.data), buyer_size: companyInput(companies[1]!.data) }))
 const stale = computed(() => submitted.value !== JSON.stringify(payload.value))
 const sources = computed(() => result.value?.answer.evidence.filter(e => e.source === 'law') ?? [])
@@ -49,6 +50,7 @@ async function submit() {
         <label>계약 기간 (일) *<input v-model="form.contract_days" type="number" min="1" step="1" required /></label>
         <label>연동 약정 포함 *<select v-model="form.price_linkage" required><option value="">선택</option><option value="true">예</option><option value="false">아니오</option></select></label>
         <label>원재료 비중 (%)<input v-model="form.raw_material_ratio" type="number" min="0" max="100" step="any" /></label>
+        <label>에너지 비용 비중 (%)<input v-model="form.energy_ratio" type="number" min="0" max="100" step="any" /></label>
         <label class="check"><input type="checkbox" v-model="form.linkage_waived_by_agreement" />미연동 합의 있음</label>
       </fieldset>
       <section v-for="c in companies" :key="c.role" class="company">

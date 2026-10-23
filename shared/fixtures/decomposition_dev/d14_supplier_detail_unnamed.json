@@ -1,0 +1,19 @@
+{
+  "note": "어느 협력사인지 없으면 협력사를 지어내지 않고 되묻는다 (#143)",
+  "query": "거래하는 업체 재무 상태 좀 알려 줘",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "clarify",
+    "original_query": "거래하는 업체 재무 상태 좀 알려 줘",
+    "sub_queries": [],
+    "clarification": {
+      "reason": "재무 상태를 조회할 협력사가 질문에 없음",
+      "question": "어느 협력사의 재무 상태를 볼까요?",
+      "options": [
+        "협력사 ID 입력 (예: SUP-0003)",
+        "협력사 이름 입력"
+      ]
+    },
+    "assumptions": []
+  }
+}
