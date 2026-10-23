@@ -22,7 +22,7 @@ from negopilot_agent.offer_proposal.document import OfferDocument
 from negopilot_agent.offer_proposal.pdf import briefing_filename, render_briefing_pdf
 from negopilot_agent.offer_proposal.request import OfferProposalRequest
 from negopilot_agent.offer_proposal.service import OfferViolation, build_package, package_files, recheck
-from negopilot_agent.offer_proposal.writer import NegotiationWriter, writing_enabled
+from negopilot_agent.offer_proposal.writer import NegotiationWriter, refresh_cover, writing_enabled
 
 # business-mcp input errors that the user can fix; other tool errors stay internal.
 INPUT_ERRORS = {"RFQ_NOT_FOUND", "SUPPLIER_NOT_FOUND", "VALUE_OUT_OF_RANGE"}
@@ -112,10 +112,19 @@ def add_offer_routes(app, settings, authenticate, error_response, caller=None, w
                              "check": pkg.check(), "internal_briefing": pkg.briefing()})
 
     @app.post("/internal/offer-proposals/render", dependencies=[Depends(authenticate)])
-    async def render(body: OfferRenderBody, format: Literal["json", "pdf", "docx"] = Query("json")):
+    async def render(body: OfferRenderBody, format: Literal["json", "pdf", "docx"] = Query("json"),
+                     writing: bool = Query(True), include_cover_status: bool = Query(False)):
+        """인사말 다시 쓰기 결과는 X-Cover-Letter 헤더(kept/model/fallback)로 알린다.
+
+        Spring의 OfferResponseValidator는 JSON 최상위 키를 정확히 검사하므로, JSON의 cover_letter 항목은
+        include_cover_status=true로 요청할 때만 넣는다 (#293).
+        """
         try:
             async with asyncio.timeout(settings.request_timeout_seconds):
                 document, check = await recheck(body.document, caller)
+                # 조건을 고쳤으면 인사말 숫자가 표와 달라질 수 있다. 맞지 않으면 다시 쓰거나 코드 인사말로 바꾼다 (#293)
+                writer = make_writer(writing)
+                document, cover = await refresh_cover(document, writer.cover_backend if writer else None)
         except OfferViolation as exc:
             rejected = error_response(422, body.request_id, "OFFER_VIOLATION", "The edited terms violate a rule.")
             return JSONResponse(status_code=422, content=json.loads(rejected.body) | {"findings": exc.findings})
@@ -123,15 +132,21 @@ def add_offer_routes(app, settings, authenticate, error_response, caller=None, w
             return error_response(504, body.request_id, "UPSTREAM_TIMEOUT", "Execution timed out.", True)
         except Exception as exc:
             return tool_error(exc, body.request_id)
+        cover_header = {"X-Cover-Letter": cover.source}
         if format in ("pdf", "docx"):
-            return document_file(document, format)
+            response = document_file(document, format)
+            response.headers.update(cover_header)
+            return response
         files = checked_attachments(document, FILE_SETS[body.files])
         hashed = document.hashed(files)
-        return JSONResponse({"request_id": str(body.request_id), "document": hashed.model_dump(mode="json"),
-                             "attachments": [{"filename": name, "content_type": media,
-                                              "data_base64": base64.b64encode(data).decode("ascii")}
-                                             for name, media, data in files],
-                             "check": check})
+        content = {"request_id": str(body.request_id), "document": hashed.model_dump(mode="json"),
+                   "attachments": [{"filename": name, "content_type": media,
+                                    "data_base64": base64.b64encode(data).decode("ascii")}
+                                   for name, media, data in files],
+                   "check": check}
+        if include_cover_status:
+            content["cover_letter"] = cover.model_dump(mode="json")
+        return JSONResponse(content, headers=cover_header)
 
     @app.post("/internal/offer-proposals/batch", dependencies=[Depends(authenticate)])
     async def batch(request: Request, filename: str = Query(pattern=r"(?i)^[^/\\]{1,120}\.(xlsx|csv)$"),
