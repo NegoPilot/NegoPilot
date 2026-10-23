@@ -28,7 +28,8 @@ def test_tools_are_listed_and_read_only():
         async with Client(mcp) as client:
             return await client.list_tools()
     tools = {t.name: t for t in run(go())}
-    assert {"list_rfqs", "search_suppliers", "get_supplier", "rank_suppliers", "check_offer"} <= set(tools)
+    assert {"list_rfqs", "search_suppliers", "get_supplier", "rank_suppliers", "check_offer",
+            "get_price_benchmarks"} <= set(tools)
     assert all(t.annotations and t.annotations.read_only_hint for t in tools.values())
 
 
@@ -184,6 +185,27 @@ def test_price_far_below_market_is_a_warning():
     assert "PRICE_BELOW_MARKET" in codes(out, "warnings")
     assert {"law": "subcontract_act", "article_no": "제4조", "paragraph": "①"} in out["law_refs"]
     assert out["verdict_code"] == "CHECK_NEEDED"
+
+
+def test_price_benchmarks_match_check_offer_market():
+    sid = top_candidate()
+    out = run(call("get_price_benchmarks", {"rfq_id": "RFQ-2026-001", "supplier": sid}))
+    assert out["rfq"]["rfq_id"] == "RFQ-2026-001" and out["rfq"]["target_price"] > 0
+    market = out["market"]
+    assert market["n"] > 0 and market["min"] <= market["median"] <= market["max"]
+    assert out["supplier"]["supplier_id"] == sid and out["supplier"]["last_price"] > 0
+    assert out["rules"]["PAYMENT_DAYS_LIMIT"] == 60 and out["rules"]["MAJOR_MATERIAL_RATIO"] == 0.10
+    # check_offer와 같은 시장가 기준: 중앙값의 90% 바로 아래면 경고, 바로 위면 경고 없음
+    floor = market["median"] * out["rules"]["MARKET_PRICE_FLOOR"]
+    below = offer(supplier=sid, unit_price=int(floor) - 1)
+    above = offer(supplier=sid, unit_price=int(floor) + 1)
+    assert "PRICE_BELOW_MARKET" in codes(below, "warnings")
+    assert "PRICE_BELOW_MARKET" not in codes(above, "warnings")
+
+
+def test_price_benchmarks_unknown_rfq_is_a_clear_error():
+    with pytest.raises(ToolError, match="RFQ_NOT_FOUND"):
+        run(call("get_price_benchmarks", {"rfq_id": "RFQ-1999-001", "supplier": top_candidate()}))
 
 
 def test_invalid_ratio_is_a_clear_error():

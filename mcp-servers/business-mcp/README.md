@@ -31,6 +31,7 @@
 | Tool | `get_supplier(supplier)` | 협력사 한 곳의 기본 정보, 품질, 계약, 생산능력, 재무, 최근 견적 |
 | Tool | `rank_suppliers(rfq_id, w_price?, w_quality?, w_delivery?, top_n?)` | RFQ 기준 후보 순위와 제외 사유. 점수는 코드로 계산 |
 | Tool | `check_offer(supplier, rfq_id, unit_price, payment_days, price_linkage, raw_material_ratio?, contract_days?, linkage_waived_by_agreement?, buyer_is_small_business?, energy_ratio?, as_of?)` | 협상안의 하도급법 검사. 판정 코드, 위반·경고·참고와 근거 조문(항까지) |
+| Tool | `get_price_benchmarks(rfq_id, supplier)` | 협상안을 만들 때 쓰는 기준값. RFQ 목표 단가, 시장 견적 중앙값·개수·최소·최대(check_offer와 같은 기준), 직전 견적, 기존 계약 조건, 검사 기준값 |
 | Resource | `business://catalog` | 공정별 소재, 별칭, 지역, RFQ 목록, 출처별 협력사 수 |
 
 - 모든 Tool은 `readOnlyHint`가 붙은 조회 도구입니다.

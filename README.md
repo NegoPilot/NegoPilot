@@ -106,7 +106,7 @@ flowchart LR
 | 서버 | 도구와 리소스 | 데이터 | HTTP 포트 |
 | --- | --- | --- | --- |
 | law-mcp | `list_laws`, `get_article`, `search_regulation`, `law://catalog`, `law://{law_key}/{article_no}` | 법령 6종(법률 3, 시행령 3)의 시행일자별 색인 `data/index/*.json` | 9103 |
-| business-mcp | `list_rfqs`, `search_suppliers`, `find_suppliers`, `get_supplier`, `rank_suppliers`, `check_offer`, `business://catalog` | 협력사 150곳(OpenDART 공시 기업 30곳, 가상 기업 120곳), 완성차, RFQ (PostgreSQL 16) | 9102 |
+| business-mcp | `list_rfqs`, `search_suppliers`, `find_suppliers`, `get_supplier`, `rank_suppliers`, `get_price_benchmarks`, `check_offer`, `business://catalog` | 협력사 150곳(OpenDART 공시 기업 30곳, 가상 기업 120곳), 완성차, RFQ (PostgreSQL 16) | 9102 |
 
 - **조회 전용:** 모든 도구에 `readOnlyHint`를 달았습니다. 협상안 검사(`check_offer`)도 위반 여부만 돌려주고 DB는 바꾸지 않습니다.
 - **오류 처리:** 입력이 잘못되면 `ToolError`로 허용되는 값을 알려 줘서 Agent가 고쳐 다시 부를 수 있습니다.

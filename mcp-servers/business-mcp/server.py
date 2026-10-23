@@ -250,6 +250,25 @@ def get_rfq(rfq_id: str) -> dict:
     return rfq[0]
 
 
+def latest_quote(supplier_id: str, process: str, material: str) -> int | None:
+    """이 협력사가 같은 공정·소재로 낸 가장 최근 견적 단가(원). 없으면 None."""
+    rows = query("SELECT unit_price FROM quotes WHERE supplier_id = %s AND process = %s AND material = %s "
+                 "ORDER BY quoted_at DESC LIMIT 1", (supplier_id, process, material))
+    return rows[0]["unit_price"] if rows else None
+
+
+def market_quotes(process: str, material: str) -> dict:
+    """같은 공정·소재의 시장 견적. 활성 협력사마다 가장 최근 견적 하나만 센다 (check_offer 시장가 기준)."""
+    return query("""
+        SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY unit_price) AS median, count(*) AS n,
+               min(unit_price) AS min, max(unit_price) AS max
+        FROM (SELECT DISTINCT ON (q.supplier_id) q.unit_price FROM quotes q
+              JOIN suppliers s USING (supplier_id)
+              WHERE q.process = %s AND q.material = %s AND s.status = 'ACTIVE'
+              ORDER BY q.supplier_id, q.quoted_at DESC, q.quote_id DESC) latest
+    """, (process, material))[0]
+
+
 def minmax(value, values, higher_is_better=True):
     lo, hi = min(values), max(values)
     if hi == lo:
@@ -489,6 +508,41 @@ def assess_company_size(company: CompanySizeInput, as_of: str | None = None) -> 
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
+def get_price_benchmarks(rfq_id: str, supplier: str) -> dict:
+    """협상안을 만들 때 쓰는 가격·계약 기준값을 반환한다. 판정은 하지 않는다.
+
+    rfq_id: RFQ-2026-001 처럼 입력
+    supplier: 협상 상대 협력사 (SUP-0001, 회사명 등. get_supplier와 같은 입력)
+    rfq: 목표 단가(target_price, 원), 연간 물량, 공정, 소재, 필수 인증
+    market: 같은 공정·소재에서 활성 협력사마다 가장 최근 견적 하나씩 모은 단가의 중앙값·개수·최소·최대(원).
+        check_offer의 시장가 비교(PRICE_BELOW_MARKET)와 같은 기준이다. 견적이 없으면 n=0, 나머지는 null
+    supplier: 이 협력사의 같은 공정·소재 직전 견적(last_price), 기존 계약의 지급 일수·연동 약정·원재료 비중,
+        거래 연수. 기존 계약이 없으면 계약 값은 null
+    rules: 협상안 검사에 쓰는 기준값 (지급 기한 60일, 주요 원재료 10%, 연동 면제 90일·1억 원,
+        시장가 90% 하한, 직전 견적 5% 인하). 새 협상안은 check_offer로 검사한다.
+    """
+    sid = resolve_supplier_id(supplier)
+    rfq = get_rfq(rfq_id)
+    records = query("SELECT * FROM supplier_overview WHERE supplier_id = %s AND status = 'ACTIVE'", (sid,))
+    if not records:
+        raise ToolError("[SUPPLIER_NOT_FOUND] 활성 협력사가 없다")
+    s = records[0]
+    market = market_quotes(rfq["process"], rfq["material"])
+    return {
+        "rfq": {k: rfq[k] for k in ("rfq_id", "part_name", "process", "material", "annual_volume", "target_price",
+                                    "required_cert")},
+        "market": {"median": market["median"], "n": market["n"], "min": market["min"], "max": market["max"]},
+        "supplier": {"supplier_id": sid, "name": s["name"],
+                     "last_price": latest_quote(sid, rfq["process"], rfq["material"]),
+                     "payment_days": s["payment_days"], "price_linkage": s["price_linkage"],
+                     "raw_material_ratio": s["raw_material_ratio"], "years_dealing": s["years_dealing"]},
+        "rules": {rule.code: rule.value for rule in (rules.PAYMENT_DAYS_LIMIT, rules.MAJOR_MATERIAL_RATIO,
+                                                     rules.LINKAGE_EXEMPT_DAYS, rules.LINKAGE_EXEMPT_AMOUNT,
+                                                     rules.MARKET_PRICE_FLOOR, rules.LAST_QUOTE_CUT)},
+    }
+
+
+@mcp.tool(annotations={"readOnlyHint": True})
 def check_offer(supplier: str, rfq_id: str, unit_price: int, payment_days: int, price_linkage: bool,
                 raw_material_ratio: float | None = None, contract_days: int = 365,
                 linkage_waived_by_agreement: bool = False, buyer_is_small_business: bool = False,
@@ -534,15 +588,8 @@ def check_offer(supplier: str, rfq_id: str, unit_price: int, payment_days: int, 
     s = records[0]
     cap = query("SELECT monthly_capacity FROM capabilities WHERE supplier_id = %s AND process = %s AND material = %s",
                 (sid, rfq["process"], rfq["material"]))
-    last = query("SELECT unit_price FROM quotes WHERE supplier_id = %s AND process = %s AND material = %s "
-                 "ORDER BY quoted_at DESC LIMIT 1", (sid, rfq["process"], rfq["material"]))
-    market = query("""
-        SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY unit_price) AS median, count(*) AS n
-        FROM (SELECT DISTINCT ON (q.supplier_id) q.unit_price FROM quotes q
-              JOIN suppliers s USING (supplier_id)
-              WHERE q.process = %s AND q.material = %s AND s.status = 'ACTIVE'
-              ORDER BY q.supplier_id, q.quoted_at DESC, q.quote_id DESC) latest
-    """, (rfq["process"], rfq["material"]))[0]
+    last_price = latest_quote(sid, rfq["process"], rfq["material"])
+    market = market_quotes(rfq["process"], rfq["material"])
 
     ratio = raw_material_ratio if raw_material_ratio is not None else s["raw_material_ratio"]
     contract_amount = round(rfq["annual_volume"] * unit_price * contract_days / 365)
@@ -570,8 +617,7 @@ def check_offer(supplier: str, rfq_id: str, unit_price: int, payment_days: int, 
             '소기업이라는 입력만으로 연동 예외를 적용하지 않았다. buyer_size에 별표 3 및 본문 요건 확인 근거가 필요하다',
             rules.LawRef('sme_decree', '제8조')))
 
-    findings += rules.price_findings(unit_price, market["median"], market["n"],
-                                     last[0]["unit_price"] if last else None, rfq["target_price"])
+    findings += rules.price_findings(unit_price, market["median"], market["n"], last_price, rfq["target_price"])
     # Size is only one prerequisite; annual revenue never establishes statutory applicability.
     if supplier_assessment['is_sme'] is None:
         findings.append(finding('SME_STATUS_UNKNOWN', 'warning',
