@@ -61,20 +61,21 @@ def preview_offer_mail(document: dict, attachments: list[dict] | None = None, co
                        "openWorldHint": True})
 def send_offer_mail(document: dict, confirmation_token: str, requested_by: str,
                     attachments: list[dict] | None = None, contact_id: int | None = None,
-                    message: str | None = None) -> dict:
+                    message: str | None = None, client_ref: str | None = None) -> dict:
     """사람이 미리보기를 확인한 뒤에만 부른다. 미리보기와 같은 입력 + 확인 토큰으로 메일을 보낸다.
 
     requested_by: 발송을 승인한 사용자 ID (발송 기록에 남는다)
+    client_ref: 호출자의 발송 요청 식별자. 영문자와 숫자 및 _ 또는 -로 구성한 1~64자
     미리보기 이후 문서·첨부·수신자·추가 문구가 하나라도 바뀌면 [CONFIRMATION_MISMATCH]로 거절한다.
     MAIL_TRANSPORT=dry_run이면 실제로 보내지 않고 보낼 메일을 돌려준다.
     """
-    return run(mailer().send, document, confirmation_token, requested_by, attachments, contact_id, message)
+    return run(mailer().send, document, confirmation_token, requested_by, attachments, contact_id, message, client_ref)
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
-def list_offer_mail_sends(document_id: str) -> list[dict]:
+def list_offer_mail_sends(document_id: str, client_ref: str | None = None) -> list[dict]:
     """제안서 하나의 발송 기록 (누가, 언제, 누구에게, 어느 버전). 수신 주소는 일부 가린다."""
-    return run(mailer().log.history, document_id)
+    return run(mailer().log.history, document_id, client_ref)
 
 
 if __name__ == "__main__":
