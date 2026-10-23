@@ -66,7 +66,7 @@ def test_preview_then_send_with_token_dry_run(mailer):
     doc = document()
     preview = mailer.preview(doc, attachments(), message="일정 협의도 함께 부탁드립니다.")
     assert preview["to"]["email"] == "sales@onsae.example.test" and preview["dry_run"]
-    assert preview["subject"] == "[바이어] 단가 및 거래조건 제안서 (RFQ-2026-002 시트 레일 보강판)"
+    assert preview["subject"] == "[바이어] RFQ-2026-002 시트 레일 보강판 건 단가 및 거래조건 제안서"
     assert "일정 협의도 함께" in preview["body"] and "2026-11-06까지" in preview["body"]
     assert "1948" not in preview["body"] and "1,948" not in preview["body"]   # 숫자 조건은 첨부에만
 
@@ -77,6 +77,27 @@ def test_preview_then_send_with_token_dry_run(mailer):
     [log] = mailer.log.history("OFR-2026-0001")
     assert log["requested_by"] == "user-42" and log["version"] == "2" and log["status"] == "DRY_RUN"
     assert log["recipient"] == "sa***@onsae.example.test" and log["content_hash"] == doc["content_hash"]
+
+
+SENDER = {"company": "한빛모터스", "department": "구매1팀", "contact_name": "박구매", "phone": "02-000-0000",
+          "email": "buy@hanbit.example.test"}
+
+
+def test_document_sender_and_title_from_render_api(mailer):
+    # #236 렌더 결과: 제목에 RFQ·품목이 이미 있고 발신 정보가 문서에 있다
+    doc = document(title="RFQ-2026-002 시트 레일 보강판 단가 및 거래조건 제안", sender=SENDER)
+    preview = mailer.preview(doc, attachments())
+    assert preview["subject"] == "[한빛모터스] RFQ-2026-002 시트 레일 보강판 단가 및 거래조건 제안"
+    assert preview["body"].count("RFQ-2026-002") == 1
+    assert "안녕하십니까. 한빛모터스 구매1팀입니다." in preview["body"]
+    assert "한빛모터스 구매1팀 박구매\n02-000-0000 · buy@hanbit.example.test" in preview["body"]
+
+
+@pytest.mark.parametrize("field", ["company", "email"])
+def test_placeholder_sender_is_rejected(mailer, field):
+    with pytest.raises(om.MailError) as e:
+        mailer.preview(document(sender=SENDER | {field: "[구매사명]"}), attachments())
+    assert code(e) == "SENDER_INCOMPLETE"
 
 
 def test_non_primary_contact_can_be_chosen(mailer):
