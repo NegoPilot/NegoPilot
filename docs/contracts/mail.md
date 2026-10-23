@@ -33,7 +33,8 @@ mail-mcp가 읽는 필드만 정한다. 나머지 필드는 그대로 해시에 
 | `supplier_id` | O | 수신 협력사. 수신자는 이 협력사의 담당자에서만 고른다 |
 | `rfq_id` | O | 제목·본문에 쓴다 |
 | `content_hash` | O | 아래 3의 해시 (`sha256:` + 16진수 64자) |
-| `title` | | 기본 "단가 및 거래조건 제안서" |
+| `title` | | 메일 제목에 쓴다. RFQ 번호가 없으면 앞에 `RFQ 품목 건`을 붙인다. 기본 "단가 및 거래조건 제안서" |
+| `sender` | | `{company, department, contact_name, phone, email}`. 인사말·서명에 쓴다. 값이 비었거나 `[구매사명]` 같은 자리표시면 `[SENDER_INCOMPLETE]`로 보내지 않는다 (#236 `NEGOPILOT_BUYER_*` 설정) |
 | `part_name` | | 품목명. 제목·본문에 쓴다 |
 | `reply_by` | | 회신 기한 (`YYYY-MM-DD`). 본문에 쓴다 |
 | `verdict_code` | | `VIOLATION`이면 거절 |
@@ -101,6 +102,7 @@ content_hash = "sha256:" + hashlib.sha256(payload).hexdigest()
 | `DOCUMENT_NOT_FINAL` | status가 final이 아님 |
 | `OFFER_VIOLATION` | verdict_code가 VIOLATION |
 | `HASH_MISMATCH` | 다시 계산한 해시가 content_hash와 다름 |
+| `SENDER_INCOMPLETE` | 제안서 발신 정보가 비었거나 자리표시 |
 | `INVALID_ATTACHMENT` | 형식·크기·이름·개수 오류 |
 | `INVALID_MESSAGE` | 추가 문구가 2,000자 초과 |
 | `RECIPIENT_MISSING` | 활성 담당자(기본 또는 지정)가 없음 |

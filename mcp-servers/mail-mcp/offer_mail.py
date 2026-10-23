@@ -10,6 +10,7 @@
 
 import base64
 import binascii
+import re
 import hashlib
 import hmac
 import json
@@ -35,6 +36,7 @@ ALLOWED_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 REQUIRED_FIELDS = ("document_id", "version", "status", "supplier_id", "rfq_id", "content_hash")
+PLACEHOLDER = re.compile(r"^\s*\[[^\]]*\]\s*$")   # 설정하지 않은 발신 정보 자리표시 (예: [구매사명])
 
 
 class MailError(Exception):
@@ -102,6 +104,10 @@ def check_document(document: dict, attachments: list[Attachment]) -> str:
     if document.get("verdict_code") == "VIOLATION":
         # 렌더 단계(#236)가 위반안을 거절하지만, 발송 직전에도 한 번 더 막는다 (팀 결정: VIOLATION 차단)
         raise MailError("OFFER_VIOLATION", "법규 검사에서 위반 소지가 있는 제안서는 보낼 수 없다")
+    sender = document.get("sender")
+    if isinstance(sender, dict) and (blank := [k for k, v in sender.items() if not v or PLACEHOLDER.match(str(v))]):
+        # 발신 정보가 [구매사명] 같은 자리표시인 제안서는 협력사에 보내지 않는다
+        raise MailError("SENDER_INCOMPLETE", f"제안서 발신 정보가 채워지지 않았다: {', '.join(blank)} (NEGOPILOT_BUYER_* 설정)")
     actual = content_hash(document, attachments)
     if not hmac.compare_digest(actual, str(document["content_hash"])):
         raise MailError("HASH_MISMATCH", "제안서나 첨부가 승인된 내용과 다르다. 다시 렌더링하고 확인해야 한다")
@@ -168,19 +174,27 @@ def compose(document: dict, contact: Contact, settings: Settings, message: str |
     """제목과 본문. 숫자 조건은 본문에 쓰지 않고 첨부 제안서에만 둔다 (본문과 제안서가 어긋나지 않게)."""
     if message is not None and len(message) > MAX_MESSAGE_CHARS:
         raise MailError("INVALID_MESSAGE", f"추가 문구는 {MAX_MESSAGE_CHARS}자까지다")
+    sender = document.get("sender") if isinstance(document.get("sender"), dict) else {}
+    buyer = sender.get("company") or settings.buyer_name
+    team = sender.get("department") or "구매팀"
     title = document.get("title") or "단가 및 거래조건 제안서"
+    rfq = document["rfq_id"]
     part = f" {document['part_name']}" if document.get("part_name") else ""
-    subject = f"[{settings.buyer_name}] {title} ({document['rfq_id']}{part})"
+    # 제안서 제목에 RFQ 번호가 이미 있으면(#236 기본 제목) 다시 붙이지 않는다
+    about = title if rfq in title else f"{rfq}{part} 건 {title}"
+    subject = f"[{buyer}] {about}"
     lines = [f"{contact.supplier_name} {contact.name}님께", "",
-             f"안녕하십니까. {settings.buyer_name} 구매팀입니다.",
-             f"{document['rfq_id']}{part} 건의 {title}를 첨부와 같이 보내 드립니다."]
+             f"안녕하십니까. {buyer} {team}입니다.",
+             f"{about} 문서를 첨부와 같이 보내 드립니다."]
     if message and message.strip():
         lines += ["", message.strip()]
     if document.get("reply_by"):
         lines += ["", f"검토하신 뒤 {document['reply_by']}까지 회신 부탁드립니다."]
     else:
         lines += ["", "검토하신 뒤 회신 부탁드립니다."]
-    lines += ["", "감사합니다.", settings.sender_name, "",
+    signer = " ".join(v for v in (buyer, team, sender.get("contact_name")) if v) if sender else settings.sender_name
+    contact_line = " · ".join(v for v in (sender.get("phone"), sender.get("email")) if v)
+    lines += ["", "감사합니다.", signer] + ([contact_line] if contact_line else []) + ["",
               f"(제안서 번호 {document['document_id']} · 버전 {document['version']})"]
     return subject, "\n".join(lines)
 
