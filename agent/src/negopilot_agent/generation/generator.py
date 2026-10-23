@@ -282,6 +282,7 @@ class AnswerGenerator:
         extra = ""
         draft: GenerationDraft | None = None
         report = None
+        citable = {e.id for e in evidence if e.citable}
         for attempt in range(1, self.settings.max_attempts + 1):
             text = await self.backend.generate(SYSTEM_PROMPT, user + extra)
             if text is None:   # 거절 또는 잘림
@@ -296,8 +297,14 @@ class AnswerGenerator:
                 continue
             report = verify.check(draft.answer, evidence, allowed)
             report.attempts = attempt
-            if report.ok:
+            uncited = p.answerable and citable and not set(verify.cited_ids(draft.answer)) & citable
+            if report.ok and not (uncited and attempt < self.settings.max_attempts):
                 break
+            if report.ok:
+                # 도구 근거로 답하고도 인용을 하나도 안 붙이면 "근거 자료 없음"으로 보인다 (#177)
+                log.info("인용 없음 (시도 %d)", attempt)
+                extra = "\n\n" + verify.MISSING_CITATION_FEEDBACK
+                continue
             log.info("근거 검사 실패 (시도 %d): %s", attempt, report.model_dump(exclude={"attempts", "masked"}))
             extra = "\n\n" + verify.feedback(report)
 
@@ -308,6 +315,8 @@ class AnswerGenerator:
         if report and not report.ok:
             body = verify.mask(body, report)
             report.masked = True
+        if p.answerable:
+            body = verify.cite_used_evidence(body, draft.used_evidence, citable)
         body, citations = verify.render_citations(body, evidence)
         # 분해가 추정한 값이나 가정을 새 추천의 사실 근거로 확대하지 않는다.
         suggestions = (grounded_suggestions(draft.suggested_questions, evidence, [decomposition.original_query])

@@ -218,6 +218,22 @@ def feedback(report: VerificationReport) -> str:
     return "\n".join(lines)
 
 
+MISSING_CITATION_FEEDBACK = ("직전 답변에 인용이 하나도 없다. 근거 목록의 값을 쓴 문장 끝에 [E1]처럼 근거 id를 붙여 다시 써라. "
+                             "인용할 수 있는 근거(citable=\"yes\")만 써라.")
+
+
+def cite_used_evidence(text: str, used: Iterable[str], citable: set[str]) -> str:
+    """재시도 후에도 인용이 없으면 모델이 쓴다고 밝힌 근거(used_evidence)를 본문 끝에 붙인다 (#177).
+
+    값은 근거 검사를 통과했는데 인용만 빠져 "근거 자료 없음"으로 보이는 것을 막는다.
+    본문에 유효한 인용이 하나라도 있거나 used_evidence에 인용할 근거가 없으면 그대로 둔다.
+    """
+    if set(cited_ids(text)) & citable:
+        return text
+    ids = [eid for eid in dict.fromkeys(used) if eid in citable]
+    return f"{text.rstrip()} [{', '.join(ids)}]" if ids else text
+
+
 def mask(text: str, report: VerificationReport) -> str:
     """재시도 후에도 남은 근거 없는 값을 가린다. 틀린 법 정보를 보여 주는 것보다 낫다."""
     bad_ids = set(report.unknown_citations)
