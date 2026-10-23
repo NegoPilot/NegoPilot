@@ -13,6 +13,7 @@ export const API_PATHS = {
   suppliers: `${API_ROOT}/suppliers`,
   negotiations: `${API_ROOT}/negotiations`,
   negotiationMails: `${API_ROOT}/negotiation-mails`,
+  legalReviewUploads: `${API_ROOT}/legal-review-uploads`,
 } as const
 
 export class ApiError extends Error {
@@ -39,7 +40,8 @@ function isErrorBody(value: unknown): value is ApiErrorBody {
 export async function request<T>(path: string, init: RequestInit = {}, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<T> {
   const headers = new Headers(init.headers)
   headers.set('Accept', 'application/json')
-  if (init.body !== undefined) headers.set('Content-Type', 'application/json')
+  // 파일 업로드(FormData)는 브라우저가 multipart 경계를 붙이도록 Content-Type을 두지 않는다
+  if (init.body !== undefined && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json')
   const method = (init.method ?? 'GET').toUpperCase()
   // 로그인 시 토큰이 바뀌므로 각 변경 요청 직전에 현재 세션의 토큰을 받는다.
   if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
