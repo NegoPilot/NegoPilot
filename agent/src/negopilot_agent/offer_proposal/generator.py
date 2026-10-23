@@ -18,6 +18,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from negopilot_agent.routing.mcp_client import McpToolCaller
+from negopilot_agent.legal_assessment import assess_transaction
 
 from .request import OfferProposalRequest
 
@@ -61,6 +62,7 @@ class Filled(BaseModel):
 
 
 class Candidate(BaseModel):
+    assessment: dict = Field(default_factory=dict, exclude=True)
     intent: Intent
     label: str
     unit_price: int
@@ -102,6 +104,9 @@ class Objection(BaseModel):
 
 class Offer(BaseModel):
     """제시할 협상안 하나. 숫자는 모두 코드가 계산한 값이다."""
+    condition_basis: list[dict] = Field(default_factory=list, exclude_if=lambda value: not value)
+    assessed_alternatives: list[dict] = Field(default_factory=list, exclude_if=lambda value: not value)
+    commercial_comparison: dict | None = Field(default=None, exclude_if=lambda value: value is None)
     headline: str
     basis: Intent
     label: str
@@ -147,6 +152,9 @@ class InputNeeded(BaseModel):
 
 
 class Proposal(BaseModel):
+    review_basis: dict | None = Field(default=None, exclude_if=lambda value: value is None)
+    draft_status: Literal['ready', 'needs_information', 'blocked'] | None = Field(
+        default=None, exclude_if=lambda value: value is None)
     status: Literal['offer', 'no_offer']
     rfq_id: str
     part_name: str
@@ -505,7 +513,25 @@ class OfferProposer:
         for key in ('supplier_size', 'buyer_size'):
             if getattr(req, key) is not None:
                 args[key] = getattr(req, key).model_dump(mode='json')
-        return summarize(await self.caller('business-mcp', 'check_offer', args))
+        tool_caller = self.caller
+        if req.transaction is not None:
+            from negopilot_agent.api.review_api import ReviewOffer
+            from negopilot_agent.api.review_caller import ReviewedToolCaller
+            reviewed = ReviewOffer(**(args | {'supplier_size': args.get('supplier_size') or {},
+                'buyer_size': args.get('buyer_size') or {}, 'transaction': req.transaction}))
+            tool_caller = ReviewedToolCaller(reviewed, self.caller)
+        result = summarize(await tool_caller('business-mcp', 'check_offer', args))
+        if req.transaction is not None:
+            result['assessment'] = assess_transaction(req.transaction, args, req.as_of)
+            if 'reduction_justification_review' in result['assessment']['missing_fields']:
+                result['violations'].append({'code': 'RETROSPECTIVE_REDUCTION_UNRESOLVED',
+                    'message': '기존 발주 감액의 정당성이 확인되지 않아 인하안 생성을 보류합니다', 'law_refs': []})
+            if result['assessment']['status'] == 'blocked':
+                result['violations'].append({'code': 'TRANSACTION_BLOCKED',
+                    'message': '거래 사실 검토에서 제안을 보류합니다', 'law_refs': []})
+            if result['violations']:
+                result['verdict_code'] = 'VIOLATION'
+        return result
 
     async def propose(self, req: OfferProposalRequest) -> Proposal:
         session = getattr(self.caller, 'session', None)
@@ -535,6 +561,7 @@ class OfferProposer:
             candidate.verdict_code = result['verdict_code']
             candidate.violations, candidate.warnings = result['violations'], result['warnings']
             candidate.law_refs = result['law_refs']
+            candidate.assessment = result.get('assessment', {})
             if candidate.linkage_status == 'needs_input':
                 candidate.warnings = add_warning(candidate.warnings, RATIO_REQUIRED)
             if candidate.violations:
@@ -551,8 +578,12 @@ class OfferProposer:
             proposal = Proposal(status='no_offer', offer=None, considered=rejected, filled=terms.filled,
                                 no_offer_reasons=reasons, **base)
         else:
-            chosen = min(passed, key=lambda c: rank_key(c, terms.target, req.intent))
+            from .economics import selection_key
+            chosen = min(passed, key=lambda c: selection_key(c, req, bench, terms.target))
             proposal = await self._offer(req, bench, terms, chosen, amounts[id(chosen)], passed, rejected, base)
+        if req.transaction is not None:
+            proposal.draft_status = ('blocked' if proposal.offer is None else
+                'needs_information' if proposal.offer.warnings else chosen.assessment['status'])
         if self.explainer:
             proposal.explanation = await self.explainer(proposal)
         return proposal
@@ -587,7 +618,38 @@ class OfferProposer:
                       law_refs=chosen.law_refs, revisions=chosen.revisions, adjustments=chosen.adjustments,
                       price_range=price_range, concessions=concessions(chosen, settlement, walk_away),
                       objections=objections(chosen, bench, target))
-        others = [considered(c, lost_reason(c, chosen, target, req.intent)) for c in passed if c is not chosen]
+        from .economics import build_comparison, selection_reason
+        others = [considered(c, selection_reason(c, chosen, req, bench, target)) for c in passed if c is not chosen]
+        if req.transaction is not None:
+            from .traceability import attach_condition_basis
+            attach_condition_basis(offer, chosen.assessment, req)
+            for alternative in offer.assessed_alternatives:
+                changed = chosen.model_copy(update=alternative['terms'])
+                checked = await self.check(changed, req, supplier_id)
+                alternative['check_result'] = checked
+                alternative['assessment'] = checked['assessment']
+                if checked['violations']:
+                    alternative['assessment']['status'] = 'blocked'
+                elif checked['warnings'] and alternative['assessment']['status'] == 'ready':
+                    alternative['assessment']['status'] = 'needs_information'
+            facts = req.transaction
+            if facts.volume_option_quantity is not None and facts.volume_option_unit_price is not None:
+                changed = chosen.model_copy(update={'unit_price': facts.volume_option_unit_price})
+                scenario_req = req.model_copy(update={'transaction': facts.model_copy(update={
+                    'committed_quantity': facts.volume_option_quantity,
+                    'actual_contract_amount': facts.volume_option_quantity * facts.volume_option_unit_price})})
+                checked = await self.check(changed, scenario_req, supplier_id)
+                assessment = checked['assessment']
+                if checked['violations']:
+                    assessment['status'] = 'blocked'
+                elif checked['warnings'] and assessment['status'] == 'ready':
+                    assessment['status'] = 'needs_information'
+                offer.assessed_alternatives.append({'label': '물량과 단가 변경 가정 (합의 필요)',
+                    'terms': changed.model_dump(), 'quantity': facts.volume_option_quantity,
+                    'assessment': assessment, 'check_result': checked, 'requires_agreement': True})
+            offer.commercial_comparison = build_comparison(offer, passed, bench, req, chosen.assessment)
+            offer.concessions = [a['label'] + ': ' + a['assessment']['status']
+                                 for a in offer.assessed_alternatives]
         needed = [InputNeeded(field='raw_material_ratio', message=RATIO_REQUIRED['message'])] \
             if chosen.linkage_status == 'needs_input' else []
         return Proposal(status='offer', offer=offer, considered=others + rejected, filled=terms.filled + walk_filled,

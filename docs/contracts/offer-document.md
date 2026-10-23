@@ -137,3 +137,13 @@ content_hash = "sha256:" + hashlib.sha256(payload).hexdigest()
 ## 6. 변경 절차
 
 필드나 해시를 바꾸면 이 문서, mail.md, `document.py`, 테스트를 한 PR에서 같이 고치고, 뜻이 바뀌면 `schema_version`을 올립니다. mail-mcp 담당(기탁) 승인이 필요합니다.
+
+## 7. 저장본 검사와 내부 근거 분리
+
+백엔드 전용 문구 검사와 조건 재검사 및 저장본 브리핑 렌더는 [offer-internal.md](offer-internal.md)를 따른다.
+외부 문구 검사는 `content_hash`를 무시하며 공개 조건에 없는 숫자와 내부 협상 용어를 탐지한다.
+메일 전달 API는 렌더 결과의 문서와 첨부를 그대로 mail-mcp에 넘긴다.
+
+검토 기반 생성으로 추가한 `condition_basis`와 `assessed_alternatives` 및 `commercial_comparison`과 `review_basis`는 내부 자료다.
+해당 값과 금융효과 및 구매부담 금액은 `OfferDocument`와 외부 PDF 및 DOCX에 넣지 않는다.
+외부 문서의 필드와 내용 해시 규칙은 그대로 유지한다.

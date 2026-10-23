@@ -86,24 +86,29 @@ SYSTEM = '''너는 구매 담당자의 협상 준비를 돕는다. 입력 JSON�
 '''
 
 
-def payloads(proposal: Proposal, document: OfferDocument) -> tuple[dict, dict]:
-    """(모델 입력 전체, 협력사에 보여도 되는 값). 숫자 검사도 이 두 값을 근거로 한다."""
-    o = proposal.offer
-    supplier_terms = {
+def supplier_terms(document: OfferDocument) -> dict:
+    """문구의 숫자 검사에 쓰는 공개 조건."""
+    return {
         'rfq_id': document.rfq_id, 'part_name': document.part_name, 'vehicle': document.vehicle,
         'supplier_name': document.supplier_name, 'annual_volume': document.annual_volume,
         'unit_price': document.unit_price, 'contract_days': document.contract_days,
         'contract_amount': document.contract_amount, 'payment_terms': document.payment_terms(),
         'price_linkage': document.price_linkage, 'raw_material_ratio': document.raw_material_ratio,
         'reply_by': document.reply_by.isoformat(), 'delivery_notes': document.delivery_notes}
+
+
+def payloads(proposal: Proposal, document: OfferDocument) -> tuple[dict, dict]:
+    """(모델 입력 전체, 협력사에 보여도 되는 값). 숫자 검사도 이 두 값을 근거로 한다."""
+    o = proposal.offer
+    public_terms = supplier_terms(document)
     full = {
-        'supplier_terms': supplier_terms, 'headline': o.headline, 'target_price': proposal.target_price,
+        'supplier_terms': public_terms, 'headline': o.headline, 'target_price': proposal.target_price,
         'price_range': [p.model_dump() for p in o.price_range], 'concessions': o.concessions,
         'objections': [x.model_dump() for x in o.objections],
         'warnings': [w.get('message', '') for w in o.warnings],
         'law_refs': [f'{r["law"]} {r["article_no"]}{r.get("paragraph", "")}' for r in o.law_refs],
         'adjustments': o.adjustments, 'input_needed': [x.message for x in proposal.input_needed]}
-    return full, supplier_terms
+    return full, public_terms
 
 
 def unknown_numbers(text: str, allowed: set[str]) -> list[str]:

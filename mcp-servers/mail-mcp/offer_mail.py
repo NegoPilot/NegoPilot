@@ -37,6 +37,7 @@ ALLOWED_TYPES = {
 }
 REQUIRED_FIELDS = ("document_id", "version", "status", "supplier_id", "rfq_id", "content_hash")
 PLACEHOLDER = re.compile(r"^\s*\[[^\]]*\]\s*$")   # 설정하지 않은 발신 정보 자리표시 (예: [구매사명])
+CLIENT_REF = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 class MailError(Exception):
@@ -273,26 +274,41 @@ class SendLog:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
         with self._conn() as c:
+            # 동시에 시작해도 열 확인과 추가가 겹치지 않는다.
+            c.execute("BEGIN IMMEDIATE")
             c.execute("""CREATE TABLE IF NOT EXISTS sends (
                 send_id TEXT PRIMARY KEY, nonce TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL,
                 version TEXT NOT NULL, content_hash TEXT NOT NULL, supplier_id TEXT NOT NULL,
                 contact_id INTEGER NOT NULL, recipient TEXT NOT NULL, subject TEXT NOT NULL,
                 requested_by TEXT NOT NULL, status TEXT NOT NULL, dry_run INTEGER NOT NULL,
-                message_id TEXT, error TEXT, created_at TEXT NOT NULL)""")
+                message_id TEXT, error TEXT, created_at TEXT NOT NULL, client_ref TEXT)""")
+            if "client_ref" not in {row[1] for row in c.execute("PRAGMA table_info(sends)")}:
+                c.execute("ALTER TABLE sends ADD COLUMN client_ref TEXT")
             c.execute("CREATE INDEX IF NOT EXISTS sends_document ON sends(document_id, created_at)")
+            c.execute("CREATE UNIQUE INDEX IF NOT EXISTS sends_client_ref ON sends(client_ref) "
+                      "WHERE client_ref IS NOT NULL")
 
     def _conn(self):
         return sqlite3.connect(self.path, timeout=10, isolation_level=None)
 
-    def reserve(self, nonce: str, row: dict) -> str:
-        """토큰을 쓰기 전에 기록을 잡아 둔다. 같은 토큰이 두 번 오면 여기서 막힌다."""
+    def reserve(self, nonce: str, row: dict, client_ref: str | None = None) -> str:
+        """한 번의 INSERT로 토큰과 발송 요청의 중복을 막는다."""
         send_id = str(uuid.uuid4())
         try:
             with self._conn() as c:
-                c.execute("INSERT INTO sends VALUES (:send_id,:nonce,:document_id,:version,:content_hash,:supplier_id,"
-                          ":contact_id,:recipient,:subject,:requested_by,'SENDING',:dry_run,NULL,NULL,:created_at)",
-                          {**row, "send_id": send_id, "nonce": nonce, "created_at": now_iso()})
+                c.execute("INSERT INTO sends (send_id, nonce, document_id, version, content_hash, supplier_id, "
+                          "contact_id, recipient, subject, requested_by, status, dry_run, message_id, error, "
+                          "created_at, client_ref) VALUES (:send_id,:nonce,:document_id,:version,:content_hash,"
+                          ":supplier_id,:contact_id,:recipient,:subject,:requested_by,'SENDING',:dry_run,"
+                          "NULL,NULL,:created_at,:client_ref)",
+                          {**row, "send_id": send_id, "nonce": nonce, "created_at": now_iso(),
+                           "client_ref": client_ref})
         except sqlite3.IntegrityError:
+            if client_ref is not None:
+                with self._conn() as c:
+                    existing = c.execute("SELECT send_id FROM sends WHERE client_ref = ?", (client_ref,)).fetchone()
+                if existing is not None:
+                    raise MailError("CLIENT_REF_USED", f"이 client_ref로 이미 발송을 예약했다. send_id={existing[0]}") from None
             raise MailError("ALREADY_SENT", "이 확인 토큰으로 이미 발송했다. 다시 보내려면 새로 미리보기한다") from None
         return send_id
 
@@ -300,12 +316,17 @@ class SendLog:
         with self._conn() as c:
             c.execute("UPDATE sends SET status=?, message_id=?, error=? WHERE send_id=?", (status, message_id, error, send_id))
 
-    def history(self, document_id: str) -> list[dict]:
+    def history(self, document_id: str, client_ref: str | None = None) -> list[dict]:
         with self._conn() as c:
             c.row_factory = sqlite3.Row
-            rows = c.execute("SELECT send_id, document_id, version, content_hash, supplier_id, contact_id, recipient, "
-                             "subject, requested_by, status, dry_run, message_id, error, created_at FROM sends "
-                             "WHERE document_id = ? ORDER BY created_at", (document_id,)).fetchall()
+            sql = ("SELECT send_id, document_id, version, content_hash, supplier_id, contact_id, recipient, "
+                   "subject, requested_by, status, dry_run, message_id, error, created_at, client_ref FROM sends "
+                   "WHERE document_id = ?")
+            params: tuple = (document_id,)
+            if client_ref is not None:
+                sql += " AND client_ref = ?"
+                params += (client_ref,)
+            rows = c.execute(sql + " ORDER BY created_at", params).fetchall()
         return [{**dict(r), "dry_run": bool(r["dry_run"]), "recipient": mask_email(r["recipient"])} for r in rows]
 
 
@@ -390,16 +411,19 @@ class OfferMailer:
                 "expires_at": datetime.fromtimestamp(exp, timezone.utc).isoformat(timespec="seconds")}
 
     def send(self, document: dict, confirmation_token: str | None, requested_by: str,
-             attachments: list[dict] | None = None, contact_id: int | None = None, message: str | None = None) -> dict:
+             attachments: list[dict] | None = None, contact_id: int | None = None, message: str | None = None,
+             client_ref: str | None = None) -> dict:
         if not requested_by or not requested_by.strip() or len(requested_by) > 200:
             raise MailError("REQUESTER_REQUIRED", "발송을 승인한 사람(requested_by)이 필요하다")
         files, contact, subject, body, claims = self._prepare(document, attachments, contact_id, message)
         verified = self.confirmations.verify(confirmation_token, claims)
+        if client_ref is not None and (not isinstance(client_ref, str) or CLIENT_REF.fullmatch(client_ref) is None):
+            raise MailError("INVALID_CLIENT_REF", "client_ref는 영문자와 숫자 및 _ 또는 -로 구성한 1~64자여야 한다")
         msg = build_message(subject, body, contact, self.settings, files)
         send_id = self.log.reserve(verified["nonce"], {
             "document_id": claims["document_id"], "version": claims["version"], "content_hash": claims["content_hash"],
             "supplier_id": contact.supplier_id, "contact_id": contact.contact_id, "recipient": contact.email,
-            "subject": subject, "requested_by": requested_by.strip(), "dry_run": int(self.transport.dry_run)})
+            "subject": subject, "requested_by": requested_by.strip(), "dry_run": int(self.transport.dry_run)}, client_ref)
         try:
             self.transport.send(msg)
         except (smtplib.SMTPException, OSError) as e:

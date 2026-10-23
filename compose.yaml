@@ -161,6 +161,7 @@ services:
       OLLAMA_NUM_PREDICT: ${OLLAMA_NUM_PREDICT:-4096}
       BUSINESS_MCP_URL: http://business-mcp:9102/mcp
       LAW_MCP_URL: http://law-mcp:9103/mcp
+      MAIL_MCP_URL: http://mail-mcp:9104/mcp
       # LangSmith tracing is off unless both TRACING=true and a key are set. It sends prompts and tool data out.
       LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
       LANGSMITH_API_KEY: ${LANGSMITH_API_KEY-}
@@ -173,6 +174,8 @@ services:
       business-mcp:
         condition: service_healthy
       law-mcp:
+        condition: service_healthy
+      mail-mcp:
         condition: service_healthy
     healthcheck:
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9200/health', timeout=2)"]

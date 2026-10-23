@@ -13,6 +13,9 @@ import calendar
 import time
 from datetime import date
 from io import BytesIO
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -42,6 +45,31 @@ NOTICE = '이 문서는 초안이며 최종 결정과 발송은 담당자가 한
 Block = tuple[str, object]   # ('p', 문장) | ('table', [[칸, ...], ...]) | ('list', [문장, ...])
 
 
+class BriefingState(BaseModel):
+    """저장된 버전의 검사 상태. 렌더 중에는 검사나 생성을 실행하지 않는다."""
+    model_config = ConfigDict(extra='forbid')
+    current_revision: int = Field(ge=1)
+    validation_status: Literal['not_checked', 'checking', 'checked', 'failed', 'recheck_required']
+    checked_revision: int | None = Field(default=None, ge=1)
+    conclusion: Literal['no_risk_identified_in_scope', 'conditional', 'risk_identified'] | None = None
+    inherited_from: int | None = Field(default=None, ge=1)
+    derived_stale: bool = False
+    user_edited_paths: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+
+    def current_checked(self) -> bool:
+        return self.validation_status == 'checked' and (
+            self.checked_revision == self.current_revision or self.inherited_from is not None)
+
+
+STATE_LABELS = {'not_checked': '미검사', 'checking': '검사 중', 'checked': '검사 완료',
+                'failed': '검사 실패', 'recheck_required': '재검사 필요'}
+CONCLUSION_LABELS = {'no_risk_identified_in_scope': '검사 범위에서 위험 미발견',
+                     'conditional': '조건부', 'risk_identified': '위험 발견'}
+EDITED_WRITING_LABEL = '사용자 수정 문구 (검사하지 않음)'
+UNCHECKED_WRITING_LABEL = '현재 버전의 문구는 검사하지 않았습니다'
+
+
 def won(value: int | float | None) -> str:
     return '-' if value is None else f'{value:,.0f}원'
 
@@ -60,7 +88,8 @@ def filled_value(field: str, value) -> str:
     return f'{value}일' if field.endswith('_days') else str(value)
 
 
-def sections(p: Proposal, writing: Writing | None = None) -> list[tuple[str, list[Block]]]:
+def sections(p: Proposal, writing: Writing | None = None,
+             state: BriefingState | None = None) -> list[tuple[str, list[Block]]]:
     o, bench = p.offer, p.benchmarks
     market, last = bench['market'], bench['supplier']['last_price']
     out = [('내부 협상 브리핑', [('p', CONFIDENTIAL),
@@ -110,6 +139,67 @@ def sections(p: Proposal, writing: Writing | None = None) -> list[tuple[str, lis
     changed += [f'자동 입력: {FIELDS.get(f.field, f.field)} = {filled_value(f.field, f.value)} ({f.source})' for f in p.filled]
     out.append(('조정한 조건과 자동으로 채운 값', [('list', changed or ['없음'])]))
     out.append(('고지', [('p', NOTICE)]))
+    return saved_sections(out, p, writing, state) if state is not None else out
+
+
+def edited(state: BriefingState, *paths: str) -> bool:
+    """배열 원소 수정과 상위 객체 전체 수정을 함께 인식한다."""
+    return any(changed == path or changed.startswith(path + '/') or path.startswith(changed + '/')
+               for changed in state.user_edited_paths for path in paths)
+
+
+def saved_sections(out: list[tuple[str, list[Block]]], proposal: Proposal, writing: Writing | None,
+                   state: BriefingState) -> list[tuple[str, list[Block]]]:
+    """저장본에만 상태 표시를 덧붙여 기존 생성 경로의 내용을 보존한다."""
+    out[0][1].insert(1, ('p', f'버전 r{state.current_revision} · 검사 상태: {STATE_LABELS[state.validation_status]}'))
+    if not state.current_checked():
+        out[0][1].insert(2, ('alert', '현재 버전은 검사하지 않았습니다'))
+    blocks = dict(out)
+    offer = proposal.offer
+    if offer is not None:
+        if not state.current_checked():
+            last = f'r{state.checked_revision}' if state.checked_revision is not None else '없음'
+            blocks['법규 검토 결과'][:] = [('p', f'현재 버전은 검사하지 않았습니다(마지막 검사: {last})')]
+        else:
+            # 기존 생성본에는 위반 배열이 없다. 실제 개수를 받은 경우에만 건수를 적는다.
+            violations = getattr(offer, 'violations', None)
+            risk_found = (state.conclusion == 'risk_identified'
+                          or (state.conclusion is None and offer.verdict_code == 'VIOLATION'))
+            count = (f' 위반 소지 {len(violations)}건'
+                     if violations is not None and (violations or not risk_found) else '')
+            # 현재 결론이 있으면 생성 당시의 판정을 현재 결과로 쓰지 않는다.
+            verdict = (f'현재 검사 결론: {CONCLUSION_LABELS[state.conclusion]}' if state.conclusion is not None
+                       else f'check_offer 판정: {VERDICTS[offer.verdict_code]} ({offer.verdict_code})')
+            blocks['법규 검토 결과'][0] = ('p', verdict + count)
+        if state.derived_stale:
+            rows = blocks['협상 범위'][0][1]
+            for row in rows[1:]:
+                row[2:] = ['갱신 대기'] * 4
+
+        def writing_label(*paths: str) -> str:
+            if edited(state, *paths):
+                return EDITED_WRITING_LABEL
+            return WRITING_LABEL[writing.source] if state.current_checked() else UNCHECKED_WRITING_LABEL
+
+        if writing is not None:
+            blocks['협상 전략'][0] = ('label', writing_label('/writing/strategy'))
+            blocks['제안 멘트(초안)'].insert(0, ('label', writing_label('/writing/opening_message')))
+        objections_edited = edited(state, '/offer/objections')
+        if writing is not None or objections_edited:
+            label = (EDITED_WRITING_LABEL if objections_edited
+                     else writing_label('/writing/objection_scripts'))
+            blocks['예상 쟁점과 대응'].insert(0, ('label', label))
+        if offer.objections:
+            # 수정한 대응을 우선하되 문구 배열이 짧아져도 저장된 쟁점을 빠뜨리지 않는다.
+            use_scripts = writing is not None and (not objections_edited
+                                                    or edited(state, '/writing/objection_scripts'))
+            scripts = writing.objection_scripts if use_scripts else []
+            blocks['예상 쟁점과 대응'][-1] = (
+                'table', [['쟁점', '대응 멘트']] + [
+                    [x.issue, scripts[i] if i < len(scripts) else x.response]
+                    for i, x in enumerate(offer.objections)])
+    if state.limitations:
+        out.insert(-1, ('검사 범위의 한계', [('list', state.limitations)]))
     return out
 
 
@@ -141,22 +231,30 @@ def fixed_timestamp(day: date) -> pdfdoc.TimeStamp:
 
 
 def draw(sections_: list[tuple[str, list[Block]]], title_text: str, header: str | None = None,
-         fixed_date: date | None = None) -> bytes:
+         fixed_date: date | None = None, keep_headings: bool = False) -> bytes:
     """문단·목록·표·상자로 된 문서를 A4 PDF로 그린다. header가 있으면 모든 쪽 위에 찍는다.
 
     fixed_date가 있으면 invariant 모드로 그리고 파일 시각을 그날로 고정해, 같은 내용이면 같은 바이트가 나온다.
     """
     register_fonts()
     body = ParagraphStyle('body', fontName=BODY_FONT, fontSize=9.5, leading=14)
-    head = ParagraphStyle('head', fontName=HEAD_FONT, fontSize=12, leading=18, spaceBefore=8, spaceAfter=4)
+    head = ParagraphStyle('head', fontName=HEAD_FONT, fontSize=12, leading=18, spaceBefore=8, spaceAfter=4,
+                          keepWithNext=keep_headings)
     title = ParagraphStyle('title', fontName=HEAD_FONT, fontSize=20, leading=26, spaceAfter=6)
     cell = ParagraphStyle('cell', fontName=BODY_FONT, fontSize=8.5, leading=12)
+    alert = ParagraphStyle('alert', parent=body, textColor=colors.darkred, backColor=colors.mistyrose,
+                           borderPadding=5, spaceBefore=6, spaceAfter=6)
+    label = ParagraphStyle('label', parent=body, keepWithNext=True)
     story = []
     for n, (name, blocks) in enumerate(sections_):
         story.append(Paragraph(text(name), title if n == 0 else head))
         for kind, value in blocks:
             if kind == 'p':
                 story.append(Paragraph(text(value), body))
+            elif kind == 'alert':
+                story.append(Paragraph(text(value), alert))
+            elif kind == 'label':
+                story.append(Paragraph(text(value), label))
             elif kind == 'list':
                 story += [Paragraph(text(item), body) for item in value]
             elif kind == 'box':
@@ -191,9 +289,12 @@ def draw(sections_: list[tuple[str, list[Block]]], title_text: str, header: str 
     return buffer.getvalue()
 
 
-def render_briefing_pdf(proposal: Proposal, writing: Writing | None = None) -> bytes:
-    return draw(sections(proposal, writing), f'내부 협상 브리핑 {proposal.rfq_id} {proposal.supplier_id}', CONFIDENTIAL)
+def render_briefing_pdf(proposal: Proposal, writing: Writing | None = None,
+                        state: BriefingState | None = None, fixed_date: date | None = None) -> bytes:
+    return draw(sections(proposal, writing, state), f'내부 협상 브리핑 {proposal.rfq_id} {proposal.supplier_id}',
+                CONFIDENTIAL, fixed_date=fixed_date, keep_headings=state is not None)
 
 
-def briefing_filename(proposal: Proposal) -> str:
-    return f'내부브리핑_{proposal.rfq_id}_{proposal.supplier_id}.pdf'
+def briefing_filename(proposal: Proposal, revision: int | None = None) -> str:
+    suffix = f'_r{revision}' if revision is not None else ''
+    return f'내부브리핑_{proposal.rfq_id}_{proposal.supplier_id}{suffix}.pdf'

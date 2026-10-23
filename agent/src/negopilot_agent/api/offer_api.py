@@ -15,12 +15,14 @@ from zoneinfo import ZoneInfo
 
 from fastapi import Depends, Query, Request
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from negopilot_agent.api.review_snapshot import verify_review
 
 from negopilot_agent.offer_proposal import excel, supplier
 from negopilot_agent.offer_proposal.document import OfferDocument
 from negopilot_agent.offer_proposal.pdf import briefing_filename, render_briefing_pdf
-from negopilot_agent.offer_proposal.request import OfferProposalRequest
+from negopilot_agent.offer_proposal.request import OfferProposalRequest, SenderInfo
 from negopilot_agent.offer_proposal.service import OfferViolation, build_package, package_files, recheck
 from negopilot_agent.offer_proposal.writer import NegotiationWriter, writing_enabled
 
@@ -43,6 +45,17 @@ class OfferRenderBody(BaseModel):
     request_id: UUID
     document: OfferDocument
     files: Literal["pdf", "docx", "both"] = "both"     # 메일에 붙일 첨부. content_hash도 이 파일들로 계산한다
+
+
+class ReviewedProposalBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    request_id: UUID = Field(strict=False)
+    review_token: str = Field(min_length=1, max_length=100000)
+    target_price: int | None = Field(default=None, gt=0)
+    max_price: int | None = Field(default=None, gt=0)
+    intent: Literal["target", "market", "payment"] | None = None
+    notes: str | None = Field(default=None, max_length=500)
+    sender: SenderInfo | None = None
 
 
 def file_response(data: bytes, filename: str, media_type: str, headers: dict | None = None) -> Response:
@@ -88,6 +101,41 @@ def add_offer_routes(app, settings, authenticate, error_response, caller=None, w
         if code and code.group(1) in INPUT_ERRORS:
             return error_response(422, request_id, code.group(1), "Offer input was rejected.")
         return error_response(500, request_id, "INTERNAL_ERROR", "Unexpected server error.")
+
+    @app.post("/internal/offer-proposals/from-review", dependencies=[Depends(authenticate)])
+    async def from_review(body: ReviewedProposalBody, writing: bool = Query(True)):
+        try:
+            snapshot = verify_review(body.review_token, settings.internal_api_key)
+        except ValueError:
+            return error_response(409, body.request_id, "REVIEW_EXPIRED_OR_CHANGED", "Review again before proposing.")
+        values = {key: value for key, value in snapshot['offer'].items()
+                  if key in OfferProposalRequest.model_fields and key != 'unit_price'}
+        # 검토 단가는 목표 단가가 아니다. 요청에 없으면 RFQ 목표 단가를 쓴다.
+        for key in ('target_price', 'max_price', 'intent', 'notes', 'sender'):
+            if key in body.model_fields_set:
+                values[key] = getattr(body, key)
+        try:
+            req = OfferProposalRequest.model_validate(values)
+        except ValidationError:
+            return error_response(400, body.request_id, "VALIDATION_ERROR", "Invalid proposal targets.")
+        try:
+            async with asyncio.timeout(settings.request_timeout_seconds):
+                pkg = await build_package(req, caller, make_writer(writing))
+        except TimeoutError:
+            return error_response(504, body.request_id, "UPSTREAM_TIMEOUT", "Execution timed out.", True)
+        except Exception as exc:
+            return tool_error(exc, body.request_id)
+        if req.transaction is not None:
+            pkg.proposal.review_basis = {key: snapshot[key] for key in ('review_id', 'version', 'input_hash')}
+            if pkg.proposal.offer is not None:
+                if snapshot['assessment'].get('sources_complete') is False:
+                    pkg.proposal.draft_status = 'needs_information'
+                for item in pkg.proposal.offer.condition_basis:
+                    item.update(review_id=snapshot['review_id'], review_version=snapshot['version'],
+                                source_input_hash=snapshot['input_hash'])
+        return JSONResponse({'request_id': str(body.request_id),
+                             'offer_document': pkg.document.model_dump(mode='json') if pkg.document else None,
+                             'check': pkg.check(), 'internal_briefing': pkg.briefing()})
 
     @app.post("/internal/offer-proposals", dependencies=[Depends(authenticate)])
     async def propose(body: OfferProposalBody,

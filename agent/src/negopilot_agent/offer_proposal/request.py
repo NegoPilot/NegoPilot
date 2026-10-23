@@ -4,6 +4,7 @@ from datetime import date
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from negopilot_shared.transaction import TransactionFacts
 
 from negopilot_agent.api.review_api import ReviewCompanyFacts
 
@@ -43,6 +44,7 @@ class OfferProposalRequest(BaseModel):
     buyer_size: ReviewCompanyFacts | None = None
     # 발신 담당자. 백엔드 프록시가 로그인 세션의 회원 정보로 채운다(클라이언트 입력을 그대로 쓰지 않는다)
     sender: SenderInfo | None = None
+    transaction: TransactionFacts | None = None
 
     @model_validator(mode='after')
     def max_not_below_target(self):

@@ -51,9 +51,22 @@ business-mcp `get_price_benchmarks`가 기준값을 주고, Agent `offer_proposa
 | `notes` | | 납품·비고(500자 이하). 문서에 그대로 옮긴다 | |
 | `supplier_size`, `buyer_size` | | `/review`와 같은 `ReviewCompanyFacts` | 규모 판정 보류(경고) |
 | `sender` | | 발신 담당자 `{name, department, job_title, email, phone?}`. **백엔드 프록시가 로그인 세션의 회원 정보로 채운다(클라이언트 입력 금지)**. [offer-document.md](offer-document.md) 5절 | `NEGOPILOT_BUYER_*` 설정값 |
+| `transaction` | | 선택 거래 사실 `TransactionFacts`. 검토 입력의 거래 유형과 지급 기산일 및 연동 상세 등을 그대로 받는다. 엑셀 일괄 입력에서는 받지 않는다 | 기존 생성 방식 유지 |
 
 - 비워서 데이터로 채운 값은 결과의 `filled[]`에 `{field, value, source}`로 적는다.
 - 요청 조건이 법 기준을 넘으면 고치고 `offer.adjustments[]`에 적는다. 예: `요청 조건 지급 90일 → 법정 60일 이내로 조정`, `요청 조건 연동 없음 → 원재료 비중 42%로 법정 연동 대상이라 연동 포함`.
+
+`transaction`에는 경제효과 비교를 위한 선택 필드도 있다.
+
+| 필드 | 제약 | 용도 |
+| --- | --- | --- |
+| `previous_payment_days` | 양의 정수 | 비교 거래의 지급 일수 |
+| `buyer_financing_rate` | 0 이상 1 이하의 유한 숫자 | 구매자 연 자금조달률 |
+| `supplier_financing_rate` | 0 이상 1 이하의 유한 숫자 | 공급자 연 자금조달률 |
+| `volume_option_quantity` | 양의 정수 | 별도 물량 대안의 수량 |
+| `volume_option_unit_price` | 양의 정수 | 별도 물량 대안의 단가 |
+
+미입력 조달률은 금융효과 미확인이다. 0을 입력한 경우와 구분한다. 확정 구매물량은 `committed_quantity`로 받는다. 연간 예상 물량이나 계약 기간으로 확정 물량을 만들어 넣지 않는다. 물량 대안은 수량과 단가를 함께 받아 재검사하며 자동 선정 대상에 넣지 않는다.
 
 ## 3. 협상안 만들기
 
@@ -118,6 +131,20 @@ business-mcp `get_price_benchmarks`가 기준값을 주고, Agent `offer_proposa
 - `input_needed[]`: `{field, message}`. 판정을 끝내려면 사람이 넣어야 하는 값. 브리핑 맨 위에 보여 준다.
 - `offer.linkage_status`: 3절 참고.
 
+거래 사실이 있을 때만 아래 내부 필드를 채운다. 비어 있는 신규 필드는 JSON에서 생략해 기존 생성 결과를 유지한다.
+
+| 필드 | 기본값 | 내용 |
+| --- | --- | --- |
+| `offer.condition_basis` | 빈 목록 | 조건별 선정 근거와 검토 항목 식별자 및 조문 참조 |
+| `offer.assessed_alternatives` | 빈 목록 | 완전한 조건 조합별 거래 사실 검토와 `check_offer` 결과 |
+| `offer.commercial_comparison` | null | 구매금액과 지급 시점에 따른 금융효과 비교. 입력 조달률과 계산식 및 미확인 항목 포함 |
+| `review_basis` | null | 검토에서 생성한 경우의 `review_id`와 `version` 및 `input_hash`. 전체 `evidence`는 포함하지 않음 |
+| `draft_status` | null | `ready` 또는 `needs_information` 또는 `blocked` |
+
+거래 사실이 있으면 각 후보와 가격점 및 조건 대안을 다시 검토한다. 기존 발주 감액의 정당성이 미확인이면 해당 후보는 제외한다. 이른 지급기한을 넘는 후보도 제외한다. 연동 상세가 미완성이면 조건부 초안으로 표시한다. 확정 물량이 있으면 요청한 협상 방향과 경고 수를 먼저 비교한 뒤 구매금액과 입력 조달률에 따른 금융비용을 비교한다.
+
+위 필드는 `internal_briefing` 전용이다. 협력사 `offer_document`와 PDF 및 DOCX에는 금융효과와 내부 구매부담 비교값을 넣지 않는다. 공개 조건의 계약금액은 기존 계산을 유지한다.
+
 ## 5. HTTP
 
 `/internal/legal-reviews`와 같은 인증(`X-Internal-Api-Key`)과 오류 형식을 쓴다.
@@ -138,6 +165,26 @@ business-mcp `get_price_benchmarks`가 기준값을 주고, Agent `offer_proposa
 ### `POST /internal/offer-proposals/render`
 
 고친 제안서를 다시 검사해 렌더링한다. [offer-document.md](offer-document.md) 3절.
+
+### `POST /internal/offer-proposals/from-review`
+
+백엔드가 서명된 검토 스냅샷으로 협상안을 생성한다. 인증은 `X-Internal-Api-Key`다.
+
+```json
+{"request_id": "uuid", "review_token": "서명된 검토 토큰",
+ "target_price": 1750, "max_price": 2050, "intent": "target", "notes": "분할 납품 협의",
+ "sender": {"name": "홍길동", "department": "구매팀", "job_title": "매니저", "email": "buyer@example.com"}}
+```
+
+- 필수 본문은 `request_id`와 `review_token`이다. 나머지는 선택이다. 알 수 없는 필드는 거절한다.
+- 스냅샷에서 `OfferProposalRequest`에 해당하는 필드만 가져온다. `transaction`을 포함하며 검토 `unit_price`는 제외한다.
+- `target_price`가 없으면 RFQ 목표 단가를 쓴다. 검토 당시 단가로 자동 치환하지 않는다.
+- `sender`는 백엔드가 로그인 세션의 회원 정보로 채운다. 요청에 있으면 그대로 사용한다.
+- 성공 응답은 기존 JSON 생성과 같은 `{request_id, offer_document, check, internal_briefing}`이다. 생성 가능한 후보가 없으면 200과 `offer_document: null` 및 내부 `status: "no_offer"`를 반환한다.
+- `?writing=false`로 모델 문구를 끌 수 있다.
+- 토큰의 서명이나 만료 및 입력 해시가 유효하지 않으면 409 `REVIEW_EXPIRED_OR_CHANGED`다. 이때 도구를 호출하지 않는다. 그 밖의 입력 오류와 도구 오류 및 시간 초과는 기존 생성 경로와 같다.
+
+저장본 검사와 재렌더 API는 [offer-internal.md](offer-internal.md)에 있다.
 
 ### `POST /internal/offer-proposals/batch?filename=offers.xlsx`
 

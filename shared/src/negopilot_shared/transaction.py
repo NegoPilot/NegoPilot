@@ -31,6 +31,13 @@ class TransactionFacts(BaseModel):
     renewed_on: date | None = None
     actual_contract_amount: int | None = Field(default=None, gt=0, strict=True)
     committed_quantity: int | None = Field(default=None, gt=0, strict=True)
+    previous_payment_days: int | None = Field(default=None, gt=0, strict=True, exclude_if=lambda value: value is None)
+    buyer_financing_rate: float | None = Field(default=None, ge=0, le=1, strict=True, allow_inf_nan=False,
+                                              exclude_if=lambda value: value is None)
+    supplier_financing_rate: float | None = Field(default=None, ge=0, le=1, strict=True, allow_inf_nan=False,
+                                                 exclude_if=lambda value: value is None)
+    volume_option_quantity: int | None = Field(default=None, gt=0, strict=True, exclude_if=lambda value: value is None)
+    volume_option_unit_price: int | None = Field(default=None, gt=0, strict=True, exclude_if=lambda value: value is None)
     previous_unit_price: int | None = Field(default=None, gt=0, strict=True)
     payment_basis: Literal["receipt", "completion", "monthly_agreed", "unknown"] = "unknown"
     receipt_date: date | None = None
