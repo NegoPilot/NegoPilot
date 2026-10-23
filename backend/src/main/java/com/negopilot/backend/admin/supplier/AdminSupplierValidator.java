@@ -2,7 +2,9 @@ package com.negopilot.backend.admin.supplier;
 
 import com.negopilot.backend.common.api.ApiException;
 
+import java.time.LocalDate;
 import java.time.Year;
+import java.time.format.DateTimeParseException;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -58,6 +60,11 @@ final class AdminSupplierValidator {
     ObjectNode capabilitiesRequest(ObjectNode body, UUID id) {
         fields(body, Set.of("version", "capabilities"), id); version(body, id);
         capabilities(body.get("capabilities"), id); return body;
+    }
+
+    ObjectNode quotesRequest(ObjectNode body, UUID id) {
+        fields(body, Set.of("version", "quotes"), id); version(body, id);
+        quotes(body.get("quotes"), id); return body;
     }
 
     ObjectNode qualityRequest(ObjectNode body, UUID id) {
@@ -160,6 +167,23 @@ final class AdminSupplierValidator {
             if (!PROCESSES.contains(process) || !seen.add(process + "\u0000" + material)) throw ApiException.validation(id);
             ((ObjectNode) row).put("process", process).put("material", material);
             integer(row.get("monthly_capacity"), 1, 10_000_000, id);
+        }
+    }
+
+    private void quotes(JsonNode node, UUID id) {
+        if (node == null || !node.isArray() || node.isEmpty() || node.size() > 100) throw ApiException.validation(id);
+        for (JsonNode row : node) {
+            fields(row, Set.of("process", "material", "unit_price", "quoted_at"), id);
+            if (row.size() != 4) throw ApiException.validation(id);
+            String process = text(row.get("process"), 100, id), material = text(row.get("material"), 100, id);
+            if (!PROCESSES.contains(process)) throw ApiException.validation(id);
+            ((ObjectNode) row).put("process", process).put("material", material);
+            integer(row.get("unit_price"), 1, Integer.MAX_VALUE, id);
+            String quotedAt = text(row.get("quoted_at"), 10, id);
+            try {
+                if (!quotedAt.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}") || LocalDate.parse(quotedAt).isAfter(LocalDate.now()))
+                    throw ApiException.validation(id);
+            } catch (DateTimeParseException ignored) { throw ApiException.validation(id); }
         }
     }
 

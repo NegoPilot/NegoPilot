@@ -116,6 +116,29 @@ class AdminSupplierPostgresTest {
         assertThat(store.jdbc().queryForObject("SELECT count(*) FROM suppliers", Long.class)).isEqualTo(before);
     }
 
+    @Test void quotesAreAppendedAsManualAndExistingQuotesStayMock() {
+        assertThat(((Map<?, ?>) ((List<?>) service.detail("SUP-0001", null).get("quotes")).getFirst()).get("source")).isEqualTo("MOCK");
+        String id = create();
+        var first = validator.quotesRequest(object("""
+                {"version":0,"quotes":[{"process":"프레스","material":"SPCC","unit_price":1200,"quoted_at":"2026-01-02"},
+                 {"process":"프레스","material":"SPCC","unit_price":1100,"quoted_at":"2026-01-02"}]}
+                """), null);
+        service.quotes(id, first, ACTOR, null);
+        var second = validator.quotesRequest(object("""
+                {"version":1,"quotes":[{"process":"사출","material":"PA66","unit_price":900,"quoted_at":"2025-12-01"}]}
+                """), null);
+        Map<String, Object> updated = service.quotes(id, second, ACTOR, null);
+        List<?> quotes = (List<?>) updated.get("quotes");
+        assertThat(quotes).hasSize(3).allSatisfy(q -> assertThat(((Map<?, ?>) q).get("source")).isEqualTo("MANUAL"));
+        assertThat(((Map<?, ?>) quotes.getFirst()).get("unit_price")).isEqualTo(1100);
+        assertThat(((Map<?, ?>) quotes.getLast()).get("quoted_at")).isEqualTo("2025-12-01");
+        assertAuditEvent(((List<?>) updated.get("audit")).getFirst(), "QUOTES", 1L, 2L);
+        assertThatThrownBy(() -> service.quotes(id, second, ACTOR, null))
+                .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.code).isEqualTo("VERSION_CONFLICT"));
+        assertThatThrownBy(() -> service.quotes("SUP-99999", second, ACTOR, null))
+                .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.status.value()).isEqualTo(404));
+    }
+
     @Test void dartProfileAndFinancialsStayUntouchedWhileCertificationIsEditable() {
         long version = store.jdbc().queryForObject("SELECT version FROM suppliers WHERE supplier_id='SUP-0001'", Long.class);
         assertThatThrownBy(() -> service.patch("SUP-0001", checkedPatch("{\"version\":" + version + ",\"profile\":{\"name\":\"changed\"}}"), ACTOR, null))

@@ -124,6 +124,13 @@ class AdminSupplierRepository {
                 row.get("process").stringValue(), row.get("material").stringValue(), row.get("monthly_capacity").intValue());
     }
 
+    void appendQuotes(String id, JsonNode quotes) {
+        for (JsonNode row : quotes) store.jdbc().update(
+                "INSERT INTO quotes (supplier_id,process,material,unit_price,quoted_at,source) VALUES (?,?,?,?,?,'MANUAL')", id,
+                row.get("process").stringValue(), row.get("material").stringValue(), row.get("unit_price").intValue(),
+                java.sql.Date.valueOf(row.get("quoted_at").stringValue()));
+    }
+
     void replaceQuality(String id, JsonNode quality) {
         store.jdbc().update("""
                 INSERT INTO quality (supplier_id,defect_ppm,on_time_rate,audit_grade,years_dealing) VALUES (?,?,?,?,?)
@@ -144,7 +151,7 @@ class AdminSupplierRepository {
         result.put("financials", rows("SELECT bsns_year,fs_div,source,revenue,operating_income,net_income,total_assets,total_liabilities,total_equity FROM financials WHERE supplier_id=? ORDER BY bsns_year DESC", id));
         List<Map<String, Object>> contracts = rows("SELECT payment_days,price_linkage,raw_material_ratio,auto_renewal FROM contracts WHERE supplier_id=?", id);
         result.put("contract", contracts.isEmpty() ? null : contracts.getFirst());
-        result.put("quotes", rows("SELECT quote_id,process,material,unit_price,quoted_at FROM quotes WHERE supplier_id=? ORDER BY quoted_at DESC,quote_id DESC", id));
+        result.put("quotes", rows("SELECT quote_id,process,material,unit_price,quoted_at,source FROM quotes WHERE supplier_id=? ORDER BY quoted_at DESC,quote_id DESC", id));
         if (includeAudit) result.put("audit", rows("SELECT event_id,actor_user_id,action,before_data,after_data,created_at FROM supplier_change_events WHERE supplier_id=? ORDER BY event_id DESC LIMIT 100", id));
         return result;
     }
