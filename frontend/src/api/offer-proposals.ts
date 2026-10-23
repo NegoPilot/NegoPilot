@@ -125,14 +125,21 @@ export function renderOfferDocument(document: OfferDocument, files: FileFormat |
   return LIVE ? live.render(document, files) : mock.render(document, files)
 }
 
-// 메일에는 협력사 제안서 PDF만 붙인다.
-// 본문을 고치면 mail-mcp 확인 토큰이 본문까지 서명하므로, 고친 본문으로 미리보기를 다시 받고 그 토큰으로 보낸다(mail.md 4절).
-export function previewOfferMail(rendered: RenderedOffer, body?: string): Promise<MailPreview> {
-  return LIVE ? live.preview(rendered, body) : mock.preview(rendered, body)
+// 메일에는 협력사 제안서 PDF만 붙인다. 본문은 mail-mcp가 정한 문장이고, 담당자는 가운데에 들어갈 추가 문구(message)만 쓴다.
+// 확인 토큰이 본문까지 서명하므로, 추가 문구를 쓰면 그 문구로 미리보기를 다시 받고 그 토큰으로 보낸다(mail.md 4절).
+export const MAX_MAIL_MESSAGE = 2000
+export function previewOfferMail(rendered: RenderedOffer, message?: string): Promise<MailPreview> {
+  return LIVE ? live.preview(rendered, message) : mock.preview(rendered, message)
 }
 
-export function sendOfferMail(rendered: RenderedOffer, preview: MailPreview, body?: string): Promise<MailSendResult> {
-  return LIVE ? live.send(rendered, preview, body) : mock.send(preview)
+export function sendOfferMail(rendered: RenderedOffer, preview: MailPreview, message?: string): Promise<MailSendResult> {
+  return LIVE ? live.send(rendered, preview, message) : mock.send(preview)
+}
+
+/** 미리보기 본문을 추가 문구 앞뒤로 나눈다. mail-mcp compose는 추가 문구 다음에 "검토하신 뒤 … 회신 부탁드립니다." 줄을 둔다 */
+export function splitMailBody(body: string): { head: string; tail: string } {
+  const at = body.lastIndexOf('\n\n검토하신 뒤')
+  return at < 0 ? { head: body, tail: '' } : { head: body.slice(0, at), tail: body.slice(at + 2) }
 }
 
 /** 확정본 첨부에서 파일을 꺼내 브라우저로 저장한다 */
@@ -163,19 +170,18 @@ const live = {
     return request<RenderedOffer>(`${OFFER_PATH}/render`, { method: 'POST', body: JSON.stringify({ document, files }) }, 120_000)
   },
   // TODO(#264): Spring 메일 API가 생기면 경로와 요청 형식을 맞춘다. 첨부는 확정본 그대로 보낸다(해시 검사).
-  // TODO(#264): mail-mcp는 지금 본문 전체가 아니라 템플릿에 덧붙일 message(2,000자)만 받는다. 본문 전체 교체를 받게 되면 필드 이름을 맞춘다.
-  preview(rendered: RenderedOffer, body?: string) {
-    return request<MailPreview>(`${MAIL_PATH}/preview`, { method: 'POST', body: JSON.stringify(mailInput(rendered, body)) })
+  preview(rendered: RenderedOffer, message?: string) {
+    return request<MailPreview>(`${MAIL_PATH}/preview`, { method: 'POST', body: JSON.stringify(mailInput(rendered, message)) })
   },
-  send(rendered: RenderedOffer, preview: MailPreview, body?: string) {
+  send(rendered: RenderedOffer, preview: MailPreview, message?: string) {
     return request<MailSendResult>(`${MAIL_PATH}/send`, { method: 'POST',
-      body: JSON.stringify({ ...mailInput(rendered, body), confirmation_token: preview.confirmation_token }) })
+      body: JSON.stringify({ ...mailInput(rendered, message), confirmation_token: preview.confirmation_token }) })
   },
 }
 
-function mailInput(rendered: RenderedOffer, body?: string) {
+function mailInput(rendered: RenderedOffer, message?: string) {
   return { document: rendered.document, attachments: rendered.attachments.filter(a => a.filename.endsWith('.pdf')),
-    ...(body === undefined ? {} : { message: body }) }
+    ...(message ? { message } : {}) }
 }
 
 function briefingFrom(raw: Record<string, unknown>): InternalBriefing {
@@ -258,18 +264,14 @@ const mock = {
     return { document: final, attachments, check: { verdict_code: final.verdict_code, warnings: [] } }
   },
 
-  async preview(rendered: RenderedOffer, edited?: string): Promise<MailPreview> {
+  async preview(rendered: RenderedOffer, message?: string): Promise<MailPreview> {
     await wait(400)
     const d = rendered.document
     const attachment = rendered.attachments.find(a => a.filename.endsWith('.pdf'))!
     return {
       to: { name: '김영업', email: `sales.${d.supplier_id.toLowerCase()}@example.test`, supplier_name: d.supplier_name },
       from: `${d.sender.contact_name} <${d.sender.email}>`,
-      subject: `[NegoPilot] ${d.title} (${d.rfq_id} ${d.part_name})`,
-      // mail.md 2절: 본문에는 단가·지급 조건 같은 숫자를 쓰지 않는다
-      body: edited ?? `${d.supplier_name} 김영업님께\n\n${d.sender.company} ${d.sender.department} ${d.sender.contact_name}입니다.\n`
-        + `${d.rfq_id} ${d.part_name} 거래 조건 제안서를 첨부드립니다. 회신 기한까지 검토 후 회신 부탁드립니다.\n\n`
-        + `${d.sender.contact_name} ${d.sender.job_title} 드림\n${d.sender.email}`,
+      ...mockCompose(d, '김영업', message),
       attachments: [{ filename: attachment.filename, content_type: attachment.content_type, bytes: atob(attachment.data_base64).length }],
       confirmation_token: `mock-token-${Date.now()}`, expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
     }
@@ -279,6 +281,17 @@ const mock = {
     await wait(700)
     return { status: 'DRY_RUN', to: preview.to.email.replace(/^(..).*@/, '$1***@'), subject: preview.subject, sent_at: new Date().toISOString() }
   },
+}
+
+// mail-mcp offer_mail.compose와 같은 문장 (본문에는 단가·지급 조건 숫자를 쓰지 않는다)
+function mockCompose(d: OfferDocument, contactName: string, message?: string) {
+  const about = d.title.includes(d.rfq_id) ? d.title : `${d.rfq_id} ${d.part_name} 건 ${d.title}`
+  const lines = [`${d.supplier_name} ${contactName}님께`, '', `안녕하십니까. ${d.sender.company} ${d.sender.department}입니다.`,
+    `${about} 문서를 첨부와 같이 보내 드립니다.`]
+  if (message?.trim()) lines.push('', message.trim())
+  lines.push('', `검토하신 뒤 ${d.reply_by}까지 회신 부탁드립니다.`, '', '감사합니다.',
+    `${d.sender.company} ${d.sender.department} ${d.sender.contact_name}`, d.sender.email, '', `(제안서 번호 ${d.document_id} · 버전 ${d.version})`)
+  return { subject: `[${d.sender.company}] ${about}`, body: lines.join('\n') }
 }
 
 function mockDocumentText(d: OfferDocument) {

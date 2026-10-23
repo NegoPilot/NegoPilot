@@ -116,14 +116,14 @@ async function openMail() {
   catch (e) { mailError.value = message(e, '메일 미리보기를 만들지 못했습니다.') }
   finally { mailLoading.value = false }
 }
-async function sendMail(body: string) {
+async function sendMail(note: string) {
   if (!rendered.value || !mailPreview.value || mailSending.value) return
   mailSending.value = true; mailError.value = ''
   try {
-    // 본문을 고쳤으면 그 본문으로 미리보기(확인 토큰)를 다시 받고 보낸다
-    const edited = body !== mailPreview.value.body ? body : undefined
-    const preview = edited === undefined ? mailPreview.value : await previewOfferMail(rendered.value, edited)
-    sent.value = await sendOfferMail(rendered.value, preview, edited)
+    // 추가 문구를 썼으면 그 문구로 미리보기(확인 토큰)를 다시 받고 보낸다
+    const extra = note.trim() || undefined
+    const preview = extra === undefined ? mailPreview.value : await previewOfferMail(rendered.value, extra)
+    sent.value = await sendOfferMail(rendered.value, preview, extra)
     mailOpen.value = false; mailPreview.value = null
   }
   catch (e) { mailError.value = message(e, '메일을 보내지 못했습니다. 미리보기를 다시 열어 주세요.') }
