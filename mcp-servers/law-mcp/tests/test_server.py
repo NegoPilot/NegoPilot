@@ -104,7 +104,7 @@ def test_glossary_prefers_longer_wording():
 
 def test_glossary_keeps_question_order_and_drops_duplicates():
     expanded = server.expand_query("1차 협력사가 2차 협력사에 단가 인하 요구")
-    assert expanded.endswith(" 원사업자 수급사업자 하도급대금 단가 인하 하도급대금의 결정")
+    assert expanded.endswith(" 원사업자 수급사업자 하도급대금 단가 인하 감액 하도급대금의 결정")
     assert server.expand_query("하청 협력사") == "하청 협력사 수급사업자 하도급 수급사업자"
     assert server.expand_query("관련 없는 질문") == "관련 없는 질문"
 
