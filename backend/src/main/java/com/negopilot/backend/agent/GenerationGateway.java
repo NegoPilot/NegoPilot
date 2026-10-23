@@ -10,6 +10,7 @@ import java.util.UUID;
 import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.JsonNodeFactory;
 import tools.jackson.databind.node.ObjectNode;
 
 @Service
@@ -28,6 +29,45 @@ public final class GenerationGateway {
 
     public JsonNode review(UUID requestId, ObjectNode body) {
         return executeAt(requestId, body, InternalPaths.LEGAL_REVIEWS);
+    }
+
+    public JsonNode propose(UUID requestId, ObjectNode offerRequest) {
+        ObjectNode body = JsonNodeFactory.instance.objectNode();
+        body.put("request_id", requestId.toString());
+        body.set("offer", offerRequest);
+        return offerExchange(requestId, body, InternalPaths.OFFER_PROPOSALS, null);
+    }
+
+    public JsonNode render(UUID requestId, ObjectNode document, String files) {
+        if (files == null || !Set.of("pdf", "docx", "both").contains(files)) throw ApiException.validation(requestId);
+        ObjectNode body = JsonNodeFactory.instance.objectNode();
+        body.put("request_id", requestId.toString());
+        body.set("document", document);
+        body.put("files", files);
+        return offerExchange(requestId, body, InternalPaths.OFFER_RENDER, files);
+    }
+
+    private JsonNode offerExchange(UUID requestId, ObjectNode body, String path, String files) {
+        return transport.exchange(HttpMethod.POST, transport.uri(path + "?format=json"), body, requestId,
+                Set.of(200, 400, 422, 500, 503, 504), (status, result) -> {
+                    if (status == 200) {
+                        try {
+                            if (files == null) OfferResponseValidator.proposal(result, requestId);
+                            else OfferResponseValidator.render(result, requestId, files);
+                        } catch (IllegalArgumentException failure) {
+                            throw ApiException.invalidResponse(requestId);
+                        }
+                        return result;
+                    }
+                    if (status == 422) throw OfferResponseValidator.businessError(result, requestId);
+                    validateHttpError(result, requestId, status);
+                    throw switch (status) {
+                        case 400 -> ApiException.validation(requestId);
+                        case 500 -> ApiException.internal(requestId);
+                        case 503 -> ApiException.unavailable(requestId);
+                        default -> ApiException.timeout(requestId);
+                    };
+                });
     }
 
     private JsonNode executeAt(UUID requestId, ObjectNode body, String path) {
