@@ -1,5 +1,5 @@
 {
- "description": "law-mcp 검색 평가 정답. gold는 정답 조문(law_key:조) 목록이고, 검색 결과 상위 k개 안에 하나라도 있으면 맞힌 것으로 본다. source가 fixture 경로인 질문은 기존 fixture의 사용자 질문(query)과 분해된 질문(decomposed)이고, new는 이 평가를 위해 현업 말투로 새로 쓴 질문이다. laws는 질문에서 법령을 특정할 수 있을 때만 있다. 정답은 한 사람이 원문을 읽고 붙였다. new_hard는 원문 BM25가 약한 현업 표현(용어 사전에 없는 말)을 일부러 골라 쓴 보강 질문으로, 분해 효과를 재기 위해 넣었다. 써 놓은 질문은 결과와 관계없이 모두 넣었다. split은 프롬프트를 고칠 때 틀린 질문을 보며 고치는 dev와 점수만 확인하는 test로, 출처(fixture·new·new_hard)마다 id 해시 순으로 3분의 1을 test로 나눴다. test 질문의 오답을 보고 프롬프트를 고치지 않는다.",
+ "description": "law-mcp 검색 평가 정답. gold는 정답 조문(law_key:조) 목록이고, 검색 결과 상위 k개 안에 하나라도 있으면 맞힌 것으로 본다. source가 fixture 경로인 질문은 기존 fixture의 사용자 질문(query)과 분해된 질문(decomposed)이고, new는 이 평가를 위해 현업 말투로 새로 쓴 질문이다. laws는 질문에서 법령을 특정할 수 있을 때만 있다. 정답은 한 사람이 원문을 읽고 붙였다. new_hard는 원문 BM25가 약한 현업 표현(용어 사전에 없는 말)을 일부러 골라 쓴 보강 질문으로, 분해 효과를 재기 위해 넣었다. 써 놓은 질문은 결과와 관계없이 모두 넣었다. split은 프롬프트를 고칠 때 틀린 질문을 보며 고치는 dev와 점수만 확인하는 test로, 출처(fixture·new·new_hard)마다 id 해시 순으로 3분의 1을 test로 나눴다. test 질문의 오답을 보고 프롬프트를 고치지 않는다. new_plain은 법령 용어 없이 일상어로만 쓴 질문으로, 일상어와 법령 용어가 맞지 않아 검색이 엉뚱한 조문을 잡는 문제(#168)를 재려고 조문별로 넣었다. 감액·반품·조정 신청처럼 용어집에 없거나 다른 조문으로 몰리는 표현을 골랐다.",
  "as_of": "2026-10-22",
  "items": [
   {
@@ -779,6 +779,198 @@
    "query": "협력사 공장 일정까지 우리가 정해 줘도 돼?",
    "gold": [
     "subcontract_act:제18조"
+   ]
+  },
+  {
+   "id": "p1_reduce_after_delivery",
+   "source": "new_plain",
+   "split": "dev",
+   "query": "납품까지 다 받았는데 단가를 좀 빼달라고 해도 돼?",
+   "laws": [
+    "subcontract_act"
+   ],
+   "gold": [
+    "subcontract_act:제11조"
+   ]
+  },
+  {
+   "id": "p1_reduce_after_inspection",
+   "source": "new_plain",
+   "split": "test",
+   "query": "검수 끝난 다음에 대금에서 일부를 덜 주면 문제 돼?",
+   "laws": [
+    "subcontract_act"
+   ],
+   "gold": [
+    "subcontract_act:제11조"
+   ]
+  },
+  {
+   "id": "p1_return_goods",
+   "source": "new_plain",
+   "split": "dev",
+   "query": "받은 부품이 마음에 안 들면 그냥 돌려보내도 돼?",
+   "laws": [
+    "subcontract_act"
+   ],
+   "gold": [
+    "subcontract_act:제10조"
+   ]
+  },
+  {
+   "id": "p1_return_overstock",
+   "source": "new_plain",
+   "split": "dev",
+   "query": "재고가 남아서 납품받은 물건을 되돌려 보내려는데 괜찮아?",
+   "laws": [
+    "subcontract_act"
+   ],
+   "gold": [
+    "subcontract_act:제10조"
+   ]
+  },
+  {
+   "id": "p1_raise_request",
+   "source": "new_plain",
+   "split": "dev",
+   "query": "원가가 너무 올라서 협력사가 값 좀 올려 달라는데 꼭 들어줘야 해?",
+   "laws": [
+    "subcontract_act"
+   ],
+   "gold": [
+    "subcontract_act:제16조의2"
+   ]
+  },
+  {
+   "id": "p1_raise_refuse",
+   "source": "new_plain",
+   "split": "dev",
+   "query": "2차 업체가 단가 올리는 협의를 하자고 하면 거절해도 돼?",
+   "laws": [
+    "subcontract_act"
+   ],
+   "gold": [
+    "subcontract_act:제16조의2"
+   ]
+  },
+  {
+   "id": "p1_drawing_knowhow",
+   "source": "new_plain",
+   "split": "dev",
+   "query": "협력사한테 도면이랑 공정 노하우를 넘기라고 해도 돼?",
+   "laws": [
+    "subcontract_act"
+   ],
+   "gold": [
+    "subcontract_act:제12조의3"
+   ]
+  },
+  {
+   "id": "p1_late_interest",
+   "source": "new_plain",
+   "split": "dev",
+   "query": "대금을 좀 늦게 주면 이자까지 붙어?",
+   "laws": [
+    "subcontract_act"
+   ],
+   "gold": [
+    "subcontract_act:제13조"
+   ]
+  },
+  {
+   "id": "p1_exclusive_deal",
+   "source": "new_plain",
+   "split": "test",
+   "query": "협력사한테 다른 완성차랑은 거래하지 말라고 해도 돼?",
+   "laws": [
+    "subcontract_act"
+   ],
+   "gold": [
+    "subcontract_act:제18조"
+   ]
+  },
+  {
+   "id": "p1_low_quote",
+   "source": "new_plain",
+   "split": "test",
+   "query": "처음 단가 정할 때 시세보다 훨씬 낮게 박아도 돼?",
+   "laws": [
+    "subcontract_act"
+   ],
+   "gold": [
+    "subcontract_act:제4조"
+   ]
+  },
+  {
+   "id": "p1_verbal_order",
+   "source": "new_plain",
+   "split": "dev",
+   "query": "말로만 발주하고 계약서는 나중에 써도 돼?",
+   "laws": [
+    "subcontract_act"
+   ],
+   "gold": [
+    "subcontract_act:제3조"
+   ]
+  },
+  {
+   "id": "p1_cancel_order",
+   "source": "new_plain",
+   "split": "test",
+   "query": "발주했다가 갑자기 없던 걸로 해도 돼?",
+   "laws": [
+    "subcontract_act"
+   ],
+   "gold": [
+    "subcontract_act:제8조"
+   ]
+  },
+  {
+   "id": "p1_designated_material",
+   "source": "new_plain",
+   "split": "dev",
+   "query": "우리가 정한 업체 자재만 사서 쓰라고 해도 돼?",
+   "laws": [
+    "subcontract_act"
+   ],
+   "gold": [
+    "subcontract_act:제5조"
+   ]
+  },
+  {
+   "id": "p1_retaliation",
+   "source": "new_plain",
+   "split": "dev",
+   "query": "공정위에 신고한 협력사랑 거래를 끊어도 돼?",
+   "laws": [
+    "subcontract_act"
+   ],
+   "gold": [
+    "subcontract_act:제19조"
+   ]
+  },
+  {
+   "id": "p1_inspection_notice",
+   "source": "new_plain",
+   "split": "dev",
+   "query": "납품받고 검사 결과는 언제까지 알려줘야 해?",
+   "laws": [
+    "subcontract_act"
+   ],
+   "gold": [
+    "subcontract_act:제9조"
+   ]
+  },
+  {
+   "id": "p1_advance_payment",
+   "source": "new_plain",
+   "split": "dev",
+   "query": "발주처에서 선급금을 받았는데 협력사한테도 나눠 줘야 해?",
+   "laws": [
+    "subcontract_act"
+   ],
+   "gold": [
+    "subcontract_act:제6조"
    ]
   }
  ]

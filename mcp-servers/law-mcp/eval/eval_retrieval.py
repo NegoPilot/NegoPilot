@@ -177,6 +177,7 @@ def run(args):
     # GLOSSARY 는 fixture 질문을 보며 만든 것이라, 새로 쓴 질문만 따로도 본다
     sets = {"원문 질문 (전체)": [(it, it["query"]) for it in gold["items"]],
             "새로 쓴 질문": [(it, it["query"]) for it in gold["items"] if it["source"] == "new"],
+            "일상어 질문": [(it, it["query"]) for it in gold["items"] if it["source"] == "new_plain"],
             "fixture 원문 질문": [(it, it["query"]) for it in gold["items"] if "decomposed" in it],
             "fixture 분해 질문": [(it, it["decomposed"]) for it in gold["items"] if "decomposed" in it]}
 
@@ -324,6 +325,7 @@ def run_decomposition(gold: dict, path: Path, units: list[dict], bm25, stepback:
             "확인용 (점수만 보는 질문)": [it for it in items if it["split"] == "test"],
             "새로 쓴 질문": [it for it in items if it["source"] == "new"],
             "보강 질문 (원문 BM25 약점)": [it for it in items if it["source"] == "new_hard"],
+            "일상어 질문 (#168)": [it for it in items if it["source"] == "new_plain"],
             "fixture (사람 분해 있음)": [it for it in items if "decomposed" in it]}
     real = {v: v for v in variants} | {"실제 분해": f"실제 분해 ({dec.get('model')})",
                                        "실제 분해+원문": "실제 분해 + 하위 질문 원문 이어 붙이기"}
