@@ -104,6 +104,12 @@ class QueryDecomposer:
                 feedback = ("\n\n직전 출력이 계약 형식을 어겼다. 아래 오류를 고쳐서 다시 출력해라.\n"
                             + _format_errors(err))
                 continue
+            if errors := unreadable_inputs(result):
+                # 앞 결과에서 꺼낼 수 없는 값을 inputs로 받으면 Routing이 실행할 수 없다 (#179)
+                log.warning("분해 결과 형식 오류 (시도 %d):\n%s", attempt, "\n".join(errors))
+                feedback = ("\n\n직전 출력이 계약 형식을 어겼다. 아래 오류를 고쳐서 다시 출력해라.\n"
+                            + "\n".join(errors))
+                continue
             # original_query는 사용자 원문이어야 한다. 모델이 다듬었으면 원문으로 되돌린다
             if result.original_query != query:
                 result = result.model_copy(update={"original_query": query})
@@ -152,6 +158,27 @@ def normalize_select(text: str) -> str:
             ref["select"] = fixed
             changed = True
     return json.dumps(data, ensure_ascii=False) if changed else text
+
+
+def unreadable_inputs(result: DecompositionResult) -> list[str]:
+    """앞 하위 질문의 결과에서 꺼낼 수 없는 slot을 받는 inputs. 재시도할 때 모델에게 줄 오류 문장 목록.
+
+    예: supplier_ranking 결과에서 rfq_id를 꺼내라는 inputs. 순위 결과는 협력사만 꺼낼 수 있다.
+    """
+    from negopilot_agent.routing.extract import RESULT_MAPS   # Routing과 같은 결과 대응표를 쓴다
+
+    intents = {sq.id: sq.intent for sq in result.sub_queries}
+    errors = []
+    for sq in result.sub_queries:
+        for ref in sq.inputs:
+            source = intents.get(ref.from_)
+            rmap = RESULT_MAPS.get(source)
+            if rmap is None:
+                errors.append(f"- {sq.id}: {ref.from_}({source}) 결과는 inputs로 쓸 수 없다")
+            elif ref.slot not in rmap.slots:
+                errors.append(f"- {sq.id}: {ref.from_}({source}) 결과에서 '{ref.slot}'를 꺼낼 수 없다. "
+                              f"꺼낼 수 있는 값: {', '.join(rmap.slots)}")
+    return errors
 
 
 def drop_self_references(text: str) -> str:

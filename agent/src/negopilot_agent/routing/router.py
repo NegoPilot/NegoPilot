@@ -108,7 +108,12 @@ class Router:
         choices: dict[str, list[Any]] = {}
         for ref in sq.inputs:
             src = done[ref.from_]
-            values = select_values(src.intent, src.calls, ref.slot, ref.select)
+            try:
+                values = select_values(src.intent, src.calls, ref.slot, ref.select)
+            except (KeyError, ValueError) as e:
+                # 분해 검증을 빠져나온 잘못된 inputs가 그래프 전체를 멈추지 않게 이 하위 질문만 건너뛴다 (#179)
+                return SubQueryOutcome(id=sq.id, intent=sq.intent, status="skipped",
+                                       message=f"{ref.from_} 결과에서 {ref.slot}({ref.select})를 꺼낼 수 없음: {e}")
             if not values:
                 return SubQueryOutcome(id=sq.id, intent=sq.intent, status="empty",
                                        message=f"{ref.from_} 결과에서 {ref.slot}({ref.select})를 찾지 못함")

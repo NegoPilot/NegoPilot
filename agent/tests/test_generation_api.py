@@ -1028,3 +1028,18 @@ async def test_openai_refusal_diagnostics_are_private_and_failure_semantics_rema
     assert SECRET not in response.text + caplog.text
     assert API_KEY not in response.text + caplog.text
     assert clients and all(client.closed == 1 for client in clients)
+
+
+async def test_unexpected_error_is_logged_without_leaking_to_response(caplog):
+    class Broken:
+        async def decompose(self, *args, **kwargs):
+            raise KeyError("rfq_id")
+
+    app = create_app(settings=settings(mode="live"), generation_decomposer=Broken(),
+                     generation_caller=RecordingCaller(), generation_backend=CiteFirst())
+    body = request()
+    with caplog.at_level(logging.ERROR):
+        response = await post(app, body)
+    assert_error(response, 500, "INTERNAL_ERROR", body["request_id"])
+    assert "rfq_id" not in response.text + caplog.text
+    assert body["request_id"] in caplog.text and "test_generation_api.py" in caplog.text

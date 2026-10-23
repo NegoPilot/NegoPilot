@@ -1,7 +1,10 @@
 """Authenticated v2 endpoint for complete Agent generation."""
 
 import asyncio
+import logging
+import traceback
 from collections.abc import Callable
+from pathlib import Path
 
 import anthropic
 import httpx2
@@ -19,6 +22,8 @@ from .models import ErrorResponse
 from .paths import QUERY_EXECUTIONS
 from .settings import ApiSettings
 from .stubs import UnsupportedStubQuery
+
+log = logging.getLogger(__name__)
 
 
 def add_generation_routes(application: FastAPI, settings: ApiSettings, authenticate: Callable,
@@ -42,5 +47,9 @@ def add_generation_routes(application: FastAPI, settings: ApiSettings, authentic
             return error_response(504, body.request_id, "UPSTREAM_TIMEOUT", "Execution timed out.", True)
         except (ModelUnavailable, httpx2.HTTPError, httpx2.InvalidURL, anthropic.APIError, openai.OpenAIError):
             return error_response(503, body.request_id, "UPSTREAM_UNAVAILABLE", "Model service is unavailable.", True)
-        except Exception:
+        except Exception as e:
+            # 예외 내용에는 비밀값이 섞일 수 있어 발생 위치만 서버 로그에 남긴다 (#179)
+            frame = traceback.extract_tb(e.__traceback__)[-1]
+            log.error("request %s failed at %s:%d (%s)", body.request_id,
+                      Path(frame.filename).name, frame.lineno, frame.name)
             return error_response(500, body.request_id, "INTERNAL_ERROR", "Unexpected server error.")
