@@ -39,6 +39,7 @@ class NegotiationControllerTest {
     @Autowired WebApplicationContext context;
     @MockitoBean MembershipRepository members;
     @MockitoBean NegotiationService service;
+    @MockitoBean NegotiationMailService mails;
     final UUID owner = UUID.randomUUID();
     final UUID workspace = UUID.randomUUID();
     final UUID proposal = UUID.randomUUID();

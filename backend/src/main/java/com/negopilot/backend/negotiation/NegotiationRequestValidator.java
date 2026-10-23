@@ -163,6 +163,32 @@ final class NegotiationRequestValidator {
         }
     }
 
+    ObjectNode mailPreview(ObjectNode body, UUID id) {
+        fields(body, Set.of("bundle_id", "contact_id", "message", "acknowledgements"), id);
+        pattern(body.get("bundle_id"), UUID_PATTERN, id);
+        if (body.has("contact_id")) integer(body.get("contact_id"), 1, Integer.MAX_VALUE, true, id);
+        if (body.has("message")) text(body.get("message"), 0, 2000, true, id);
+        JsonNode acknowledgements = body.get("acknowledgements");
+        if (acknowledgements != null) {
+            fields(acknowledgements, Set.of("check_needed", "unresolved_issue_ids"), id);
+            if (acknowledgements.has("check_needed")) bool(acknowledgements.get("check_needed"), false, id);
+            JsonNode issues = acknowledgements.get("unresolved_issue_ids");
+            if (issues != null) {
+                if (!issues.isArray() || issues.size() > 50) throw ApiException.validation(id);
+                for (JsonNode issue : issues) text(issue, 1, 100, false, id);
+            }
+        }
+        return body;
+    }
+
+    ObjectNode mailSend(ObjectNode body, UUID id) {
+        fields(body, Set.of("content_hash"), id);
+        pattern(body.get("content_hash"), "sha256:[0-9a-f]{64}", id);
+        return body;
+    }
+
+    private static final String UUID_PATTERN = "(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+
     private static void fields(JsonNode node, Set<String> allowed, UUID id) {
         if (node == null || !node.isObject() || !allowed.containsAll(node.propertyNames())) throw ApiException.validation(id);
     }
