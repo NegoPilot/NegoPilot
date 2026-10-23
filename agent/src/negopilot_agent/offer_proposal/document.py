@@ -21,6 +21,7 @@ from .request import SenderInfo
 
 SCHEMA_VERSION = '1'
 DEFAULT_RESPONSE_DAYS = 7
+DEFAULT_COMPANY = 'SKALA 자동차'   # 구매사(우리 회사) 이름. NEGOPILOT_BUYER_COMPANY로 바꿀 수 있다
 LINKAGE_REFERENCE = '세부 사항은 공정거래위원회 표준 하도급대금 연동계약서(2026)에 따릅니다.'
 LINKAGE_BLANKS = ['기준 지표', '조정 요건(변동률)', '조정 주기', '조정 산식']   # 협의해 채울 칸
 WAIVED_WORDING = ('당사와 귀사는 하도급대금 연동을 하지 아니하기로 합의하며, 그 취지와 사유를 별도 서면에 분명하게 적습니다.')
@@ -43,7 +44,7 @@ class BuyerSettings(BaseModel):
     @classmethod
     def from_env(cls, sender: SenderInfo | None = None) -> 'BuyerSettings':
         phone = (sender.phone if sender else None) or os.getenv('NEGOPILOT_BUYER_PHONE') or None
-        company = os.getenv('NEGOPILOT_BUYER_COMPANY') or '[구매사명]'
+        company = os.getenv('NEGOPILOT_BUYER_COMPANY') or DEFAULT_COMPANY
         if sender:
             return cls(company=company, department=sender.department, contact_name=sender.name,
                        job_title=sender.job_title, phone=phone, email=sender.email)

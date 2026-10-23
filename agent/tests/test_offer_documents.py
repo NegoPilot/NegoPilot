@@ -15,7 +15,7 @@ from negopilot_agent.offer_proposal.service import build_package, package_files
 from negopilot_agent.offer_proposal.writer import NegotiationWriter, check_draft, payloads
 from tests.test_offer_proposal import FakeCaller, bench, propose, request
 
-BUYER = BuyerSettings(company='가상자동차부품', department='구매1팀', contact_name='홍길동', phone='02-000-0000',
+BUYER = BuyerSettings(company='SKALA 자동차', department='구매1팀', contact_name='홍길동', phone='02-000-0000',
                       email='buyer@example.com')
 
 
@@ -117,7 +117,7 @@ def test_supplier_documents_contain_no_internal_position():
     doc = doc.model_copy(update={'cover_letter': writing.cover_letter})
     for text in supplier_texts(doc):
         assert [w for w in FORBIDDEN if w in text] == []
-        for expected in ('단가 및 거래조건 제안서', '3,895원', '목적물 수령일부터 45일 이내 현금 지급', '가상자동차부품',
+        for expected in ('단가 및 거래조건 제안서', '3,895원', '목적물 수령일부터 45일 이내 현금 지급', 'SKALA 자동차',
                          '구매1팀', '홍길동', '연동 대상 원재료', '표준 하도급대금 연동계약서', '2026-10-30', '서명'):
             assert expected in text.replace('\n', ' ').replace('ㆍ', '·'), expected
 
@@ -288,7 +288,7 @@ MEMBER = {'name': '김가연', 'department': '구매전략팀', 'job_title': '�
 
 
 def member_document(monkeypatch, **sender_over):
-    monkeypatch.setenv('NEGOPILOT_BUYER_COMPANY', '가상자동차')
+    monkeypatch.setenv('NEGOPILOT_BUYER_COMPANY', 'SKALA 자동차')
     monkeypatch.delenv('NEGOPILOT_BUYER_PHONE', raising=False)
     pkg = asyncio.run(build_package(request(sender=MEMBER | sender_over), FakeCaller(bench(market__median=4300.0))))
     return pkg.document
@@ -296,7 +296,7 @@ def member_document(monkeypatch, **sender_over):
 
 def test_member_sender_fills_proposal_without_placeholders(monkeypatch):
     doc = member_document(monkeypatch)
-    assert doc.sender.model_dump() == {'company': '가상자동차', 'department': '구매전략팀', 'contact_name': '김가연',
+    assert doc.sender.model_dump() == {'company': 'SKALA 자동차', 'department': '구매전략팀', 'contact_name': '김가연',
                                        'job_title': '매니저', 'phone': None, 'email': 'gayeon@example.com'}
     for text in supplier_texts(doc):
         flat = text.replace('\n', ' ')
@@ -330,3 +330,10 @@ def test_missing_sender_falls_back_to_env_without_phone_placeholder(monkeypatch)
 def test_sender_rejects_bad_values(field, value):
     with pytest.raises(ValueError):
         request(sender=MEMBER | {field: value})
+
+
+def test_company_defaults_to_skala(monkeypatch):
+    monkeypatch.delenv('NEGOPILOT_BUYER_COMPANY', raising=False)
+    assert BuyerSettings.from_env().company == 'SKALA 자동차'
+    sender = asyncio.run(build_package(request(sender=MEMBER), FakeCaller(bench()))).document.sender
+    assert sender.company == 'SKALA 자동차' and sender.contact_name == '김가연'

@@ -128,7 +128,7 @@ content_hash = "sha256:" + hashlib.sha256(payload).hexdigest()
 
 - 발신 담당자는 **로그인한 회원**(Member: `name`, `email`, `department`, `job_title`, [membership.md](membership.md))이다. 협상안 요청의 선택 필드 `sender`(`name`, `department`, `job_title`, `email`, `phone?`)로 받는다.
 - **백엔드 프록시(나중에 만들 `/api/offer-proposals`)는 `sender`를 클라이언트가 보낸 값이 아니라 인증된 세션의 회원 정보(`/api/auth/me`와 같은 값)로 채워야 한다.** 사용자가 다른 사람 이름이나 이메일로 제안서를 보내지 못하게 하기 위해서다. 클라이언트가 보낸 `sender`는 버린다.
-- 회사명은 회원 정보에 없어서 조직 설정 `NEGOPILOT_BUYER_COMPANY`로 둔다.
+- 회사명은 회원 정보에 없어서 조직 설정 `NEGOPILOT_BUYER_COMPANY`로 둔다. 비우면 `SKALA 자동차`다.
 - 전화번호도 회원 정보에 없다. 요청의 `phone` → `NEGOPILOT_BUYER_PHONE` 순서로 쓰고, 둘 다 없으면 문서에서 전화 줄을 뺀다(자리 표시를 찍지 않는다).
 - `sender`가 없으면(CLI, 로컬 시험) `NEGOPILOT_BUYER_*` 환경 변수를 쓰고, 비어 있으면 `[담당자]` 같은 자리 표시가 들어간다.
 - 발신 정보는 `document.sender`에 들어가므로 `content_hash`에 포함된다. 담당자가 바뀌면 해시도 바뀐다.
