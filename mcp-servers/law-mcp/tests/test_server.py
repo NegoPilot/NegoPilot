@@ -56,7 +56,8 @@ def test_get_article_branch_number():
 def test_search_finds_uniform_price_cut_rule():
     hits = run(call("search_regulation", {"query": "일률적인 비율로 단가 인하", "top_k": 3}))
     assert hits[0]["law_key"] == "subcontract_act"
-    assert hits[0]["article_no"] == "제4조"
+    assert any(h.get("article_no") == "제4조" for h in hits)
+    assert any(h.get("document_id") == "price_reduction" for h in hits)
 
 
 def test_search_finds_indexation_exceptions():

@@ -126,8 +126,9 @@ def codes(result, key):
 
 def test_clean_offer_has_no_violation():
     out = offer()
-    assert out["verdict"] == "문제 없음"
-    assert out["violations"] == [] and out["warnings"] == []
+    assert out["verdict"] == "확인 필요"
+    assert out["violations"] == []
+    assert "SME_STATUS_UNKNOWN" in codes(out, "warnings")
     assert out["offer"]["contract_amount"] == 120000 * 3800
 
 

@@ -19,6 +19,7 @@ import psycopg
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from psycopg.rows import dict_row
+from company_size import CompanySizeInput, assess as assess_size
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://agent:agent@localhost:5432/supplier_db")
 DEBT_RATIO_WARN = 2.0           # 부채비율 200% 초과 시 경고
@@ -31,7 +32,6 @@ LINKAGE_EXEMPT_DAYS = 90         # 하도급법 제3조④2: 거래 기간 90일
 LINKAGE_EXEMPT_AMOUNT = 100_000_000   # 하도급법 제3조④3: 하도급대금 1억 원 이하 (법률 상한, 시행령 값 확인)
 MARKET_PRICE_FLOOR = 0.90        # 시장 중앙값의 90% 미만이면 제4조(부당한 하도급대금 결정) 위험으로 본다 (내부 기준)
 LAST_QUOTE_CUT = 0.05            # 직전 견적보다 5% 넘게 낮으면 인하 근거 확인 (내부 기준)
-SME_REVENUE_EOK = 1000           # 중소기업기본법 시행령 별표1 자동차 제조업 평균매출 기준(억 원). law-mcp 색인에 별표가 없어 확인 필요
 
 PROCESSES = ["다이캐스팅", "프레스", "사출", "단조", "CNC가공"]   # schema.sql의 CHECK와 같다
 
@@ -460,9 +460,23 @@ def rank_suppliers(rfq_id: str, w_price: float = 0.5, w_quality: float = 0.3,
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
+def assess_company_size(company: CompanySizeInput, as_of: str | None = None) -> dict:
+    """공식 별표 1·2·3 기반 제조업 규모 검토. 업종·평균매출·자산·독립성·관계기업·유예 근거 필요.
+    관계기업 계산은 별표 2에 따라 검증된 합산값을 받는다. 미입력·미지원 업종·미검증 시점은 unknown.
+    기업 규모 충족만으로 하도급법 적용을 확정하지 않는다.
+    """
+    try:
+        return assess_size(company, as_of)
+    except ValueError as exc:
+        raise ToolError(str(exc)) from exc
+
+
+@mcp.tool(annotations={"readOnlyHint": True})
 def check_offer(supplier: str, rfq_id: str, unit_price: int, payment_days: int, price_linkage: bool,
                 raw_material_ratio: float | None = None, contract_days: int = 365,
-                linkage_waived_by_agreement: bool = False, buyer_is_small_business: bool = False) -> dict:
+                linkage_waived_by_agreement: bool = False, buyer_is_small_business: bool = False,
+                supplier_size: CompanySizeInput | None = None,
+                buyer_size: CompanySizeInput | None = None, as_of: str | None = None) -> dict:
     """협상안(단가·지급 기한·연동 약정)이 하도급법에 어긋나는지 코드 규칙으로 검사한다.
 
     supplier: 협상 상대 협력사 (SUP-0001, 회사명 등. get_supplier와 같은 입력)
@@ -473,7 +487,11 @@ def check_offer(supplier: str, rfq_id: str, unit_price: int, payment_days: int, 
     raw_material_ratio: 단가 중 원재료 비용 비중(0~1). 생략하면 그 협력사와의 기존 계약 값을 쓴다
     contract_days: 거래 기간(일). 하도급대금은 RFQ 연간 물량 × 단가 × 기간/365로 계산한다
     linkage_waived_by_agreement: 연동하지 않기로 협력사와 합의했는지
-    buyer_is_small_business: 우리(원사업자)가 중소기업기본법상 소기업인지
+    buyer_is_small_business: 이전 클라이언트 호환용 주장. 이것만으로 소기업 예외를 확정하지 않는다.
+    supplier_size, buyer_size: 주된 업종 KSIC, 법정 평균매출액, 자산, 독립성, 관계기업, 경과조치 및 근거.
+        최근 단년도 매출은 평균매출액으로 자동 대체하지 않는다. assess_company_size의 입력 구조와 같다.
+    as_of: 기업 규모 판정 기준일. 검증된 별표 기간 밖이면 규모를 확정하지 않는다.
+        기존 지급·연동 규칙의 과거 시점 재현은 지원하지 않는다.
 
     결과의 각 항목은 {code, severity(violation/warning/info), message, law_refs}이다.
     violation은 법 위반 소지, warning은 확인이 필요한 위험, info는 참고다.
@@ -505,9 +523,18 @@ def check_offer(supplier: str, rfq_id: str, unit_price: int, payment_days: int, 
     ratio = raw_material_ratio if raw_material_ratio is not None else s["raw_material_ratio"]
     contract_amount = round(rfq["annual_volume"] * unit_price * contract_days / 365)
     needed_monthly = -(-rfq["annual_volume"] // 12)
+    try:
+        supplier_assessment = assess_size(supplier_size, as_of)
+        buyer_assessment = assess_size(buyer_size, as_of)
+    except ValueError as exc:
+        raise ToolError(str(exc)) from exc
     findings = payment_findings(payment_days)
     findings += linkage_findings(ratio, price_linkage, contract_amount, contract_days,
-                                 linkage_waived_by_agreement, buyer_is_small_business)
+                                 linkage_waived_by_agreement, buyer_assessment['is_small_business'] is True)
+    if buyer_is_small_business and buyer_assessment['is_small_business'] is not True:
+        findings.append(finding('BUYER_SIZE_UNVERIFIED', 'warning',
+            '소기업이라는 입력만으로 연동 예외를 적용하지 않았다. buyer_size에 별표 3 및 본문 요건 확인 근거가 필요하다',
+            ('sme_decree', '제8조')))
 
     # 단가: 일반적으로 지급되는 대가보다 낮은지 (제4조①, ②5 일방적으로 낮은 단가, ②1 일률적 인하)
     if market["median"] and unit_price < market["median"] * MARKET_PRICE_FLOOR:
@@ -527,21 +554,20 @@ def check_offer(supplier: str, rfq_id: str, unit_price: int, payment_days: int, 
                                 f"단가가 RFQ 목표 단가 {rfq['target_price']:,}원보다 "
                                 f"{(unit_price / rfq['target_price'] - 1) * 100:.1f}% 높다"))
 
-    # 하도급법 적용 대상(수급사업자 = 중소기업자)인지
-    if s["revenue_eok"] is None:
-        findings.append(finding("SME_STATUS_UNKNOWN", "info",
-                                "매출 정보가 없어 수급사업자(중소기업자) 해당 여부를 판단할 수 없다",
-                                ("subcontract_act", "제2조")))
-    elif s["revenue_eok"] <= SME_REVENUE_EOK:
-        findings.append(finding("SUBCONTRACT_ACT_APPLIES", "info",
-                                f"최근 매출 {s['revenue_eok']:,}억 원으로 중소기업일 가능성이 높아 하도급법상 수급사업자로 "
-                                "보고 검사했다 (중소기업 기준은 중소기업기본법 시행령 별표1로 확인)",
-                                ("subcontract_act", "제2조")))
+    # Size is only one prerequisite; annual revenue never establishes statutory applicability.
+    if supplier_assessment['is_sme'] is None:
+        findings.append(finding('SME_STATUS_UNKNOWN', 'warning',
+            '기업 규모 판정 보류: ' + ', '.join(supplier_assessment['missing']) +
+            '. 최근 매출을 법정 평균매출액으로 대체하지 않았다. 하도급법 검사는 적용대상이라는 조건부 검토다',
+            ('sme_decree', '제3조'), ('subcontract_act', '제2조')))
+    elif supplier_assessment['is_sme']:
+        findings.append(finding('SME_SIZE_CRITERIA_MET', 'info',
+            '입력 근거와 공식 별표에 따른 중소기업 규모 요건 충족. 위탁 유형·원사업자 요건은 별도 확인해야 한다',
+            ('sme_decree', '제3조'), ('subcontract_act', '제2조')))
     else:
-        findings.append(finding("SME_STATUS_CHECK", "info",
-                                f"최근 매출 {s['revenue_eok']:,}억 원으로 중소기업이 아닐 수 있다. 수급사업자 해당 여부를 "
-                                "확인하고, 중견기업이면 지급 조항 확대 적용 대상인지 본다",
-                                ("subcontract_act", "제2조"), ("subcontract_act", "제13조")))
+        findings.append(finding('SME_STATUS_CHECK', 'warning',
+            '입력 근거에 따른 중소기업 기준 미충족. 중견기업 지급 조항 확대 적용 등 거래 적용범위를 별도 확인한다',
+            ('subcontract_act', '제2조'), ('subcontract_act', '제13조')))
 
     # RFQ 요건 (법규가 아닌 거래 조건)
     if rfq["required_cert"] == "IATF16949" and not s["iatf16949"]:
@@ -557,6 +583,8 @@ def check_offer(supplier: str, rfq_id: str, unit_price: int, payment_days: int, 
     refs = list(dict.fromkeys((r["law"], r["article_no"]) for f in findings for r in f["law_refs"]))
     return {
         "verdict": "위반 소지 있음" if by["violation"] else "확인 필요" if by["warning"] else "문제 없음",
+        "applicability": "conditional_on_transaction_and_buyer_requirements",
+        "company_size": {"supplier": supplier_assessment, "buyer": buyer_assessment},
         "supplier": {"supplier_id": sid, "name": s["name"], "source": s["source"], "revenue_eok": s["revenue_eok"],
                      "certification_source": s["certification_source"],
                      "capability_source": s["capability_source"], "quality_source": s["quality_source"]},

@@ -5,3 +5,5 @@ data/*
 __pycache__/
 .venv/
 .pytest_cache/
+# Reviewed official legal rules are application data, not generated supplier records.
+!data/legal_size_rules.json
