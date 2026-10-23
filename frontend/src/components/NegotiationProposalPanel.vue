@@ -10,7 +10,9 @@ const props = defineProps<{ negotiationId: string; initial: ProposalView }>()
 const view = ref<ProposalView>(props.initial)
 const external = ref<ExternalView | null>(null)
 const original = ref<EditState>(editStateFrom(props.initial, null))
-const edit = ref<EditState>(structuredClone(original.value))
+// 반응형 프록시는 structuredClone이 안 되므로 JSON으로 복사한다
+const clone = (v: EditState): EditState => JSON.parse(JSON.stringify(v))
+const edit = ref<EditState>(clone(original.value))
 const tab = ref<'internal' | 'external'>('internal')
 const busy = ref(''), error = ref(''), notice = ref(''), changeNote = ref('')
 const conflictRevision = ref<number | null>(null)
@@ -53,7 +55,7 @@ async function loadExternal() {
 function reset(next: ProposalView) {
   view.value = next
   original.value = editStateFrom(next, external.value)
-  edit.value = structuredClone(original.value)
+  edit.value = clone(original.value)
 }
 async function reload() {
   busy.value = 'reload'; error.value = ''; conflictRevision.value = null
@@ -108,7 +110,7 @@ const historyLabel = (v: unknown) => v === null || v === undefined || v === '' ?
     <p v-if="view.status !== 'ACTIVE'" class="error">새 협상안이 만들어져 이 협상안은 보관 상태입니다.</p>
     <p v-if="view.review_recheck_required" role="alert" class="error">기반 검토 이후 입력이 바뀌었습니다. 다시 검토하고 새 협상안을 만드세요.</p>
     <p v-if="view.validation.inherited_from" class="note">r{{ view.validation.inherited_from }} 검사 결과를 이어받았습니다 · 수정한 내부 문구는 검사하지 않았습니다.</p>
-    <p v-if="view.derived_stale" class="note">계약금액·대비 비율은 재검사 후 갱신됩니다.</p>
+    <p v-if="view.derived_stale" class="note">조건을 수정해 계약금액·대비 비율은 생성 때 값과 달라질 수 있어 표시하지 않습니다. 파일의 계약금액은 내보낼 때 다시 계산됩니다.</p>
     <details v-if="view.validation.scope.length || view.validation.limitations.length" class="scope">
       <summary>검사 범위와 한계</summary>
       <ul><li v-for="s in view.validation.scope" :key="s">검사함: {{ s }}</li><li v-for="l in view.validation.limitations" :key="l">한계: {{ l }}</li></ul>
