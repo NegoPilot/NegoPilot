@@ -13,5 +13,6 @@ public final class ApiPaths {
     public static final String SUPPLIERS = ROOT + "/suppliers";
     public static final String NEGOTIATIONS = ROOT + "/negotiations";
     public static final String NEGOTIATION_EXPORTS = ROOT + "/negotiation-exports";
+    public static final String LEGAL_REVIEW_UPLOADS = ROOT + "/legal-review-uploads";
     public static final String NEGOTIATION_MAILS = ROOT + "/negotiation-mails";
 }
