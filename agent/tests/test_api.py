@@ -74,4 +74,5 @@ def test_internal_routes_carry_no_version():
     paths = set(create_app(settings=settings()).openapi()["paths"]) - {"/health"}
     assert paths and all(path.startswith("/internal/") for path in paths)
     assert not any(path.startswith(("/internal/v1/", "/internal/v2/")) for path in paths)
-    assert {"/internal/query-executions", "/internal/suppliers", "/internal/admin/laws"} <= paths
+    assert {"/internal/query-executions", "/internal/suppliers"} <= paths
+    assert not any(path.startswith("/internal/admin/") for path in paths)

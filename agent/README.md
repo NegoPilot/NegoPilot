@@ -253,13 +253,12 @@ temperature 0이어도 결과가 흔들리므로 변경 전후를 비교할 때�
 
 전체 서비스를 Docker로 실행하려면 [로컬 Docker 안내](../docs/LOCAL_DOCKER.md)를 따른다. 루트 `compose.yaml`은 두 단계 모두 OpenAI `gpt-4.1-mini`를 기본으로 쓰는 live 구성이다. 기본 OpenAI 실행에는 루트 `.env`에 모델 키를 넣어야 한다. `compose.test.yaml`을 추가한 별도 테스트 구성은 모델 키 없이 stub 채팅을 실행한다. 아래 uvicorn 명령은 Docker 시작기를 거치지 않는 독립 실행 방법이다.
 
-FastAPI 진입점은 `negopilot_agent.api.app:app`입니다. [Generation HTTP 계약 v0.3](../docs/contracts/agent-generation.md)과 [협력사 live 조회 계약](../docs/contracts/supplier-lookup.md) 및 [관리자 법령 계약](../docs/contracts/admin-laws.md)의 Python 내부 경로를 제공합니다. 브라우저는 Spring의 공개 API를 호출하고 Spring이 내부 키를 붙여 Python에 요청합니다.
+FastAPI 진입점은 `negopilot_agent.api.app:app`입니다. [Generation HTTP 계약 v0.3](../docs/contracts/agent-generation.md)과 [협력사 live 조회 계약](../docs/contracts/supplier-lookup.md)의 Python 내부 경로를 제공합니다. 브라우저는 Spring의 공개 API를 호출하고 Spring이 내부 키를 붙여 Python에 요청합니다.
 
 | Python 내부 경로 | 동작 |
 | --- | --- |
 | `POST /internal/query-executions` | 실제 `build_graph`와 `AnswerGenerator`를 실행하고 `schema_version: "0.3"` 응답에 최종 `Answer`를 포함 |
 | `GET /internal/business/catalog`, `/internal/suppliers`, `/internal/suppliers/{supplier_id}` | 실행 모드와 관계없이 business-mcp의 협력사 데이터 조회 |
-| `/internal/admin/laws/**` | 관리자 법령 조회와 최신화 |
 
 과거 fixture 기반 v0.1 질의 실행(`/internal/v1/query-executions`)과 v0.2 협력사 조회·템플릿 대화(`/internal/v1/business`, `/internal/v1/suppliers`, `/internal/v1/chat/responses`)는 #141에서 제거했습니다. 생성 답변을 사용할 클라이언트는 Spring의 `/api/agent/queries` 또는 `/api/conversations` 경로를 사용합니다.
 
@@ -458,14 +457,7 @@ uv run --locked python -m pytest -q
 
 회원 인증과 승인 및 세션과 개인 채팅 이력 저장은 Spring이 담당한다. Python의 Generation 요청과 응답은 v0.3을 유지한다. [회원 계약](../docs/contracts/membership.md)과 [이력 계약](../docs/contracts/history.md)을 참고한다.
 
-`/internal/admin/laws` 아래의 버전 조회와 최신화 API는 `AGENT_INTERNAL_API_KEY`로 인증한다. 조회는 law-mcp의 읽기 도구를 사용한다. 최신화는 별도의 HTTP 제어 경로를 사용하며 Agent 도구로 노출하지 않는다. stub 모드에서도 관리자 법령 조회와 최신화는 실제 law-mcp에 연결한다.
-
-- `LAW_MCP_URL`은 법령 서버의 `/mcp` 주소다. 기본값은 `http://localhost:9103/mcp`다.
-- `LAW_ADMIN_API_KEY`는 Python과 법령 서버 사이의 별도 관리 키다. 프런트로 전달하지 않는다.
-- law-mcp는 `LAW_RUNTIME_DIR`에 검증된 데이터와 작업 상태를 저장한다. 단일 서버 프로세스로 실행한다.
-- 법령 최신화의 실제 수집은 law-mcp에서 수행한다. GitHub API 제한 회피가 필요하면 법령 서버에 `GITHUB_TOKEN`을 설정한다.
-
-수동 법령 등록과 편집 API는 제공하지 않는다. 경로와 오류 및 응답 형식은 [법령 관리 계약](../docs/contracts/admin-laws.md)에 있다.
+`LAW_MCP_URL`은 법령 서버의 `/mcp` 주소다. 기본값은 `http://localhost:9103/mcp`다. 관리자용 법령 조회·최신화·등록 API는 제공하지 않는다(#230).
 
 
 ### Ollama native 공급자

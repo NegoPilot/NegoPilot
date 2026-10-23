@@ -44,27 +44,9 @@ uv run python server.py --http 9103  # Streamable HTTP: http://localhost:9103/mc
 uv run python -m pytest -q           # MCP Client로 도구 호출 테스트
 ```
 
-## 관리자 버전 확인과 최신화
+## 법령 데이터 갱신
 
-[관리자 API 계약](../../docs/contracts/admin-laws.md)에 따라 버전과 정확한 판의 조문을 조회한다. 수동 법령 등록과 본문 편집 API는 없다.
-
-```bash
-export LAW_RUNTIME_DIR='/absolute/path/to/persistent/law-runtime'
-# LAW_ADMIN_API_KEY는 비밀 설정에서 주입한다.
-uv run python server.py --http 9103
-```
-
-Python 내부 API에도 동일한 `LAW_ADMIN_API_KEY`와 이 서버를 가리키는 `LAW_MCP_URL`을 설정한다. 키가 없으면 최신화 제어 요청을 인증할 수 없다. runtime 디렉터리가 없으면 최신화는 503이다. 런타임 디렉터리는 한 법령 서버 프로세스만 사용한다. 잠금으로 중복 실행을 차단한다.
-
-최신화는 `POST /admin/refresh-jobs`로 시작한다. `X-Law-Admin-Key` 인증이 필요하다. 해당 경로는 내부망에서 Python만 호출한다. MCP 도구 목록에는 최신화 기능이 없다. Agent가 질문을 처리하다가 데이터를 변경할 수 없다.
-
-원문은 기존 [legalize-kr 저장소](https://github.com/legalize-kr/legalize-kr)의 고정된 6개 경로에서 수집한다. 법령마다 최근 6개 커밋을 확인하고 기존 보관 판과 합친다. 전체 수집과 파싱 및 검증이 성공하면 `active.json`을 원자적으로 교체한다. 메모리 데이터와 검색 캐시도 함께 갱신한다. 실패하면 기존 자료로 조회를 계속한다. GitHub의 갱신 상태에 따라 수집 가능한 최신판이 달라진다. 국가법령정보센터의 현재 본문과 실시간 동기화된다는 의미는 아니다.
-
-GitHub API 호출 제한에 걸리면 수집 작업은 실패한다. 필요하면 법령 서버의 비밀 환경설정에 `GITHUB_TOKEN`을 주입한다. 키를 요청 본문이나 프런트로 보내지 않는다.
-
-작업 상태는 runtime 디렉터리의 `job-UUID.json`에 저장한다. 서버가 중단된 작업은 재시작 시 실패로 표시한다. 데이터 교체 직후 중단됐다면 `active.json`의 작업 ID로 완료를 복원한다. 성공 시 수집 시각을 기록한다. 내장 파일의 최초 수집 시각은 알 수 없어 `collected_at=null`이다.
-
-개발자가 내장 파일 자체를 다시 만들 때 사용하는 기존 `scripts/fetch_laws.py`와 `scripts/build_index.py`는 그대로 유지한다. 관리 화면의 최신화는 이 명령의 `main`을 실행하지 않고 격리된 임시 경로에서 수집과 파싱 함수만 사용한다.
+서버는 시작할 때 `data/index/*.json`만 읽고, 실행 중에는 데이터를 바꾸는 경로가 없다. 관리자용 조회·최신화 도구와 HTTP 경로는 없다(#230). 새 판을 반영하려면 개발자가 `scripts/fetch_laws.py`로 [legalize-kr 저장소](https://github.com/legalize-kr/legalize-kr)의 원문을 받고 `scripts/build_index.py`로 색인을 다시 만든 뒤 서버를 재시작한다. GitHub API 호출 제한에 걸리면 `GITHUB_TOKEN`을 설정한다.
 
 ## 검색 방식 비교 평가
 

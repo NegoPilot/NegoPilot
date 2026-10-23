@@ -36,7 +36,7 @@ Agent 그래프는 `agent/src/negopilot_agent/graph.py`에 있습니다. CLI 진
 | 7 | [backend/README.md](../backend/README.md) | 애플리케이션 DB와 business DB 분리 및 서버 설정 |
 | 8 | [회원 계약](contracts/membership.md) | 가입과 세션 및 최초 관리자 생성과 승인 |
 | 9 | [개인 대화 계약](contracts/history.md) | 계정별 저장과 페이지 조회 및 제목 변경과 삭제 |
-| 10 | [협력사 관리 계약](contracts/admin-suppliers.md)과 [법령 관리 계약](contracts/admin-laws.md) | 관리자 API와 DB migration 및 법령 최신화 |
+| 10 | [협력사 관리 계약](contracts/admin-suppliers.md) | 관리자 API와 DB migration |
 | 11 | [협력사 조회 계약](contracts/supplier-lookup.md) | 모델 호출 없는 MCP 조회와 검색 조건 및 출처 |
 
 ## 3. 담당별 시작점
@@ -155,7 +155,7 @@ business DB는 애플리케이션 DB와 분리합니다. [business DB 준비](..
 (cd mcp-servers/law-mcp && uv sync && uv run python server.py --http 9103)
 ```
 
-법령 조회는 저장소에 포함된 자료를 읽습니다. 관리자 최신화를 사용하려면 [법령 서버 안내](../mcp-servers/law-mcp/README.md)에 따라 영속적인 `LAW_RUNTIME_DIR`과 별도 `LAW_ADMIN_API_KEY`를 설정합니다. 같은 관리 키를 Python에도 전달합니다. 법령 관리 API는 stub 모드에서도 실제 law-mcp를 호출합니다.
+법령 조회는 저장소에 포함된 자료를 읽습니다. 자료를 다시 만드는 방법은 [법령 서버 안내](../mcp-servers/law-mcp/README.md)에 있습니다.
 
 로컬 Ollama 서버와 `qwen3:8b` 모델은 먼저 준비합니다. Agent는 모델을 자동 다운로드하거나 Ollama를 시작하지 않습니다. 자세한 설정은 [Ollama native 공급자](../agent/README.md#ollama-native-공급자)를 따릅니다.
 

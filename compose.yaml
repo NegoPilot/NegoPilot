@@ -87,10 +87,6 @@ services:
     build:
       context: .
       dockerfile: deploy/local/law.Dockerfile
-    environment:
-      LAW_ADMIN_API_KEY: ${LOCAL_LAW_ADMIN_API_KEY:-local-law-test-key}
-    volumes:
-      - law-data:/var/lib/negopilot-law
     healthcheck:
       test: [CMD, python, -c, "import socket; socket.create_connection(('127.0.0.1', 9103), 2).close()"]
       interval: 5s
@@ -124,7 +120,6 @@ services:
       OLLAMA_NUM_PREDICT: ${OLLAMA_NUM_PREDICT:-4096}
       BUSINESS_MCP_URL: http://business-mcp:9102/mcp
       LAW_MCP_URL: http://law-mcp:9103/mcp
-      LAW_ADMIN_API_KEY: ${LOCAL_LAW_ADMIN_API_KEY:-local-law-test-key}
       # LangSmith tracing is off unless both TRACING=true and a key are set. It sends prompts and tool data out.
       LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
       LANGSMITH_API_KEY: ${LANGSMITH_API_KEY-}
@@ -198,4 +193,3 @@ services:
 
 volumes:
   postgres-data:
-  law-data:

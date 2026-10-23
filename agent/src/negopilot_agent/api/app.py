@@ -13,8 +13,6 @@ from negopilot_agent.decomposition.backends import Backend
 
 from .business_supplier_service import BusinessSupplierService
 from .generation_api import add_generation_routes
-from .admin_law_api import add_admin_law_routes
-from .admin_law_refresh import add_refresh_routes
 from .generation_execution import ContextDecomposer
 from .models import ErrorDetail, ErrorResponse
 from .settings import ApiSettings
@@ -47,9 +45,7 @@ def create_app(settings: ApiSettings | None = None,
                supplier_lookup_service: BusinessSupplierService | None = None,
                generation_decomposer: ContextDecomposer | None = None,
                generation_caller: ToolCaller | None = None,
-               generation_backend: Backend | None = None,
-               admin_law_caller: ToolCaller | None = None,
-               law_refresh_control=None) -> FastAPI:
+               generation_backend: Backend | None = None) -> FastAPI:
     settings = settings or ApiSettings.from_env()
     application = FastAPI(title="NegoPilot internal execution API", version="0.1")
 
@@ -98,8 +94,6 @@ def create_app(settings: ApiSettings | None = None,
                           backend=generation_backend)
     from .review_api import add_review_routes
     add_review_routes(application, settings, authenticate, error_response, generation_caller)
-    add_refresh_routes(application, settings, authenticate, error_response, law_refresh_control)
-    add_admin_law_routes(application, settings, authenticate, error_response, admin_law_caller)
     return application
 
 

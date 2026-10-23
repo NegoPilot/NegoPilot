@@ -67,7 +67,7 @@ business MCP의 flat 응답을 화면용 형식으로 변환합니다. `on_time_
 | `/review` | 예시 협상안과 법규 검토 결과. 재검사 API는 미연결 |
 | `/admin` 및 하위 경로 | 서버에서 확인한 ADMIN 계정만 진입. 회원 목록과 승인·상태 변경은 관리자 API와 연결. 데이터 관리 화면은 예시 데이터 |
 
-관리자 데이터 관리 화면(법령·협력사 등록)은 아직 백엔드 API에 연결하지 않았으며 예시 데이터를 표시합니다. 후속 UI 연결 시 [회원 계약](../docs/contracts/membership.md)과 [법령 관리 계약](../docs/contracts/admin-laws.md)을 확인해야 합니다.
+관리자 데이터 관리 화면(법령·협력사 등록)은 아직 백엔드 API에 연결하지 않았으며 예시 데이터를 표시합니다. 백엔드에는 관리자 법령 API가 없습니다(#230). 협력사 화면을 연결할 때는 [협력사 관리 계약](../docs/contracts/admin-suppliers.md)을 확인해야 합니다.
 
 [협력사 조회 API](../docs/contracts/supplier-lookup.md)는 실행 모드와 관계없이 business MCP를 조회하며 모델은 호출하지 않습니다. 이 API는 `schema_version: "0.3"`과 `mode: "live"`를 반환합니다. 채팅을 stub으로 실행해도 협력사 조회에는 business MCP와 DB가 필요합니다.
 

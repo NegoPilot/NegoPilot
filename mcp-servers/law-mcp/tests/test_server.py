@@ -159,13 +159,12 @@ def test_search_cache_evicts_least_recently_used(monkeypatch):
     server._search_cache.clear()
 
 
-def test_admin_tool_descriptions_are_korean():
+def test_no_admin_or_refresh_surface():
     async def go():
         async with Client(mcp) as client:
-            return {t.name: t.description for t in await client.list_tools() if t.name.startswith("admin_law_")}
-    descriptions = run(go())
-    assert len(descriptions) == 4
-    assert all(d.startswith("관리자 화면용") for d in descriptions.values())
+            return [t.name for t in await client.list_tools()]
+    assert not any(name.startswith("admin_") for name in run(go()))
+    assert not hasattr(server, "activate_dataset")
 
 
 def test_business_wording_is_mapped_to_legal_terms():

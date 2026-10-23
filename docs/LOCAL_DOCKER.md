@@ -90,7 +90,6 @@ Docker 시작기는 MODEL 값이 미설정이거나 빈 문자열이면 기존 �
 | `BUSINESS_DB_PASSWORD` | `local-business-password` | Spring의 business DB 쓰기 연결 |
 | `BUSINESS_READER_PASSWORD` | `local-reader-password` | business MCP의 조회 전용 연결 |
 | `LOCAL_AGENT_API_KEY` | `local-agent-test-key` | Spring과 Python의 내부 키 |
-| `LOCAL_LAW_ADMIN_API_KEY` | `local-law-test-key` | Python과 law MCP의 법령 관리 키 |
 
 예를 들어 `.env`에서 `LOCAL_WEB_PORT=5178`로 바꾼 뒤 기본 시작 명령을 실행하면 접속 주소는 `http://localhost:5178`입니다. 이 방법은 Windows에서도 사용할 수 있습니다.
 
@@ -162,7 +161,7 @@ docker compose -f compose.yaml -f compose.test.yaml down
 
 ## 데이터 보존과 종료
 
-각 프로젝트의 `postgres-data` named volume에는 애플리케이션 DB와 business DB를 저장합니다. `law-data`에는 법령 최신화 결과와 작업 상태를 저장합니다. 컨테이너를 중지하거나 다시 만들더라도 volume이 남아 있으면 저장된 데이터를 유지합니다. 초기 데이터 준비와 계정 생성은 기존 자료를 덮어쓰지 않습니다.
+각 프로젝트의 `postgres-data` named volume에는 애플리케이션 DB와 business DB를 저장합니다. 컨테이너를 중지하거나 다시 만들더라도 volume이 남아 있으면 저장된 데이터를 유지합니다. 초기 데이터 준비와 계정 생성은 기존 자료를 덮어쓰지 않습니다.
 
 기본 환경의 일반 종료 명령은 다음과 같습니다. named volume은 유지됩니다.
 

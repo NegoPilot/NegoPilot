@@ -1,6 +1,6 @@
 """하도급법·연동제 관련 법령을 로컬 파일에서 제공하는 MCP Server.
 
-기본 법령은 data/index/*.json에서 읽는다. 관리자 최신화 요청만 외부 수집을 실행한다.
+법령은 data/index/*.json에서 읽는다.
 법령마다 여러 판(개정본)을 갖고 있어서, as_of 날짜에 시행 중인 판으로 답한다.
 
 실행:
@@ -9,21 +9,15 @@
 """
 
 import argparse
-import hashlib
 import json
 import math
-import os
-import secrets
-import threading
-from functools import wraps
 import re
 from collections import Counter, OrderedDict
-from datetime import date, datetime, timezone
+from datetime import date
 from pathlib import Path
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
-from starlette.responses import JSONResponse
 
 INDEX_DIR = Path(__file__).resolve().parent / "data" / "index"
 
@@ -56,102 +50,9 @@ def load_laws() -> dict[str, dict]:
     return laws
 
 
-DATASET_LOCK = threading.RLock()
-
-
-def dataset_read(fn):
-    @wraps(fn)
-    def read(*args, **kwargs):
-        with DATASET_LOCK:
-            return fn(*args, **kwargs)
-    return read
-
-
 LAWS = load_laws()
 import supporting_sources
 SUPPORTING_SOURCES = supporting_sources.load_sources()
-DATASET_COLLECTED_AT = None
-DATASET_LOADED_AT = datetime.now(timezone.utc).isoformat()
-DATASET_ID = hashlib.sha256(json.dumps(LAWS, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-
-
-def admin_version_id(version: dict) -> str:
-    return version["effective_date"] + "_" + version["commit"]
-
-
-def admin_version_summary(version: dict) -> dict:
-    return {"version_id": admin_version_id(version), "effective_date": version["effective_date"],
-            "promulgation_date": version["promulgation_date"], "promulgation_no": version["promulgation_no"],
-            "source_url": version["source_url"], "source_commit": version["commit"],
-            "article_count": len(version["articles"])}
-
-
-def admin_exact_version(law_key: str, version_id: str) -> dict | None:
-    law = LAWS.get(law_key)
-    return next((v for v in law["versions"] if admin_version_id(v) == version_id), None) if law else None
-
-
-@mcp.tool(annotations={"readOnlyHint": True})
-@dataset_read
-def admin_law_catalog() -> dict:
-    """관리자 화면용. 이 서버가 지금 불러온 법령 데이터의 목록과 건수를 반환한다. 수집·수정은 하지 않는다."""
-    items = [{"law_key": key, "law_name": law["law_name"], "version_count": len(law["versions"]),
-              "article_count": sum(len(v["articles"]) for v in law["versions"])}
-             for key, law in sorted(LAWS.items())]
-    return {"dataset_id": DATASET_ID, "loaded_at": DATASET_LOADED_AT, "collected_at": DATASET_COLLECTED_AT,
-            "law_count": len(items), "version_count": sum(x["version_count"] for x in items),
-            "article_count": sum(x["article_count"] for x in items), "items": items}
-
-
-@mcp.tool(annotations={"readOnlyHint": True})
-@dataset_read
-def admin_law_versions(law_key: str) -> dict | None:
-    """관리자 화면용. 법령 하나가 가진 모든 판(최신 판부터)을 반환한다. 기준일로 판을 고르지 않는다.
-
-    law_key: subcontract_act 처럼 정확한 키 (별칭은 받지 않는다). 없으면 null
-    """
-    law = LAWS.get(law_key)
-    if law is None:
-        return None
-    return {"law_key": law_key, "law_name": law["law_name"],
-            "items": [admin_version_summary(v) for v in reversed(law["versions"])]}
-
-
-@mcp.tool(annotations={"readOnlyHint": True})
-@dataset_read
-def admin_law_articles(law_key: str, version_id: str, offset: int = 0, limit: int = 50) -> dict | None:
-    """관리자 화면용. 지정한 판의 조문 목록(번호, 제목, 삭제 여부)을 페이지 단위로 반환한다.
-
-    version_id: admin_law_versions의 version_id. 판이 없으면 null
-    offset: 0 이상, limit: 1~100
-    """
-    if offset < 0 or not 1 <= limit <= 100:
-        raise ToolError("offset 은 0 이상, limit 은 1~100 이어야 한다")
-    version = admin_exact_version(law_key, version_id)
-    if version is None:
-        return None
-    articles = version["articles"]
-    return {"law_key": law_key, **admin_version_summary(version), "total": len(articles),
-            "offset": offset, "limit": limit,
-            "items": [{k: a[k] for k in ("no", "title", "deleted")} for a in articles[offset:offset+limit]]}
-
-
-@mcp.tool(annotations={"readOnlyHint": True})
-@dataset_read
-def admin_law_article(law_key: str, version_id: str, article_no: str) -> dict | None:
-    """관리자 화면용. 지정한 판의 조문 하나를 전문과 인용 문구로 반환한다. 판이나 조문이 없으면 null.
-
-    article_no: '제4조', '16조의2' 처럼 입력. 데이터를 바꾸거나 갱신하지 않는다
-    """
-    version = admin_exact_version(law_key, version_id)
-    if version is None:
-        return None
-    no = normalize_article_no(article_no)
-    article = next((a for a in version["articles"] if a["no"] == no), None)
-    if article is None:
-        return None
-    return {"law_key": law_key, "law_name": version["law_name"], **admin_version_summary(version),
-            "article": article, "citation": citation(version, article)}
 
 
 def resolve_law(law: str) -> dict:
@@ -347,7 +248,8 @@ def search_units(law_keys: tuple[str, ...], as_of: str, include_addenda: bool):
     active_docs = tuple(key for key, doc in SUPPORTING_SOURCES.items()
                         if supporting_sources.available(doc, as_of)
                         and set(doc["parent_laws"]).intersection(law_keys))
-    cache_key = (law_keys, tuple(admin_version_id(v) for v in versions.values()), include_addenda, active_docs)
+    cache_key = (law_keys, tuple(v["effective_date"] + "_" + v["commit"] for v in versions.values()),
+                 include_addenda, active_docs)
     if cache_key in _search_cache:
         _search_cache.move_to_end(cache_key)
         return _search_cache[cache_key]
@@ -380,7 +282,6 @@ def search_units(law_keys: tuple[str, ...], as_of: str, include_addenda: bool):
 # ---------- Tools ----------
 
 @mcp.tool(annotations={"readOnlyHint": True})
-@dataset_read
 def list_laws(as_of: str | None = None) -> list[dict]:
     """제공하는 법령 목록과, as_of(YYYY-MM-DD, 기본 오늘)에 시행 중인 판·시행 예정 판을 반환한다."""
     day = parse_as_of(as_of)
@@ -395,7 +296,6 @@ def list_laws(as_of: str | None = None) -> list[dict]:
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
-@dataset_read
 def get_article(law: str, article_no: str, as_of: str | None = None) -> dict:
     """특정 조문 전문을 항 단위로 반환한다.
 
@@ -434,7 +334,6 @@ def get_article(law: str, article_no: str, as_of: str | None = None) -> dict:
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
-@dataset_read
 def search_regulation(query: str, laws: list[str] | None = None, as_of: str | None = None,
                       top_k: int = 5, include_addenda: bool = False) -> list[dict]:
     """질문과 관련된 조문을 항 단위로 찾아 인용 정보와 함께 반환한다.
@@ -538,60 +437,6 @@ def article_resource(law_key: str, article_no: str) -> str:
     a = get_article(law_key, article_no)
     body = "\n\n".join(p["text"] for p in a["paragraphs"])
     return f"{a['citation']}\n출처: {a['source_url']}\n\n{body}"
-
-
-# Refresh is an authenticated HTTP control endpoint. It is intentionally absent from MCP tools.
-def activate_dataset(laws, collected_at):
-    global LAWS, DATASET_ID, DATASET_LOADED_AT, DATASET_COLLECTED_AT
-    with DATASET_LOCK:
-        LAWS = laws
-        DATASET_ID = hashlib.sha256(json.dumps(laws, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-        DATASET_COLLECTED_AT = collected_at
-        DATASET_LOADED_AT = datetime.now(timezone.utc).isoformat()
-        _search_cache.clear()
-
-
-REFRESH_MANAGER = None
-LAW_ADMIN_API_KEY = os.getenv("LAW_ADMIN_API_KEY", "")
-if os.getenv("LAW_RUNTIME_DIR"):
-    from law_refresh import LawRefreshManager
-    REFRESH_MANAGER = LawRefreshManager(os.environ["LAW_RUNTIME_DIR"], LAWS, activate_dataset)
-
-
-def refresh_auth(request):
-    key = request.headers.get("X-Law-Admin-Key", "")
-    return bool(LAW_ADMIN_API_KEY and secrets.compare_digest(key, LAW_ADMIN_API_KEY))
-
-
-@mcp.custom_route("/admin/refresh-jobs", methods=["POST", "GET"])
-async def refresh_jobs(request):
-    if not refresh_auth(request):
-        return JSONResponse({"error_code": "UNAUTHORIZED"}, status_code=401)
-    if REFRESH_MANAGER is None:
-        return JSONResponse({"error_code": "REFRESH_UNAVAILABLE"}, status_code=503)
-    if request.query_params or await request.body():
-        return JSONResponse({"error_code": "VALIDATION_ERROR"}, status_code=400)
-    if request.method == "GET":
-        return JSONResponse({"item": REFRESH_MANAGER.latest()})
-    from law_refresh import RefreshBusy
-    try:
-        return JSONResponse(REFRESH_MANAGER.start(), status_code=202)
-    except RefreshBusy:
-        return JSONResponse({"error_code": "REFRESH_BUSY"}, status_code=409)
-    except OSError:
-        return JSONResponse({"error_code": "REFRESH_UNAVAILABLE"}, status_code=503)
-
-
-@mcp.custom_route("/admin/refresh-jobs/{job_id}", methods=["GET"])
-async def refresh_job(request):
-    if not refresh_auth(request):
-        return JSONResponse({"error_code": "UNAUTHORIZED"}, status_code=401)
-    if REFRESH_MANAGER is None:
-        return JSONResponse({"error_code": "REFRESH_UNAVAILABLE"}, status_code=503)
-    if request.query_params or await request.body():
-        return JSONResponse({"error_code": "VALIDATION_ERROR"}, status_code=400)
-    job = REFRESH_MANAGER.get(request.path_params["job_id"])
-    return JSONResponse(job if job else {"error_code": "LAW_NOT_FOUND"}, status_code=200 if job else 404)
 
 
 if __name__ == "__main__":

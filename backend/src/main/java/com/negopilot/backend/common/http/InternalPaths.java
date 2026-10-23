@@ -9,5 +9,4 @@ public final class InternalPaths {
     public static final String LEGAL_REVIEWS = ROOT + "/legal-reviews";
     public static final String BUSINESS_CATALOG = ROOT + "/business/catalog";
     public static final String SUPPLIERS = ROOT + "/suppliers";
-    public static final String ADMIN_LAWS = ROOT + "/admin/laws";
 }

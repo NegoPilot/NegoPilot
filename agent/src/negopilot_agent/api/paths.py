@@ -2,4 +2,3 @@
 
 INTERNAL_ROOT = "/internal"
 QUERY_EXECUTIONS = INTERNAL_ROOT + "/query-executions"
-ADMIN_LAWS = INTERNAL_ROOT + "/admin/laws"

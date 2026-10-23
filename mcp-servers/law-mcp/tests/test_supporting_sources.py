@@ -59,8 +59,3 @@ def test_full_template_pages_reconstruct_without_loss():
         offset=page['next_offset']
     assert ''.join(parts)==server.SUPPORTING_SOURCES['linkage_templates']['text']
 
-def test_refresh_does_not_remove_supporting_evidence():
-    before=server.SUPPORTING_SOURCES.copy()
-    server.activate_dataset(server.LAWS,None)
-    assert server.SUPPORTING_SOURCES==before
-    assert any(h.get('document_id')=='late_interest' for h in server.search_regulation('지연이율 15.5',top_k=10))
