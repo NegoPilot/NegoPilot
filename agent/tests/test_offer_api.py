@@ -1,6 +1,10 @@
-"""POST /internal/offer-proposals: 인증, 입력 검증, JSON·PDF 응답, 입력 오류 코드 (#231)."""
-import asyncio
-from io import BytesIO
+"""POST /internal/offer-proposals(·/render·/batch): 인증, 입력 검증, JSON·PDF·DOCX 응답, 재검사, 일괄 처리 (#231, #236)."""
+import base64
+import csv
+import hashlib
+import io
+import json
+import zipfile
 from uuid import uuid4
 
 import httpx2 as httpx
@@ -9,10 +13,11 @@ from pypdf import PdfReader
 
 from negopilot_agent.api.app import create_app
 from negopilot_agent.api.settings import ApiSettings
-from negopilot_agent.offer_proposal.pdf import sections
-
-from negopilot_agent.offer_proposal import OfferProposer
-from tests.test_offer_proposal import FakeCaller, bench, request
+from negopilot_agent.offer_proposal.document import OfferDocument
+from negopilot_agent.offer_proposal.supplier import docx_text
+from negopilot_agent.offer_proposal.writer import NegotiationWriter
+from tests.test_offer_documents import FakeBackend, good_draft, mail_mcp_content_hash
+from tests.test_offer_proposal import FakeCaller, bench
 
 KEY = {'X-Internal-Api-Key': 'test-offer-key'}
 
@@ -22,10 +27,20 @@ def body(**offer):
             'offer': {'supplier': 'SUP-0007', 'rfq_id': 'RFQ-2026-001', 'as_of': '2026-10-23', **offer}}
 
 
-async def post(caller, payload, params=None, headers=KEY):
-    app = create_app(ApiSettings(internal_api_key='test-offer-key'), generation_caller=caller)
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as c:
-        return await c.post('/internal/offer-proposals', json=payload, params=params, headers=headers)
+def app_for(caller, writer=None):
+    return create_app(ApiSettings(internal_api_key='test-offer-key'), generation_caller=caller,
+                      offer_writer_factory=lambda: writer)
+
+
+async def post(caller, payload, params=None, headers=KEY, path='/internal/offer-proposals', writer=None):
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app_for(caller, writer)),
+                                 base_url='http://test') as c:
+        return await c.post(path, json=payload, params=params, headers=headers)
+
+
+async def upload(caller, data: bytes, filename: str):
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app_for(caller)), base_url='http://test') as c:
+        return await c.post('/internal/offer-proposals/batch', content=data, headers=KEY, params={'filename': filename})
 
 
 async def test_authentication_and_validation_before_execution():
@@ -37,26 +52,109 @@ async def test_authentication_and_validation_before_execution():
     assert caller.calls == []
 
 
-async def test_json_response_has_one_offer():
+async def test_json_response_has_document_briefing_and_check():
     payload = body(payment_days=90, notes='월 2회 분할 납품')
     response = await post(FakeCaller(bench(market__median=4300.0)), payload)
     assert response.status_code == 200
     data = response.json()
     assert data['request_id'] == payload['request_id']
-    offer = data['proposal']['offer']
-    assert data['proposal']['status'] == 'offer' and offer['payment_days'] == 60
-    assert offer['adjustments'][0] == '요청 조건 지급 90일 → 법정 60일 이내로 조정'
-    assert [p['name'] for p in offer['price_range']] == ['opening', 'settlement', 'walk_away']
+    doc = OfferDocument.model_validate(data['offer_document'])
+    assert doc.payment_days == 60 and doc.status == 'draft' and doc.delivery_notes == '월 2회 분할 납품'
+    assert doc.content_hash.startswith('sha256:') and doc.verdict_code == 'OK'
+    assert 'content_hash' not in data
+    assert data['check']['verdict_code'] == 'OK'
+    briefing = data['internal_briefing']
+    assert briefing['offer']['adjustments'][0] == '요청 조건 지급 90일 → 법정 60일 이내로 조정'
+    assert [p['name'] for p in briefing['offer']['price_range']] == ['opening', 'settlement', 'walk_away']
+    assert briefing['writing'] is None                       # 모델 문구를 끈 앱
 
 
-async def test_pdf_response_is_an_attachment_with_korean_text():
-    response = await post(FakeCaller(bench(market__median=4300.0)), body(), params={'format': 'pdf'})
-    assert response.status_code == 200
-    assert response.headers['content-type'] == 'application/pdf'
-    assert response.headers['content-disposition'] == 'attachment; filename="offer-RFQ-2026-001-SUP-0007.pdf"'
-    reader = PdfReader(BytesIO(response.content))
-    assert len(reader.pages) >= 1
-    assert reader.metadata.title == '협상안 RFQ-2026-001 SUP-0007'
+async def test_model_writing_is_used_when_enabled():
+    writer = NegotiationWriter(FakeBackend([good_draft(), good_draft()]))
+    data = (await post(FakeCaller(bench(market__median=4300.0)), body(), writer=writer)).json()
+    assert data['internal_briefing']['writing']['source'] == 'model'
+    assert data['offer_document']['cover_letter'] == good_draft()['cover_letter']
+    off = await post(FakeCaller(bench(market__median=4300.0)), body(), params={'writing': 'false'}, writer=writer)
+    assert off.json()['internal_briefing']['writing'] is None
+
+
+async def test_supplier_files_and_briefing_pdf():
+    caller = FakeCaller(bench(market__median=4300.0))
+    pdf = await post(caller, body(), params={'format': 'pdf'})
+    assert pdf.status_code == 200 and pdf.headers['content-type'] == 'application/pdf'
+    assert "filename*=UTF-8''%EC%A0%9C%EC%95%88%EC%84%9C_RFQ-2026-001_SUP-0007_v1.pdf" in pdf.headers['content-disposition']
+    assert pdf.headers['x-content-hash'].startswith('sha256:')
+    assert pdf.headers['x-file-sha256'] == hashlib.sha256(pdf.content).hexdigest()
+    docx = await post(caller, body(), params={'format': 'docx'})
+    assert docx.headers['content-type'].startswith('application/vnd.openxmlformats')
+    assert '단가 및 거래조건 제안서' in docx_text(docx.content)
+    briefing = await post(caller, body(), params={'format': 'briefing_pdf'})
+    pages = PdfReader(io.BytesIO(briefing.content)).pages
+    assert all('대외비 — 협력사 발송 금지' in p.extract_text() for p in pages)
+
+
+async def test_render_returns_document_attachments_and_mail_hash():
+    caller = FakeCaller(bench(market__median=4300.0))
+    doc = (await post(caller, body())).json()['offer_document']
+    edited = doc | {'unit_price': 4000, 'version': 2, 'status': 'final'}
+    ok = await post(caller, {'request_id': str(uuid4()), 'document': edited}, path='/internal/offer-proposals/render')
+    assert ok.status_code == 200
+    data = ok.json()
+    assert data['document']['unit_price'] == 4000 and data['document']['version'] == 2
+    assert data['document']['content_hash'] != doc['content_hash'] and data['check']['verdict_code'] == 'OK'
+    files = [(a['filename'], a['content_type'], base64.b64decode(a['data_base64'])) for a in data['attachments']]
+    assert [f[0] for f in files] == ['제안서_RFQ-2026-001_SUP-0007_v2.pdf', '제안서_RFQ-2026-001_SUP-0007_v2.docx']
+    assert data['document']['content_hash'] == mail_mcp_content_hash(data['document'], files)
+    again = (await post(caller, {'request_id': str(uuid4()), 'document': data['document']},
+                        path='/internal/offer-proposals/render')).json()
+    assert again['document']['content_hash'] == data['document']['content_hash']     # 다시 렌더해도 같은 해시
+    pdf_only = (await post(caller, {'request_id': str(uuid4()), 'document': edited, 'files': 'pdf'},
+                           path='/internal/offer-proposals/render')).json()
+    assert [a['content_type'] for a in pdf_only['attachments']] == ['application/pdf']
+
+
+async def test_render_rejects_violations():
+    caller = FakeCaller(bench(market__median=4300.0))
+    doc = (await post(caller, body())).json()['offer_document']
+    bad = doc | {'payment_days': 90}
+    rejected = await post(caller, {'request_id': str(uuid4()), 'document': bad},
+                          path='/internal/offer-proposals/render', params={'format': 'pdf'})
+    assert rejected.status_code == 422
+    assert rejected.json()['error']['code'] == 'OFFER_VIOLATION'
+    assert rejected.json()['findings'][0]['code'] == 'PAYMENT_DAYS_OVER_60'
+
+
+async def test_render_files_carry_the_document_hash():
+    caller = FakeCaller(bench(market__median=4300.0))
+    doc = (await post(caller, body())).json()['offer_document'] | {'status': 'final'}
+    response = await post(caller, {'request_id': str(uuid4()), 'document': doc},
+                          path='/internal/offer-proposals/render', params={'format': 'docx'})
+    rendered = OfferDocument.model_validate(doc).model_copy(update={'content_hash': None})
+    files = [(response.headers['content-disposition'].split("UTF-8''")[1], response.headers['content-type'],
+              response.content)]
+    from urllib.parse import unquote
+    files = [(unquote(files[0][0]), files[0][1], files[0][2])]
+    assert response.headers['x-content-hash'] == mail_mcp_content_hash(rendered.model_dump(mode='json'), files)
+    assert response.headers['x-document-version'] == '1'
+
+
+async def test_batch_returns_zip_with_files_and_summary():
+    data = ('협력사,RFQ,기준일,지급일수,연동,비고\n'
+            'SUP-0007,RFQ-2026-001,2026-10-23,90,아니오,월 2회\n'
+            'SUP-07,RFQ-2026-001,2026-10-23,60,,\n').encode('utf-8')
+    response = await upload(FakeCaller(bench()), data, 'offers.csv')
+    assert response.status_code == 200 and response.headers['content-type'] == 'application/zip'
+    z = zipfile.ZipFile(io.BytesIO(response.content))
+    assert {'002_제안서_RFQ-2026-001_SUP-0007_v1.pdf', '002_제안서_RFQ-2026-001_SUP-0007_v1.docx',
+            '002_내부브리핑_RFQ-2026-001_SUP-0007.pdf', 'summary.csv'} <= set(z.namelist())
+    rows = list(csv.DictReader(io.StringIO(z.read('summary.csv').decode('utf-8-sig'))))
+    assert [r['status'] for r in rows] == ['offer', 'invalid']
+    assert 'supplier' in rows[1]['error']
+
+
+async def test_batch_rejects_bad_uploads():
+    assert (await upload(FakeCaller(bench()), b'', 'a.csv')).status_code == 400
+    assert (await upload(FakeCaller(bench()), b'x', 'a.exe')).status_code == 400
 
 
 async def test_tool_input_errors_are_reported_with_their_code():
@@ -73,12 +171,10 @@ async def test_tool_input_errors_are_reported_with_their_code():
     assert response.status_code == 500 and 'secret' not in response.text
 
 
-def test_pdf_sections_use_structured_numbers():
-    proposal = asyncio.run(OfferProposer(FakeCaller(bench(market__median=4300.0))).propose(request(notes='울산 공장')))
-    doc = dict(sections(proposal))
-    conditions = dict(doc['제시 조건'][0][1])
-    assert conditions['단가'] == '3,895원' and conditions['예상 계약금액'] == f'{120_000 * 3895:,}원'
-    assert conditions['납품·비고'] == '울산 공장'
-    rows = doc['협상 범위'][0][1]
-    assert [r[1] for r in rows[1:]] == ['3,895원', '3,998원', '4,100원']
-    assert doc['고지'] == [('p', '이 문서는 초안이며 최종 결정과 발송은 담당자가 한다. 법률 최종 판단은 법무 확인을 거친다.')]
+async def test_no_offer_has_no_supplier_document():
+    unfixable = {'verdict_code': 'VIOLATION', 'warnings': [], 'violations': [{'code': 'X', 'message': '위반'}]}
+    caller = FakeCaller(bench(), lambda args: unfixable)
+    data = (await post(caller, body())).json()
+    assert data['offer_document'] is None
+    assert (await post(caller, body(), params={'format': 'pdf'})).json()['error']['code'] == 'NO_OFFER'
+    assert json.dumps(data['internal_briefing']['no_offer_reasons'], ensure_ascii=False).count('위반') == 3

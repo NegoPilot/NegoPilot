@@ -29,6 +29,9 @@ PAYMENT_STEP_DAYS = 15         # 양보 순서에서 제안하는 지급 단축 
 MAX_CONTRACT_DAYS = 730        # 양보 순서에서 제안하는 계약 기간 상한 (2년)
 MAX_RECHECKS = 2               # 위반을 고친 뒤 다시 검사하는 최대 횟수
 LINKAGE_VIOLATIONS = {'LINKAGE_TERMS_MISSING', 'ENERGY_LINKAGE_TERMS_MISSING'}
+LinkageStatus = Literal['included', 'not_required', 'exempt', 'waived', 'needs_input']
+RATIO_REQUIRED = {'code': 'RAW_MATERIAL_RATIO_REQUIRED', 'severity': 'warning', 'law_refs': [],
+                  'message': '원재료 비중을 입력하면 연동 의무를 판정합니다 (지금은 연동 약정 확인 필요)'}
 SUPPLY_WARNINGS = {'CAPACITY_SHORT': '월 필요 물량 대비 생산능력을 확인하고, 부족하면 분할 발주나 납기 조정을 제안한다',
                    'CAPABILITY_MISSING': '해당 공정·소재 생산 실적과 설비를 먼저 확인한다',
                    'CERT_MISSING': '필수 인증 취득 일정과 대체 방안을 확인한다'}
@@ -65,6 +68,7 @@ class Candidate(BaseModel):
     energy_ratio: float | None
     contract_days: int
     linkage_waived_by_agreement: bool = False
+    linkage_status: LinkageStatus = 'not_required'
     rationale: list[Basis]
     adjustments: list[str] = Field(default_factory=list)
     verdict_code: str | None = None
@@ -108,6 +112,7 @@ class Offer(BaseModel):
     contract_amount: int
     annual_volume: int
     linkage_waived_by_agreement: bool
+    linkage_status: LinkageStatus
     notes: str | None
     gap_to_target_pct: float
     gap_to_last_quote_pct: float | None
@@ -133,6 +138,12 @@ class Considered(BaseModel):
     violations: list[dict] = Field(default_factory=list)
 
 
+class InputNeeded(BaseModel):
+    """판정을 끝내려면 사람이 넣어야 하는 값. 결과와 문서 맨 위에 보여 준다."""
+    field: str
+    message: str
+
+
 class Proposal(BaseModel):
     status: Literal['offer', 'no_offer']
     rfq_id: str
@@ -144,6 +155,7 @@ class Proposal(BaseModel):
     offer: Offer | None
     considered: list[Considered]
     filled: list[Filled]
+    input_needed: list[InputNeeded] = Field(default_factory=list)
     no_offer_reasons: list[str] = Field(default_factory=list)
     benchmarks: dict
     explanation: str | None = None
@@ -234,41 +246,46 @@ def ratio_source(req_ratio: float | None) -> str:
     return 'request.raw_material_ratio' if req_ratio is not None else 'supplier.raw_material_ratio'
 
 
-def linkage_terms(bench: dict, terms: Terms, unit_price: int, source: str) -> tuple[bool, list[Basis], list[str]]:
-    """연동 약정 여부, 근거, 요청 조건을 고친 내역.
+def linkage_terms(bench: dict, terms: Terms, unit_price: int,
+                  source: str) -> tuple[bool, LinkageStatus, list[Basis], list[str]]:
+    """연동 약정 여부와 상태, 근거, 요청 조건을 고친 내역.
 
     주요 원재료(10% 이상)이고 기간·금액 예외도 미연동 합의도 아니면 연동 약정을 넣는다. 요청이 '연동 없음'이어도 넣는다.
+    원재료 비중을 모르면 연동 없음으로 두지 않고 needs_input(확인 필요)으로 표시한다. 연동 포함이 정해진 경우만 예외다.
     """
     rules = bench['rules']
     ratio, requested = terms.raw_material_ratio, terms.linkage_requested
     fallback = bool(bench['supplier']['price_linkage']) if requested is None else requested
     if ratio is None:
-        return fallback, [Basis(source=source, value=None,
-                                note='원재료 비중을 몰라 ' + ('요청한' if requested is not None else '기존')
-                                     + ' 연동 여부를 따름. check_offer 경고를 확인')], []
+        if fallback:
+            return True, 'included', [Basis(source=source, value=None, note='원재료 비중을 모르지만 '
+                                            + ('요청대로' if requested else '기존 계약대로') + ' 연동 약정 포함')], []
+        return False, 'needs_input', [Basis(source=source, value=None,
+                                            note='원재료 비중을 몰라 연동 의무를 판정하지 못함: 연동 약정 확인 필요')], []
     basis = [Basis(source=source, value=ratio, note=f'원재료 비중 {ratio * 100:.0f}%')]
+    status: LinkageStatus = 'included' if fallback else 'not_required'
     if ratio < rules['MAJOR_MATERIAL_RATIO']:
         basis.append(Basis(source='rules.MAJOR_MATERIAL_RATIO', value=rules['MAJOR_MATERIAL_RATIO'],
                            note='주요 원재료 기준 미만이라 연동 의무 없음'))
-        return fallback, basis, []
+        return fallback, status, basis, []
     amount = round(bench['rfq']['annual_volume'] * unit_price * terms.contract_days / 365)
     if terms.contract_days <= rules['LINKAGE_EXEMPT_DAYS']:
         basis.append(Basis(source='rules.LINKAGE_EXEMPT_DAYS', value=rules['LINKAGE_EXEMPT_DAYS'],
                            note=f'거래 기간 {terms.contract_days}일로 연동 면제 기간 이내'))
-        return fallback, basis, []
+        return fallback, 'included' if fallback else 'exempt', basis, []
     if amount <= rules['LINKAGE_EXEMPT_AMOUNT']:
         basis.append(Basis(source='rules.LINKAGE_EXEMPT_AMOUNT', value=rules['LINKAGE_EXEMPT_AMOUNT'],
                            note=f'하도급대금 {amount:,}원으로 연동 면제 금액 이하'))
-        return fallback, basis, []
+        return fallback, 'included' if fallback else 'exempt', basis, []
     if terms.waived:
         basis.append(Basis(source='request.linkage_waived_by_agreement', value=True,
                            note='연동하지 않기로 합의함: 취지와 사유를 서면에 적어야 함'))
-        return False, basis, []
+        return False, 'waived', basis, []
     basis.append(Basis(source='rules.MAJOR_MATERIAL_RATIO', value=rules['MAJOR_MATERIAL_RATIO'],
                        note='주요 원재료 기준 이상이고 면제 사유가 없어 연동 약정 포함'))
     adjusted = [f'요청 조건 연동 없음 → 원재료 비중 {ratio * 100:.0f}%로 법정 연동 대상이라 연동 포함'] \
         if requested is False else []
-    return True, basis, adjusted
+    return True, 'included', basis, adjusted
 
 
 def price_floors(bench: dict) -> list[tuple[int, Basis]]:
@@ -302,11 +319,11 @@ def build_candidates(bench: dict, terms: Terms, ratio_src: str) -> tuple[list[Ca
 
     def add(intent: Intent, unit_price: int, payment_days: int, rationale: list[Basis]):
         unit_price = capped(unit_price, terms, rationale)
-        linkage, linkage_basis, adjusted = linkage_terms(bench, terms, unit_price, ratio_src)
+        linkage, status, linkage_basis, adjusted = linkage_terms(bench, terms, unit_price, ratio_src)
         out.append(Candidate(intent=intent, label=LABELS[intent], unit_price=unit_price, payment_days=payment_days,
                              price_linkage=linkage, raw_material_ratio=terms.raw_material_ratio,
                              energy_ratio=terms.energy_ratio, contract_days=terms.contract_days,
-                             linkage_waived_by_agreement=terms.waived and not linkage,
+                             linkage_waived_by_agreement=terms.waived and not linkage, linkage_status=status,
                              rationale=rationale + linkage_basis, adjustments=terms.adjustments + adjusted))
 
     floors = price_floors(bench)
@@ -347,6 +364,7 @@ def revise(candidate: Candidate, violations: list[dict], rules: dict) -> list[Re
             revisions.append(Revision(code=code, field='price_linkage', before=False, after=True))
             candidate.price_linkage = True
             candidate.linkage_waived_by_agreement = False
+            candidate.linkage_status = 'included'
         elif code not in LINKAGE_VIOLATIONS:
             return None
     return revisions or None
@@ -357,8 +375,12 @@ def rank_key(candidate: Candidate, target: int, intent: Intent | None) -> tuple:
     return candidate.intent != intent, len(candidate.warnings), abs(candidate.unit_price - target)
 
 
+LINKAGE_WORDS = {'included': '연동 약정 포함', 'not_required': '연동 약정 없음', 'exempt': '연동 약정 없음(면제)',
+                 'waived': '미연동 합의', 'needs_input': '연동 약정 확인 필요'}
+
+
 def headline(supplier_id: str, c: Candidate) -> str:
-    linkage = '연동 약정 포함' if c.price_linkage else '연동 약정 없음'
+    linkage = LINKAGE_WORDS[c.linkage_status]
     return f'{supplier_id}에 단가 {c.unit_price:,}원, 지급 {c.payment_days}일, {linkage}, 거래 기간 {c.contract_days}일 제시'
 
 
@@ -445,6 +467,9 @@ def objections(c: Candidate, bench: dict, target: int) -> list[Objection]:
         ratio = f'원재료 비중 {c.raw_material_ratio * 100:.0f}%, ' if c.raw_material_ratio is not None else ''
         out.append(Objection(issue='원재료 가격이 오르면 손실을 떠안는다',
                              response=f'연동 약정을 넣는다: {ratio}조정 요건·기준 지표·산식을 계약서에 적는다'))
+    elif c.linkage_status == 'needs_input':
+        out.append(Objection(issue='원재료 가격이 오르면 손실을 떠안는다',
+                             response='원재료 비중을 확인해 연동 대상이면 연동 약정을 넣겠다고 답하고, 비중 자료를 요청한다'))
     elif c.linkage_waived_by_agreement:
         out.append(Objection(issue='연동하지 않으면 원재료 상승 위험이 크다',
                              response='미연동 합의의 취지와 사유를 서면에 적고, 거래상 지위를 이용해 합의를 유도하지 않는다'))
@@ -500,6 +525,8 @@ class OfferProposer:
             candidate.verdict_code = result['verdict_code']
             candidate.violations, candidate.warnings = result['violations'], result['warnings']
             candidate.law_refs = result['law_refs']
+            if candidate.linkage_status == 'needs_input':
+                candidate.warnings = candidate.warnings + [dict(RATIO_REQUIRED)]
             if candidate.violations:
                 rejected.append(considered(candidate, '조건을 고쳐도 위반 소지가 남음'))
                 continue
@@ -542,7 +569,8 @@ class OfferProposer:
                       price_linkage=chosen.price_linkage, raw_material_ratio=chosen.raw_material_ratio,
                       energy_ratio=chosen.energy_ratio, contract_days=chosen.contract_days, contract_amount=amount,
                       annual_volume=bench['rfq']['annual_volume'],
-                      linkage_waived_by_agreement=chosen.linkage_waived_by_agreement, notes=req.notes,
+                      linkage_waived_by_agreement=chosen.linkage_waived_by_agreement,
+                      linkage_status=chosen.linkage_status, notes=req.notes,
                       gap_to_target_pct=pct(chosen.unit_price, target),
                       gap_to_last_quote_pct=pct(chosen.unit_price, bench['supplier']['last_price']),
                       rationale=chosen.rationale, verdict_code=chosen.verdict_code, warnings=chosen.warnings,
@@ -550,8 +578,10 @@ class OfferProposer:
                       price_range=price_range, concessions=concessions(chosen, settlement, walk_away),
                       objections=objections(chosen, bench, target))
         others = [considered(c, lost_reason(c, chosen, target, req.intent)) for c in passed if c is not chosen]
+        needed = [InputNeeded(field='raw_material_ratio', message=RATIO_REQUIRED['message'])] \
+            if chosen.linkage_status == 'needs_input' else []
         return Proposal(status='offer', offer=offer, considered=others + rejected, filled=terms.filled + walk_filled,
-                        no_offer_reasons=[], **base)
+                        input_needed=needed, no_offer_reasons=[], **base)
 
 
 def render(proposal: Proposal) -> str:

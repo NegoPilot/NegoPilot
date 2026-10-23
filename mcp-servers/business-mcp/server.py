@@ -513,7 +513,7 @@ def get_price_benchmarks(rfq_id: str, supplier: str) -> dict:
 
     rfq_id: RFQ-2026-001 처럼 입력
     supplier: 협상 상대 협력사 (SUP-0001, 회사명 등. get_supplier와 같은 입력)
-    rfq: 목표 단가(target_price, 원), 연간 물량, 공정, 소재, 필수 인증
+    rfq: 차종, 품목, 목표 단가(target_price, 원), 연간 물량, 공정, 소재, 필수 인증
     market: 같은 공정·소재에서 활성 협력사마다 가장 최근 견적 하나씩 모은 단가의 중앙값·개수·최소·최대(원).
         check_offer의 시장가 비교(PRICE_BELOW_MARKET)와 같은 기준이다. 견적이 없으면 n=0, 나머지는 null
     supplier: 이 협력사의 같은 공정·소재 직전 견적(last_price), 기존 계약의 지급 일수·연동 약정·원재료 비중,
@@ -529,8 +529,8 @@ def get_price_benchmarks(rfq_id: str, supplier: str) -> dict:
     s = records[0]
     market = market_quotes(rfq["process"], rfq["material"])
     return {
-        "rfq": {k: rfq[k] for k in ("rfq_id", "part_name", "process", "material", "annual_volume", "target_price",
-                                    "required_cert")},
+        "rfq": {k: rfq[k] for k in ("rfq_id", "vehicle", "part_name", "process", "material", "annual_volume",
+                                    "target_price", "required_cert")},
         "market": {"median": market["median"], "n": market["n"], "min": market["min"], "max": market["max"]},
         "supplier": {"supplier_id": sid, "name": s["name"],
                      "last_price": latest_quote(sid, rfq["process"], rfq["material"]),

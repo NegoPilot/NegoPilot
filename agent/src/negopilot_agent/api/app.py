@@ -45,7 +45,8 @@ def create_app(settings: ApiSettings | None = None,
                supplier_lookup_service: BusinessSupplierService | None = None,
                generation_decomposer: ContextDecomposer | None = None,
                generation_caller: ToolCaller | None = None,
-               generation_backend: Backend | None = None) -> FastAPI:
+               generation_backend: Backend | None = None,
+               offer_writer_factory=None) -> FastAPI:
     settings = settings or ApiSettings.from_env()
     application = FastAPI(title="NegoPilot internal execution API", version="0.1")
 
@@ -95,7 +96,7 @@ def create_app(settings: ApiSettings | None = None,
     from .review_api import add_review_routes
     add_review_routes(application, settings, authenticate, error_response, generation_caller)
     from .offer_api import add_offer_routes
-    add_offer_routes(application, settings, authenticate, error_response, generation_caller)
+    add_offer_routes(application, settings, authenticate, error_response, generation_caller, offer_writer_factory)
     return application
 
 
