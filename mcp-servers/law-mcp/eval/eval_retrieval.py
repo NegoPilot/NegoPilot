@@ -55,6 +55,8 @@ def unit_text(u: dict) -> str:
 
 
 def unit_article(u: dict) -> str:
+    if "document" in u:   # 공식 보조 자료 청크. 조문 정답과는 맞지 않아 순위 자리만 차지한다
+        return f"supporting:{u['document']['document_id']}"
     return f"{u['law_key']}:{u['article']['no']}" if u["article"] else f"{u['law_key']}:부칙"
 
 
@@ -163,6 +165,10 @@ def run(args):
     as_of = gold["as_of"]
     keys = tuple(server.LAWS)
     units, bm25, _ = server.search_units(keys, as_of, False)
+    if hasattr(bm25, "statutes"):
+        # search_regulation은 조문 top_k를 조문 색인만으로 고른다 (#235). 평가도 같은 색인으로 잰다
+        units = [units[i] for i in bm25.statutes]
+        bm25 = server.Bm25([u["tokens"] for u in units])
     arts = [unit_article(u) for u in units]
     print(f"색인: 항 {len(units)}개, 질문 {len(gold['items'])}개, 기준일 {as_of}")
 

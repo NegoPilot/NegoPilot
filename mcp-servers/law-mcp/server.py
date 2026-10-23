@@ -192,15 +192,38 @@ class Bm25:
         return out
 
 
+class GroupedBm25:
+    """조문(항·부칙)과 공식 보조 자료를 따로 색인한다.
+
+    한 색인에 섞으면 1,200자 보조 자료 청크의 점수가 항 하나보다 훨씬 커서 조문을 밀어내고,
+    문서 빈도도 보조 자료 쪽으로 기운다 (#235). 점수는 같은 묶음 안에서만 비교한다.
+    """
+
+    def __init__(self, units: list[dict]):
+        self.statutes = [i for i, u in enumerate(units) if "document" not in u]
+        self.supporting = [i for i, u in enumerate(units) if "document" in u]
+        self.indexes = [(group, Bm25([units[i]["tokens"] for i in group]))
+                        for group in (self.statutes, self.supporting)]
+        self.size = len(units)
+
+    def scores(self, query: list[str]) -> list[float]:
+        out = [0.0] * self.size
+        for group, index in self.indexes:
+            for i, s in zip(group, index.scores(query)):
+                out[i] = s
+        return out
+
+
 # 법령 조합·시행판마다 색인 하나. 오래 안 쓴 색인부터 버린다 (LRU)
 SEARCH_CACHE_SIZE = 32
-_search_cache: OrderedDict[tuple, tuple[list[dict], Bm25]] = OrderedDict()
+_search_cache: OrderedDict[tuple, tuple[list[dict], GroupedBm25, dict]] = OrderedDict()
 
 
 # 정의 조항: '이 법에서 "주요 원재료"란 …을 말한다'. 시행령의 '대통령령으로 정하는 …'은 정의가 아니라 위임이라 뺀다
 DEFINED_TERM = re.compile(r'"([^"]{2,30})"(?:이)?란')
 DEFINITION_ARTICLE = "제2조"
 MAX_DEFINITIONS = 2
+MIN_SUPPORTING = 2   # 조문 뒤에 붙이는 보조 자료 최소 개수
 # 원사업자·중소기업처럼 그 법령의 많은 항에 나오는 용어는 정의를 붙여도 도움이 안 되고 결과만 늘린다.
 # 비율은 그 법령의 항 수 기준이라 법령 필터와 관계없이 같은 용어가 붙는다
 COMMON_TERM_SHARE = 0.05
@@ -272,7 +295,7 @@ def search_units(law_keys: tuple[str, ...], as_of: str, include_addenda: bool):
     for unit in supporting_sources.search_units(SUPPORTING_SOURCES, law_keys, as_of):
         unit['tokens'] = tokenize(unit['document']['title'] + ' ' + unit['text'])
         units.append(unit)
-    result = (units, Bm25([u["tokens"] for u in units]), definition_units(units))
+    result = (units, GroupedBm25(units), definition_units(units))
     _search_cache[cache_key] = result
     while len(_search_cache) > SEARCH_CACHE_SIZE:
         _search_cache.popitem(last=False)
@@ -346,6 +369,8 @@ def search_regulation(query: str, laws: list[str] | None = None, as_of: str | No
     include_addenda: 부칙(시행일·경과조치)까지 검색할지
     결과 조문에 정의된 용어(예: 주요 원재료)가 나오면 그 용어의 정의 항(제2조)을 top_k 뒤에 최대 2개 덧붙인다.
     덧붙인 항은 type이 "정의"다. 의무 조문만으로는 "10% 이상" 같은 기준이 빠지기 때문이다 (#167).
+    공식 보조 자료(별표·고시·지침·표준계약서)는 조문과 따로 순위를 매겨 맨 뒤에 max(2, top_k // 2)개까지 붙인다.
+    조문 top_k를 보조 자료가 차지하지 않게 하기 위해서다 (#235).
     """
     if not query.strip():
         raise ToolError("query 가 비어 있다")
@@ -354,9 +379,12 @@ def search_regulation(query: str, laws: list[str] | None = None, as_of: str | No
     top_k = max(1, min(top_k, 20))
     units, bm25, definitions = search_units(keys, day, include_addenda)
     scores = bm25.scores(tokenize(expand_query(query)))
-    ranked = sorted(range(len(units)), key=lambda i: scores[i], reverse=True)
 
-    hits = [i for i in ranked[:top_k] if scores[i] > 0]
+    def top(group: list[int], k: int) -> list[int]:
+        return [i for i in sorted(group, key=lambda i: scores[i], reverse=True)[:k] if scores[i] > 0]
+
+    hits = top(bm25.statutes, top_k)
+    supporting = top(bm25.supporting, max(MIN_SUPPORTING, top_k // 2))
     # 검색된 조문에 나오는 정의 용어의 정의 항. 같은 법령의 정의만 붙이고, 이미 결과에 있으면 다시 넣지 않는다
     extra: dict[int, str] = {}
     for i in hits:
@@ -366,7 +394,7 @@ def search_regulation(query: str, laws: list[str] | None = None, as_of: str | No
                 extra[d] = text
 
     results = []
-    for i in hits + list(extra):
+    for i in hits + list(extra) + supporting:
         u = units[i]
         if 'document' in u:
             d = u['document']
