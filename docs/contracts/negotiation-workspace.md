@@ -48,6 +48,8 @@ JSON 키는 snake_case다. 시각은 오프셋이 있는 ISO-8601 문자열이�
 }
 ```
 
+Agent 실행이 `FAILED`이면 저장하지 않고 기존 `/api/legal-reviews`와 같이 검증된 본문을 200으로 돌려준다. 검토 head는 바뀌지 않는다.
+
 첫 검토는 base_revision을 생략하거나 null로 보낸다. 이후에는 검토 head와 같은 값을 보낸다. 다르면 409 `REVISION_CONFLICT`다. 검토 응답은 기존 generation 0.3 응답에 `review_id`와 `review_revision` 및 `base_revision`과 `input_snapshot` 및 `eligibility`와 `created_at`을 더한다.
 
 ```json
@@ -93,7 +95,7 @@ Agent 생성 입력에는 검토의 거래 사실과 요청한 협상 목표를 
 - `validation`과 `edit_history`
 - `available_export_formats`: `{"internal":[],"external":["pdf","docx"]}`
 
-no_offer이면 외부 형식도 빈 배열이다. 외부 전용 조회와 재검사 및 내보내기는 422 `NO_OFFER`다.
+no_offer이면 외부 형식도 빈 배열이다. no_offer는 검사할 협상안이 없으므로 생성 검사 결과를 저장하지 않고 검사 상태는 `not_checked`다. 외부 전용 조회와 재검사 및 내보내기는 422 `NO_OFFER`다.
 
 외부 전용 응답은 `proposal_id`와 `proposal_revision` 및 `external_document`와 최소 검사 요약 `validation`만 반환한다. external_document는 OfferDocument 허용 필드로 새로 조립한다. 내부 응답에서 키를 지워 만드는 방식은 쓰지 않는다. 내부 가격 범위와 양보 순서 및 예상 쟁점과 writing은 반환하지 않는다. benchmarks와 considered 및 filled와 rationale도 반환하지 않는다. warnings와 law_refs 및 target_price와 max_price도 제외한다.
 
@@ -131,7 +133,7 @@ TERMS 변경은 세 카운터를 모두 올린다. PRICE_RANGE와 INTERNAL_TEXT 
 
 1. head에 임대가 남은 실행이 있으면 checking이다.
 2. head의 최신 실행이 checked이면 그 결론을 사용한다. failed이면 결론은 null이다.
-3. head에 실행이 없으면 이전 checked 결과를 찾는다. 이후 변경이 INTERNAL_TEXT뿐이면 결과를 이어받고 inherited_from에 실제 검사 revision을 적는다. 사용자가 수정한 내부 문구는 검사하지 않았다는 한계를 더한다.
+3. head에 실행이 없으면 이전 revision 중 실행 기록이 있는 가장 최근 revision의 최신 실행을 본다. 그 실행이 checked가 아니면(failed 등) 더 예전 결과를 이어받지 않고 recheck_required다. 이후 변경이 INTERNAL_TEXT뿐이면 결과를 이어받고 inherited_from에 실제 검사 revision을 적는다. 사용자가 수정한 내부 문구는 검사하지 않았다는 한계를 더한다.
 4. 다른 범위가 바뀌면 recheck_required다. conclusion은 null이다. 과거 결과는 previous에만 둔다. changed_fields에 이후 변경 경로를 넣는다.
 5. checked 결과가 없으면 not_checked다.
 
@@ -156,11 +158,11 @@ checked_revision은 실제 검사한 revision이다. 현재 revision과 다른 �
 
 document_type은 external만 지원한다. formats는 pdf 한 개 또는 docx 한 개 또는 둘 다다. 내부 문서 요청은 422 `UNSUPPORTED_EXPORT_FORMAT`이다. include_review_details는 400이다.
 
-final은 요청 revision이 head이며 협상안이 ACTIVE이고 기반 검토가 검토 head일 때만 허용한다. 위반하면 422 `EXPORT_NOT_ALLOWED`와 reasons를 반환한다. 같은 협상안 revision과 문서 상태 및 정렬한 formats의 ready 묶음은 재사용한다. processing 묶음이 있으면 retryable인 409 `IDEMPOTENCY_CONFLICT`다.
+final은 요청 revision이 head이며 협상안이 ACTIVE이고 기반 검토가 검토 head일 때만 허용한다. 위반하면 422 `EXPORT_NOT_ALLOWED`와 reasons를 반환한다. 같은 협상안 revision과 문서 상태 및 정렬한 formats의 ready 묶음은 재사용한다. 재사용 전에 파일이 모두 있고 sha256이 맞는지 확인하며, 아니면 묶음을 failed(`FILE_MISSING`)로 바꾸고 새로 렌더한다. processing 묶음이 있으면 retryable인 409 `IDEMPOTENCY_CONFLICT`다. Agent 응답 제한 + 30초가 지난 processing 묶음은 failed(`STALE_EXPORT`)로 정리한다.
 
 묶음 응답에는 `bundle_id`와 `status` 및 `final`과 `document_type` 및 `proposal_revision`과 `content_hash` 및 `render_check`와 `validation_snapshot` 및 `files`가 있다. files는 파일마다 `file_id`와 `format` 및 `file_name`과 `content_type` 및 `byte_size`와 `sha256` 및 `download_url`을 담는다. 파일 이름은 Agent 렌더 응답 그대로다.
 
-파일은 `NEGOTIATION_EXPORT_DIR` 아래 `exports/<yyyy>/<mm>/<file_id>.<ext>`에 원자적으로 저장한다. 기본 디렉터리는 `./var/negotiation-exports`다. 다운로드에서 소유자와 sha256을 확인한다. 해시가 다르면 500 `INTERNAL_ERROR`다. Content-Disposition은 ASCII 대체 이름과 UTF-8 filename*를 함께 사용한다.
+파일은 `NEGOTIATION_EXPORT_DIR` 아래 `exports/<yyyy>/<mm>/<file_id>.<ext>`에 원자적으로 저장한다. 기본 디렉터리는 `./var/negotiation-exports`다. 로컬 Docker는 named volume `negotiation-exports`를 `/app/var/negotiation-exports`에 마운트한다. 다운로드에서 소유자와 sha256을 확인한다. 해시가 다르면 500 `INTERNAL_ERROR`다. Content-Disposition은 ASCII 대체 이름과 UTF-8 filename*를 함께 사용한다.
 
 ## 6. 오류와 범위
 

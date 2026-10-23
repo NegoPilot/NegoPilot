@@ -89,6 +89,18 @@ class NegotiationValidationViewTest {
         assertThat(result.path("checked_revision").isNull()).isTrue();
     }
 
+    @Test
+    void failedLatestRunIsNotSkippedToInheritAnOlderCheck() {
+        ObjectNode failed = object("""
+                {"revision":2,"status":"failed","error_code":"UPSTREAM_TIMEOUT","started_at":"2026-10-23T11:40:00Z"}
+                """);
+        ObjectNode text = object("{\"revision\":3,\"changed_scopes\":[\"INTERNAL_TEXT\"],\"change_set\":[]}");
+        ObjectNode result = NegotiationValidationView.calculate(3, List.of(text), List.of(failed, checked(2)), NOW);
+        assertThat(result.path("status").asString()).isEqualTo("recheck_required");
+        assertThat(result.path("conclusion").isNull()).isTrue();
+        assertThat(result.has("inherited_from")).isFalse();
+    }
+
     private static ObjectNode checked(int revision) {
         return object("""
                 {"status":"checked","conclusion":"conditional","started_at":"2026-10-23T11:30:00Z",

@@ -32,12 +32,15 @@ public final class NegotiationValidationView {
                 .filter(row -> row.path("revision").asInt() == head).max(LATEST).orElse(null);
         if (latest != null) return execution(latest, now);
 
-        ObjectNode checked = validations.stream()
-                .filter(row -> row.path("revision").asInt() <= head)
-                .filter(row -> "checked".equals(row.path("status").asString()))
+        // 이전 revision 중 실행 기록이 있는 가장 최근 것의 최신 실행만 본다. 그 실행이 checked가 아니면
+        // 더 예전의 checked 결과로 거슬러 올라가 이어받지 않는다.
+        ObjectNode lastRun = validations.stream()
+                .filter(row -> row.path("revision").asInt() < head)
                 .max(Comparator.comparingInt((ObjectNode row) -> row.path("revision").asInt()).thenComparing(LATEST))
                 .orElse(null);
-        if (checked == null) return empty("not_checked");
+        if (lastRun == null) return empty("not_checked");
+        if (!"checked".equals(lastRun.path("status").asString())) return empty("recheck_required");
+        ObjectNode checked = lastRun;
 
         int checkedRevision = checked.path("revision").asInt();
         Set<String> scopes = new LinkedHashSet<>();

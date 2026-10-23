@@ -118,6 +118,15 @@ final class MemoryNegotiationRepository extends NegotiationRepository {
             return table("neg_requests").removeIf(row -> eq(row, "user_id", args[0]) && eq(row, "idempotency_key", args[1])
                     && eq(row, "state", "IN_PROGRESS") && eq(row, "lease_until", args[2])) ? 1 : 0;
         }
+        if (sql.startsWith("UPDATE neg_export_bundles SET status='failed',error_code='STALE_EXPORT'")) {
+            int count = 0;
+            OffsetDateTime limit = OffsetDateTime.now().minusSeconds(((Number) args[1]).longValue());
+            for (ObjectNode row : table("neg_export_bundles")) if (eq(row, "proposal_id", args[0]) && eq(row, "status", "processing")
+                    && row.hasNonNull("created_at") && OffsetDateTime.parse(row.path("created_at").asString()).isBefore(limit)) {
+                row.put("status", "failed").put("error_code", "STALE_EXPORT"); count++;
+            }
+            return count;
+        }
         if (sql.startsWith("UPDATE neg_proposals SET status='SUPERSEDED'")) {
             int count = 0;
             for (ObjectNode row : table("neg_proposals")) if (eq(row, "workspace_id", args[0]) && eq(row, "status", "ACTIVE")) {

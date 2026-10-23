@@ -215,7 +215,9 @@ class NegotiationServiceTest {
         UUID workspace = workspace(); UUID key = UUID.randomUUID();
         var first = service.review(owner, workspace, reviewInput(), key, UUID.randomUUID());
         var again = service.review(owner, workspace, reviewInput(), key, UUID.randomUUID());
-        assertThat(again).isEqualTo(first);
+        assertThat(again.status()).isEqualTo(first.status());
+        // DB에서 다시 읽은 JSON은 숫자 노드 타입이 달라질 수 있어 직렬화 결과로 비교한다
+        assertThat(again.body().toString()).isEqualTo(first.body().toString());
         verify(gateway, times(1)).review(any(), any());
         error(() -> service.review(owner, workspace, reviewInput().put("unit_price", 2100), key, UUID.randomUUID()), 409, "IDEMPOTENCY_CONFLICT");
     }

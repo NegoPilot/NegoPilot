@@ -103,8 +103,12 @@ class NegotiationService {
                 offer.remove("base_revision");
                 offer.put("supplier", work.path("supplier_id").asText()).put("rfq_id", work.path("rfq_id").asText());
                 JsonNode upstream = gateway.review(requestId, reviews.create(requestId, offer));
-                if (upstream == null || !upstream.isObject() || "FAILED".equals(upstream.path("execution_status").asText())) {
-                    throw ApiException.invalidResponse(requestId);
+                if (upstream == null || !upstream.isObject()) throw ApiException.invalidResponse(requestId);
+                if ("FAILED".equals(upstream.path("execution_status").asText())) {
+                    // 실행 실패는 저장하지 않고 기존 /api/legal-reviews와 같이 검증된 본문을 그대로 돌려준다
+                    ObjectNode failed = ((ObjectNode) upstream).deepCopy();
+                    removeTokens(failed);
+                    return requests.complete(200, failed, requestId);
                 }
                 ObjectNode clean = ((ObjectNode) upstream).deepCopy();
                 if (!Set.of("COMPLETED", "NEEDS_INPUT").contains(clean.path("execution_status").asText())) throw ApiException.invalidResponse(requestId);
@@ -201,7 +205,8 @@ class NegotiationService {
                 repository.execute("UPDATE neg_proposals SET status='SUPERSEDED',updated_at=clock_timestamp() WHERE workspace_id=? AND status='ACTIVE'", id);
                 repository.insert("neg_proposals", proposal);
                 repository.insert("neg_proposal_revisions", revision);
-                repository.insert("neg_validations", validation);
+                // no_offer는 검사할 협상안이 없으므로 "위험 미발견" 결과를 남기지 않는다(not_checked)
+                if (external) repository.insert("neg_validations", validation);
                 repository.update("neg_workspaces", object().put("current_proposal_id", pid.toString()).put("rfq_verified_at", now()).put("updated_at", now()), "t.id=?", id);
                 return requests.complete(201, getProposal(owner, id, pid, null, requestId), requestId);
             });
@@ -355,11 +360,14 @@ class NegotiationService {
                 requireOffer(proposal, requestId);
                 ObjectNode revision = revision(pid, number, requestId);
                 if (finalDocument) finalPolicy(work, proposal, number, requestId);
+                repository.execute("UPDATE neg_export_bundles SET status='failed',error_code='STALE_EXPORT' WHERE proposal_id=? AND status='processing' "
+                        + "AND created_at < clock_timestamp() - make_interval(secs => ?)", pid, leaseSeconds);
                 ObjectNode prior = repository.one("SELECT to_jsonb(b) FROM neg_export_bundles b WHERE proposal_id=? AND revision=? AND doc_type='EXTERNAL' "
                         + "AND doc_status=? AND to_jsonb(formats)=?::jsonb AND status IN ('ready','processing')", pid, number, finalDocument ? "final" : "draft", formatsJson);
                 if (prior != null) {
                     if ("processing".equals(prior.path("status").asText())) throw ApiException.of(requestId, 409, "IDEMPOTENCY_CONFLICT", "내보내기를 처리 중입니다", true);
-                    return new ExportClaim(prior, null, requests.complete(200, bundleView(prior), requestId));
+                    if (filesIntact(uuid(prior, "id"))) return new ExportClaim(prior, null, requests.complete(200, bundleView(prior), requestId));
+                    repository.update("neg_export_bundles", object().put("status", "failed").put("error_code", "FILE_MISSING"), "t.id=? AND t.status='ready'", uuid(prior, "id"));
                 }
                 ObjectNode bundle = object().put("id", UUID.randomUUID().toString()).put("proposal_id", pid.toString()).put("revision", number)
                         .put("doc_type", "EXTERNAL").put("doc_status", finalDocument ? "final" : "draft").put("status", "processing").put("created_by", owner.toString());
@@ -566,6 +574,17 @@ class NegotiationService {
     private ApiException notFound(UUID id) { return ApiException.of(id, 404, "RESOURCE_NOT_FOUND", "리소스를 찾을 수 없습니다", false); }
     private ApiException error(UUID id, int status, String code) { return ApiException.of(id, status, code, "요청 조건을 확인하세요", false); }
     private ObjectNode object() { return mapper.createObjectNode(); }
+
+    private boolean filesIntact(UUID bundleId) {
+        for (ObjectNode file : repository.rows("SELECT to_jsonb(f) FROM neg_export_files f WHERE bundle_id=?", bundleId)) {
+            try {
+                if (!NegotiationRequests.sha256(store.read(file.path("storage_key").asText())).equals(file.path("sha256").asText())) return false;
+            } catch (java.io.IOException | RuntimeException missing) {
+                return false;
+            }
+        }
+        return true;
+    }
     private static String now() { return OffsetDateTime.now(ZoneOffset.UTC).toString(); }
     private static UUID uuid(ObjectNode row, String field) { return UUID.fromString(row.path(field).asText()); }
     private record ExportClaim(ObjectNode bundle, ObjectNode document, Result cached) {}
