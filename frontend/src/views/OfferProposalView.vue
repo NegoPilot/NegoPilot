@@ -160,12 +160,12 @@ async function sendMail(note: string) {
           <input id="supplier-name" v-model="supplierName" type="text" placeholder="회사 이름을 입력하세요" maxlength="100" :disabled="busy === 'review'" />
         </div>
         <button type="button" class="btn" :disabled="!supplierName.trim() || busy === 'review'" @click="pickFile">
-          {{ busy === 'review' ? '불러와서 검토 중…' : '⇪ 엑셀 파일 불러오기' }}
+          {{ busy === 'review' ? '법규 검토 중… (1~2분)' : '⇪ 엑셀 파일 불러오기' }}
         </button>
-        <input ref="fileInput" type="file" accept=".xlsx,.csv" class="sr-only" tabindex="-1" @change="onFile" />
+        <input ref="fileInput" type="file" accept=".xlsx" class="sr-only" tabindex="-1" @change="onFile" />
         <span v-if="review" class="muted file">✓ {{ review.file_name }}</span>
       </div>
-      <p v-if="!supplierName.trim()" class="muted hint">회사명을 먼저 입력하면 엑셀을 불러올 수 있어요.</p>
+      <p v-if="!supplierName.trim()" class="muted hint">회사명을 먼저 입력하면 엑셀을 불러올 수 있어요. 엑셀에 여러 협력사가 있으면 이 회사의 행만 검토 결과로 보여 줘요.</p>
       <p v-if="errors.review" role="alert" class="field-error">{{ errors.review }}</p>
     </section>
 

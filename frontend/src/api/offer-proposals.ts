@@ -159,6 +159,7 @@ export function saveAttachment(rendered: RenderedOffer, format: FileFormat) {
 type Json = Record<string, any>
 const idempotent = () => ({ 'Idempotency-Key': crypto.randomUUID() })
 const SLOW = 330_000
+const POLL_MS = 2_000
 const nego = (id: string) => `${API_PATHS.negotiations}/${encodeURIComponent(id)}`
 
 interface ReviewRef { negotiationId: string; revision: number; summaries: Record<string, string> }
@@ -178,23 +179,48 @@ function proposalRef(document: OfferDocument) {
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 
 const live = {
+  // ① 엑셀을 #284 업로드 API로 올리고, 행별 검토가 끝날 때까지 기다린 뒤 이 회사의 행을 ② 표로 바꾼다
   async review(supplierName: string, file: File): Promise<OfferReview> {
-    const conditions = await readConditions(file)
-    const supplierId = conditions.supplier_id ?? await resolveSupplier(supplierName)
-    const work = await request<Json>(API_PATHS.negotiations, { method: 'POST', headers: idempotent(),
-      body: JSON.stringify({ supplier_id: supplierId, rfq_id: conditions.rfq_id }) })
-    const id = String(work.negotiation_id)
-    const stored = await request<Json>(`${nego(id)}/reviews`, { method: 'POST', headers: idempotent(), body: JSON.stringify(conditions.review) }, SLOW)
-    if (stored.execution_status === 'FAILED') throw new ApiError(502, 'REVIEW_FAILED', 'Legal review failed.', true)
+    if (!/\.xlsx$/i.test(file.name)) throw new ApiError(400, 'NOT_XLSX', '엑셀(.xlsx) 파일만 불러올 수 있습니다.', false)
+    const supplierId = await resolveSupplier(supplierName)
+    const form = new FormData()
+    form.append('file', file)
+    let upload = await request<Json>(API_PATHS.legalReviewUploads, { method: 'POST', body: form }, SLOW)
+    const mine = (rows: Json[]) => rows.filter(r => r.supplier_id === supplierId)
+    if (!mine(upload.rows ?? []).length) {
+      throw new ApiError(422, 'SUPPLIER_NOT_IN_FILE', `엑셀에 ${supplierName}(${supplierId}) 행이 없습니다. 공급자 ID 열을 확인해 주세요.`, false)
+    }
+    const uploadPath = `${API_PATHS.legalReviewUploads}/${encodeURIComponent(String(upload.upload_id))}`
+    const deadline = Date.now() + SLOW
+    while (mine(upload.rows ?? []).some(r => r.status === 'QUEUED' || r.status === 'RUNNING')) {
+      if (Date.now() > deadline) throw new ApiError(504, 'REVIEW_TIMEOUT', 'Legal review is taking too long.', true)
+      await wait(POLL_MS)
+      upload = await request<Json>(uploadPath)
+    }
+    // 같은 회사 행이 여러 개면 엑셀 순서대로 첫 행을 쓴다
+    const row = mine(upload.rows ?? [])[0]
+    if (!row) throw new ApiError(422, 'SUPPLIER_NOT_IN_FILE', `엑셀에 ${supplierName}(${supplierId}) 행이 없습니다.`, false)
+    if (row.status === 'INVALID') {
+      const found = (row.input_errors ?? []).map((e: Json) => `${e.column}: ${e.message}`).join(' / ')
+      throw new ApiError(400, 'ROW_INVALID', `엑셀 ${row.row_number}행 입력 오류 · ${found}`, false)
+    }
+    if (row.status === 'FAILED') throw new ApiError(502, 'REVIEW_FAILED', String(row.error?.code ?? 'Legal review failed.'), !!row.error?.retryable)
+    const detail = await request<Json>(`${uploadPath}/rows/${row.row_number}`)
+    const stored: Json = detail.response ?? {}
+    const id = String(row.negotiation_id)
     const findings: Json[] = stored.legal_review?.assessment?.findings ?? []
     const summaries = Object.fromEntries(findings.map(f => [String(f.id), String(f.summary ?? f.id)]))
-    reviewRefs.set(id, { negotiationId: id, revision: Number(stored.review_revision), summaries })
+    // 협상안은 그 작업의 최신 검토 버전으로만 만들 수 있다
+    reviewRefs.set(id, { negotiationId: id, revision: Number(row.review_head_revision ?? row.review_revision), summaries })
     const rows = reviewRows(stored)
-    // 서버 판정이 생성 불가(blocked)인데 표에 반려가 없으면 화면과 서버가 어긋나지 않게 적용 대상 행을 반려로 둔다
-    if (stored.eligibility === 'blocked' && !rows.some(r => r.verdict === 'rejected') && rows[0]) {
-      rows[0] = { ...rows[0], verdict: 'rejected', reason: rows[0].reason ?? '법규 검토에서 협상안 생성이 막혔습니다. 조건을 확인해 주세요.' }
+    // check_offer가 조건 자체를 거절했거나(공급자·RFQ 없음, 값 범위) 서버 판정이 생성 불가면 화면도 반려로 둔다
+    const blocked = row.check_error_code
+      ? `조건을 검사하지 못했습니다 (${row.check_error_code}). 공급자 ID·RFQ ID·값 범위를 확인해 주세요.`
+      : (row.eligibility ?? stored.eligibility) === 'blocked' ? '법규 검토에서 협상안 생성이 막혔습니다. 조건을 확인해 주세요.' : null
+    if (blocked && !rows.some(r => r.verdict === 'rejected') && rows[0]) {
+      rows[0] = { ...rows[0], verdict: 'rejected', reason: rows[0].reason ?? blocked }
     }
-    return { review_id: id, supplier_name: supplierName, file_name: file.name, rows }
+    return { review_id: id, supplier_name: supplierName, file_name: `${file.name} · ${row.row_number}행`, rows }
   },
 
   async create(review: OfferReview): Promise<OfferProposal> {
@@ -369,49 +395,8 @@ async function resolveSupplier(name: string) {
   const exact = list.data.items.filter(s => s.name === name)
   const found = exact.length === 1 ? exact[0] : list.data.items.length === 1 ? list.data.items[0] : null
   if (!found) throw new ApiError(422, 'SUPPLIER_AMBIGUOUS', exact.length > 1 || list.data.items.length > 1
-    ? '같은 이름의 협력사가 여러 곳입니다. 엑셀에 공급자 ID를 넣어 주세요.' : '협력사를 찾을 수 없습니다.', false)
+    ? '같은 이름의 협력사가 여러 곳입니다. 정확한 회사명을 입력해 주세요.' : '협력사를 찾을 수 없습니다.', false)
   return found.supplier_id
-}
-
-// TODO(#284): 엑셀(.xlsx) 해석은 #284 업로드 API로 바꾼다. 그 전까지는 CSV 한 행(머리글 + 값)만 읽는다.
-const COLUMNS: Record<string, string> = {
-  공급자id: 'supplier_id', 협력사id: 'supplier_id', supplierid: 'supplier_id', rfqid: 'rfq_id', rfq: 'rfq_id',
-  검토기준일: 'as_of', 기준일: 'as_of', asof: 'as_of', 제안단가: 'unit_price', 단가: 'unit_price', unitprice: 'unit_price',
-  지급기한: 'payment_days', 지급일수: 'payment_days', paymentdays: 'payment_days', 계약기간: 'contract_days', 거래기간: 'contract_days',
-  contractdays: 'contract_days', 연동여부: 'price_linkage', 연동약정: 'price_linkage', pricelinkage: 'price_linkage',
-  원재료비중: 'raw_material_ratio', rawmaterialratio: 'raw_material_ratio', 에너지비중: 'energy_ratio', energyratio: 'energy_ratio',
-  미연동합의: 'linkage_waived_by_agreement', 거래유형: 'transaction_type', transactiontype: 'transaction_type',
-}
-const YES = /^(y|yes|true|1|예|o|포함|있음)$/i, NO = /^(n|no|false|0|아니오|아니요|x|미포함|없음)$/i
-
-async function readConditions(file: File) {
-  if (!/\.csv$/i.test(file.name)) {
-    throw new ApiError(501, 'EXCEL_API_PENDING', '엑셀(.xlsx) 해석 API(#284)가 아직 연결되지 않았습니다. 지금은 CSV로 불러와 주세요.', false)
-  }
-  const lines = (await file.text()).replace(/^﻿/, '').split(/\r?\n/).filter(line => line.trim())
-  if (lines.length < 2) throw new ApiError(400, 'VALIDATION_ERROR', 'CSV에 머리글과 값 한 줄이 필요합니다.', false)
-  const cells = (line: string) => line.split(',').map(c => c.trim().replace(/^"|"$/g, ''))
-  // 머리글의 공백·괄호 속 단위(원, 일, %)·밑줄은 무시한다
-  const header = cells(lines[0] ?? '').map(h => COLUMNS[h.toLowerCase().replace(/\([^)]*\)/g, '').replace(/[\s%_]/g, '')] ?? '')
-  const values = cells(lines[1] ?? '')
-  const raw: Record<string, string> = {}
-  header.forEach((key, i) => { const value = values[i]; if (key && value) raw[key] = value })
-  const missing = ['rfq_id', 'as_of', 'unit_price', 'payment_days', 'contract_days', 'price_linkage'].filter(k => !raw[k])
-  if (missing.length) throw new ApiError(400, 'VALIDATION_ERROR', `CSV에 필수 항목이 없습니다: ${missing.join(', ')}`, false)
-  const at = (key: string) => raw[key] ?? ''
-  const number = (v: string) => Number(v.replace(/,/g, ''))
-  const ratio = (v?: string) => v === undefined ? null : number(v.replace('%', '')) > 1 ? number(v.replace('%', '')) / 100 : number(v.replace('%', ''))
-  const flag = (v: string) => YES.test(v) ? true : NO.test(v) ? false : null
-  const linkage = flag(at('price_linkage'))
-  if (linkage === null) throw new ApiError(400, 'VALIDATION_ERROR', '연동 여부는 예/아니오로 적어 주세요.', false)
-  const type = raw.transaction_type ? (/제조/.test(raw.transaction_type) ? 'manufacturing' : /구매/.test(raw.transaction_type) ? 'purchase' : 'unknown') : null
-  const review: Json = {
-    as_of: at('as_of'), unit_price: number(at('unit_price')), payment_days: number(at('payment_days')), contract_days: number(at('contract_days')),
-    price_linkage: linkage, raw_material_ratio: ratio(raw.raw_material_ratio), energy_ratio: ratio(raw.energy_ratio),
-    linkage_waived_by_agreement: raw.linkage_waived_by_agreement ? flag(raw.linkage_waived_by_agreement) === true : false,
-    supplier_size: {}, buyer_size: {}, ...(type ? { transaction: { transaction_type: type } } : {}),
-  }
-  return { supplier_id: raw.supplier_id ?? null, rfq_id: raw.rfq_id, review }
 }
 
 /** 서버 오류 코드를 화면 문구로 바꾼다 */
@@ -432,8 +417,11 @@ export function describeOfferError(error: ApiError): string | null {
     MAIL_SEND_FAILED: '메일 서버가 발송을 거절했습니다. 잠시 뒤 다시 시도해 주세요.',
     MAIL_RESULT_UNKNOWN: '발송 결과를 아직 알 수 없습니다. 잠시 뒤 발송 기록을 확인해 주세요. 자동으로 다시 보내지 않습니다.',
     REVISION_CONFLICT: '다른 곳에서 먼저 고쳤습니다. 화면을 새로 고친 뒤 다시 수정해 주세요.',
-    EXCEL_API_PENDING: error.message, SUPPLIER_AMBIGUOUS: error.message, NO_OFFER: `협상안을 만들 수 없습니다: ${error.message}`,
-    VALIDATION_ERROR: error.message.startsWith('CSV') || error.message.startsWith('연동') ? error.message : '입력값을 확인해 주세요.',
+    NOT_XLSX: error.message, SUPPLIER_AMBIGUOUS: error.message, SUPPLIER_NOT_IN_FILE: error.message, ROW_INVALID: error.message,
+    REVIEW_TIMEOUT: '법규 검토가 오래 걸리고 있습니다. 잠시 뒤 다시 불러와 주세요.', NO_OFFER: `협상안을 만들 수 없습니다: ${error.message}`,
+    VALIDATION_ERROR: Array.isArray(error.details?.errors)
+      ? `엑셀 형식 오류 · ${(error.details!.errors as Array<{ column?: string; message?: string }>).map(e => [e.column, e.message].filter(Boolean).join(': ')).join(' / ')}`
+      : '입력값을 확인해 주세요.',
   }
   return known[error.code] ?? null
 }
