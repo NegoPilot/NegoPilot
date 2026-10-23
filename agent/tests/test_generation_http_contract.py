@@ -517,6 +517,8 @@ async def test_generation_failure_keeps_core_answer_and_evidence(monkeypatch, mo
 
 async def test_masked_verification_errors_remain_a_completed_answer(monkeypatch):
     text = "확인된 자료입니다. [E1] 기한 987654일과 제987654조를 적용합니다. [E999]"
+    # 검토 루프를 끈 한 번 실행의 계약. 루프가 켜지면 가린 조문을 law-mcp에서 찾아본다 (test_review_loop.py)
+    monkeypatch.setenv("NEGOPILOT_REVIEW_ROUNDS", "0")
     harness = Harness(monkeypatch, decomposition(supplier_part()), SupplierCaller(), draft(text))
     body = payload()
     data = assert_wire(await post(harness.app, body))

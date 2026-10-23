@@ -138,6 +138,33 @@ class Router:
             outcome.referenced_articles = await self._referenced_articles(calls)
         return outcome
 
+    async def rerun(self, decomposition: DecompositionResult, routing: RouteResult,
+                    targets: set[str]) -> RouteResult:
+        """targets 하위 질문을 다시 실행한다. 그 결과가 없어 건너뛰었던 뒤 질문도 함께 다시 실행한다 (검토 루프).
+
+        나머지 하위 질문의 결과는 그대로 둔다. 같은 묶음 순서(parallel_groups)를 따라 앞 결과를 뒤 질문의 inputs로 쓴다.
+        """
+        by_id = {sq.id: sq for sq in decomposition.sub_queries}
+        done = {o.id: o for o in routing.outcomes}
+        changed: set[str] = set()
+        session = getattr(self.caller, "session", None)
+        async with session() if session else contextlib.nullcontext():
+            for group in decomposition.parallel_groups():
+                todo = [qid for qid in group if qid in targets
+                        or (done[qid].status == "skipped" and changed
+                            and (set(by_id[qid].depends_on) & changed or routing.halted))]
+                for o in await asyncio.gather(*(self._run(by_id[qid], done) for qid in todo)):
+                    done[o.id] = o
+                    changed.add(o.id)
+        outcomes = [done[sq.id] for sq in decomposition.sub_queries]
+        halted = routing.halted and any(o.status == "skipped" for o in outcomes)
+        return RouteResult(status="routed", outcomes=outcomes, halted=halted,
+                           halt_reason=routing.halt_reason if halted else None)
+
+    async def fetch(self, server: str, tool: str, args: dict[str, Any]) -> ToolCall:
+        """도구 하나를 부른다. 실패해도 예외 대신 error가 담긴 ToolCall을 돌려준다 (검토 루프의 조문 보강)."""
+        return await self._call(server, tool, args)
+
     async def _resolve_suppliers(self, sq: SubQuery, spec: IntentSpec, combos: list[dict[str, Any]]
                                  ) -> tuple[list[str], list[ToolCall], SubQueryOutcome | None]:
         """조합마다 supplier를 ID 하나로 확정한다. 이름은 find_suppliers로 찾는다.
