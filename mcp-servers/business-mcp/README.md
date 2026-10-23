@@ -169,7 +169,7 @@ SETUP.md                    단계별 실행 가이드, 데이터 추가·갱신
 
 ## 관리자 변경과 읽기 전용 MCP 계정
 
-[관리자 협력사 계약](../../docs/contracts/admin-suppliers.md)은 Spring의 등록과 수정 및 비활성화를 정의합니다. 재무와 계약 및 견적은 조회만 제공합니다. 모든 수정은 version을 확인하고 수정자 UUID와 변경 전후 자료를 기록합니다. DART 기본 정보는 수정하지 않습니다. MOCK 기본 정보를 수정하면 MANUAL로 표시하며 최초 원본은 보존합니다.
+[관리자 협력사 계약](../../docs/contracts/admin-suppliers.md)은 Spring의 등록과 수정 및 비활성화를 정의합니다. 재무와 계약은 조회만, 견적은 추가만 제공합니다. 모든 수정은 version을 확인하고 수정자 UUID와 변경 전후 자료를 기록합니다. DART 기본 정보는 수정하지 않습니다. MOCK 기본 정보를 수정하면 MANUAL로 표시하며 최초 원본은 보존합니다.
 
 새 MCP는 관리 스키마의 status를 사용합니다. 기존 데이터가 있는 DB에서는 seed를 다시 실행하지 않습니다. 스키마 변경 권한을 가진 접속 정보를 DATABASE_URL 환경 변수로 명시한 뒤 다음 명령만 실행합니다.
 
@@ -177,7 +177,7 @@ SETUP.md                    단계별 실행 가이드, 데이터 추가·갱신
 uv run python scripts/migrate_management.py
 ```
 
-이 명령은 저장소의 `backend/src/main/resources/db/business/`에 있는 `V1__supplier_management.sql`(관리 필드·감사 이력)과 `V2__supplier_contacts.sql`(협력사 담당자, 메일 수신자)을 차례로 적용합니다. V2는 테이블만 만들고 담당자 데이터는 넣지 않습니다. 기존 8개 테이블이 없으면 중단하며 자동으로 만들거나 seed하지 않습니다. 빈 실습 DB는 먼저 기존 seed를 명시적으로 실행해야 합니다. 같은 migration을 반복하거나 이후 Spring Flyway를 실행해도 원본과 수정 버전 및 감사 이력이 유지됩니다. 적용을 마친 다음 MCP를 재시작합니다.
+이 명령은 저장소의 `backend/src/main/resources/db/business/`에 있는 `V1__supplier_management.sql`(관리 필드·감사 이력)과 `V2__supplier_contacts.sql`(협력사 담당자, 메일 수신자) 및 `V3__quote_source.sql`(견적 출처 MOCK·MANUAL, 기존 견적은 MOCK)을 차례로 적용합니다. V2는 테이블만 만들고 담당자 데이터는 넣지 않습니다. 기존 8개 테이블이 없으면 중단하며 자동으로 만들거나 seed하지 않습니다. 빈 실습 DB는 먼저 기존 seed를 명시적으로 실행해야 합니다. 같은 migration을 반복하거나 이후 Spring Flyway를 실행해도 원본과 수정 버전 및 감사 이력이 유지됩니다. 적용을 마친 다음 MCP를 재시작합니다.
 
 비활성 기업은 검색과 이름 조회 및 상세와 추천 및 협상안 검사에서 제외됩니다. 카탈로그와 시장 견적 중앙값에서도 제외됩니다. 과거 채팅에 이미 저장한 근거는 변경하지 않습니다. 품질이나 견적이 없는 활성 기업은 상세 조회가 가능하지만 추천 점수 계산에서 빠지고 자료 미등록 사유를 반환합니다.
 

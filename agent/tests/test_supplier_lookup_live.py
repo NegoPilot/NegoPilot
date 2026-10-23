@@ -368,3 +368,47 @@ async def test_live_quote_source_is_required_and_validated(source):
     app = live_app(FakeBusiness(detail=detail))
     for path in (SEARCH, SEARCH + "/SUP-0001", SEARCH + "/SUP-0001/quotes"):
         assert (await get(app, path)).status_code == 500
+
+
+@pytest.mark.parametrize(("operation_source", "has_contract", "quote_sources", "operations"), [
+    ("MANUAL", True, [], "MIXED"),
+    ("MANUAL", True, ["MANUAL"], "MIXED"),
+    ("MANUAL", False, ["MOCK"], "MIXED"),
+    ("MANUAL", False, ["MANUAL", "MOCK"], "MIXED"),
+    ("MANUAL", False, ["MANUAL"], "MANUAL"),
+    ("MOCK", False, ["MOCK"], "MOCK"),
+])
+async def test_operations_provenance_uses_contract_and_actual_quote_sources(operation_source, has_contract,
+                                                                            quote_sources, operations):
+    # Keep main's contract/source matrix while using the new paginated tool fixture.
+    detail = DETAIL | {"certification_source": operation_source, "capability_source": operation_source,
+                       "quality_source": operation_source, "quote_sources": quote_sources}
+    if not has_contract:
+        detail["payment_days"] = None
+    app = live_app(FakeBusiness(detail=detail))
+    full = live_data(await get(app, SEARCH + "/SUP-0001"))
+    items = live_data(await get(app, SEARCH, {"process": "다이캐스팅"}))["items"]
+    assert full["provenance"]["operations"] == items[0]["provenance"]["operations"] == operations
+
+
+async def test_unknown_quote_source_in_aggregate_is_rejected():
+    app = live_app(FakeBusiness(detail=DETAIL | {"quote_sources": ["DART"]}))
+    for path in (SEARCH, SEARCH + "/SUP-0001"):
+        assert (await get(app, path)).status_code == 500
+
+
+async def test_search_keeps_independent_sources_for_multiple_suppliers_without_quality():
+    manual = summary(DETAIL | {
+        "supplier_id": "SUP-10000", "source": "MANUAL", "financials": [], "recent_quotes": [],
+        "quote_sources": [], "payment_days": None, "certification_source": "MANUAL",
+        "capability_source": "MANUAL", "defect_ppm": None, "on_time_rate": None,
+        "audit_grade": None, "years_dealing": None,
+    })
+    updated = summary(DETAIL | {"source": "MANUAL", "capability_source": "MANUAL"})
+    updated["financial_sources"] = ["DART", "MOCK"]
+    items = live_data(await get(live_app(FakeBusiness(search_rows=[updated, manual])), SEARCH))["items"]
+    assert [item["supplier_id"] for item in items] == ["SUP-0001", "SUP-10000"]
+    assert [item["provenance"] for item in items] == [
+        {"profile": "MANUAL", "financials": "MIXED", "operations": "MIXED"},
+        {"profile": "MANUAL", "financials": "UNKNOWN", "operations": "MANUAL"},
+    ]

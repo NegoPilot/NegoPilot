@@ -90,7 +90,7 @@ GET /api/suppliers/SUP-0001/quotes?process=CNC가공&material=AL6061&sort=unit_p
 
 생산능력은 개/월이다. 불량률은 ppm이다. years_dealing은 년이다. 0은 신규 후보를 뜻한다. 대금 지급기한은 일이다. `_krw` 금액은 원이다. raw_material_ratio는 0부터 1까지의 비율이다. on_time_delivery_rate와 debt_ratio는 이미 백분율이므로 다시 100을 곱하지 않는다. 부채비율은 자본이 0 이하이거나 값이 없으면 null이다. 미등록을 0으로 대체하지 않는다.
 
-provenance는 profile과 financials 및 operations다. profile은 DART 또는 MOCK 또는 MANUAL이다. financials는 DART 또는 MOCK 또는 MIXED 또는 UNKNOWN이다. operations는 MOCK 또는 MANUAL 또는 MIXED다. 프로필과 재무 및 운영 출처는 독립적이다. 기존 계약 자료는 MOCK으로 반영한다. 견적은 전체 이력의 source를 반영한다. 최근 5건 밖의 과거 견적도 출처 집계에 포함한다.
+provenance는 profile과 financials 및 operations다. profile은 DART 또는 MOCK 또는 MANUAL이다. financials는 DART 또는 MOCK 또는 MIXED 또는 UNKNOWN이다. operations는 MOCK 또는 MANUAL 또는 MIXED다. 프로필과 재무 및 운영 출처는 독립적이다. 기존 계약 자료는 MOCK으로 반영한다. 견적은 전체 이력의 source를 반영한다. 최근 5건 밖의 과거 견적도 출처 집계에 포함한다. 품질 자료가 없으면 기업의 기본 quality_source 값은 집계하지 않는다.
 
 DART 기업의 기본정보와 재무를 실제 DB에서 읽어도 생산능력과 인증 및 품질과 계약과 견적은 실습용 가상 자료일 수 있다. seed 견적은 MOCK이며 관리자 입력 견적은 MANUAL이다. MANUAL은 관리자 입력이며 외부 검증 완료를 뜻하지 않는다. 화면은 고정 MOCK 예시 배지 대신 영역별 출처와 견적별 출처를 표시한다.
 

@@ -1,6 +1,7 @@
 -- 협력사·완성차 기업 DB (PostgreSQL 16)
 -- source = 'DART' 인 협력사의 기본 정보·재무는 OpenDART 공시 값이고,
--- 생산능력·품질·계약·견적·인증·RFQ는 모두 실습용 가상 데이터다.
+-- 생산능력·품질·계약·견적·인증·RFQ는 seed 기준 모두 실습용 가상 데이터다.
+-- 관리자 입력 자료는 각 *_source와 quotes.source(V3 migration)가 MANUAL이다.
 
 DROP VIEW IF EXISTS supplier_overview;
 DROP TABLE IF EXISTS financials, quotes, contracts, quality, capabilities, rfqs, suppliers, oems CASCADE;
