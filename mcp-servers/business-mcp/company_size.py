@@ -31,8 +31,13 @@ def assess(inputs: CompanySizeInput | dict | None, as_of: str | None = None) -> 
               'source_url':RULES['parent_source_url'], 'source_documents':RULES['sources'],
               'reviewed_as_of':RULES['reviewed_as_of'], 'missing':[],
               'note':'기업 규모 판정이며, 하도급법 적용은 위탁유형·원사업자 요건 등 별도 확인 필요.'}
-    if not RULES['coverage_from'] <= day <= RULES['reviewed_as_of']:
-        result['missing']=['기준일에 검증된 별표 판본']; return result
+    # The annex version applies from effective_from until the next amendment (effective_until, null while
+    # none is known). reviewed_as_of is only when we last checked; later dates still get judged, with a notice.
+    until=RULES['effective_until']
+    if day < RULES['effective_from'] or (until and day > until):
+        result['missing']=['기준일에 시행 중인 검증된 별표 판본']; return result
+    if day > RULES['reviewed_as_of']:
+        result['review_notice']=f"별표는 {RULES['reviewed_as_of']}까지 검토됨. 이후 개정 여부 확인 필요."
     code=(v.ksic_code or '').strip().upper()
     # Require complete manufacturing middle group or exact subclass; never accept arbitrary prefix junk.
     import re

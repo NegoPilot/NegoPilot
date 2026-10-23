@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
-  "coverage_from": "2026-01-02",
+  "effective_from": "2026-01-02",
+  "effective_until": null,
   "reviewed_as_of": "2026-10-23",
   "scope": "제조업 C10~C34; 다른 업종은 판정 보류",
   "parent_source_url": "https://www.law.go.kr/LSW/lsInfoP.do?lsiSeq=281337&efYd=20260102",
