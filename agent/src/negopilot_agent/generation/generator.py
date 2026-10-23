@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from negopilot_shared import DecompositionResult, RouteResult, SubQueryOutcome
 
-from negopilot_agent.generation import verify
+from negopilot_agent.generation import guard, verify
 from negopilot_agent.generation.answer import Answer, Evidence, GenerationDraft
 from negopilot_agent.generation.backends import Backend, GenerationAnthropicBackend, GenerationOpenAIBackend, GenerationOllamaBackend
 from negopilot_agent.generation.evidence import build_evidence
@@ -157,7 +157,8 @@ class Plan:
 
 
 def plan(decomposition: DecompositionResult, routing: RouteResult) -> Plan:
-    p = Plan(notices=[f"가정: {a}" for a in decomposition.assumptions])
+    # 법적 결론을 정하거나 법 검토를 빼는 가정은 사용자 지시를 옮긴 것이라 보여 주지 않는다 (#222)
+    p = Plan(notices=[f"가정: {a}" for a in decomposition.assumptions if not guard.sets_conclusion(a)])
     texts = {sq.id: sq.original_text for sq in decomposition.sub_queries}
     statuses = {o.status for o in routing.outcomes}
     for o in routing.outcomes:
@@ -276,8 +277,10 @@ class AnswerGenerator:
         return await self._write(decomposition, evidence, p)
 
     async def _write(self, decomposition: DecompositionResult, evidence: list[Evidence], p: Plan) -> Answer:
-        user = build_user_message(decomposition, evidence, p.notices)
-        allowed = [decomposition.original_query, *decomposition.assumptions,
+        # 질문이나 가정이 법적 결론을 정해 주면, 모델이 그 지시를 따랐는지 아래에서 한 번 더 본다 (#222)
+        override = guard.overrides(decomposition.original_query) or any(map(guard.sets_conclusion, decomposition.assumptions))
+        user = build_user_message(decomposition, evidence, p.notices, override)
+        allowed = [decomposition.original_query, *(a for a in decomposition.assumptions if not guard.sets_conclusion(a)),
                    *(sq.question for sq in decomposition.sub_queries)]
         extra = ""
         draft: GenerationDraft | None = None
@@ -298,8 +301,13 @@ class AnswerGenerator:
             report = verify.check(draft.answer, evidence, allowed)
             report.attempts = attempt
             uncited = p.answerable and citable and not set(verify.cited_ids(draft.answer)) & citable
-            if report.ok and not (uncited and attempt < self.settings.max_attempts):
+            claims = guard.asserted(draft.answer) if override and not guard.conclusion_supported(evidence) else []
+            if report.ok and not ((uncited or claims) and attempt < self.settings.max_attempts):
                 break
+            if report.ok and claims:
+                log.info("근거 없는 법적 결론 (시도 %d): %s", attempt, claims)
+                extra = "\n\n" + guard.CONCLUSION_FEEDBACK.format(claims=", ".join(f"'{c}'" for c in claims))
+                continue
             if report.ok:
                 # 도구 근거로 답하고도 인용을 하나도 안 붙이면 "근거 자료 없음"으로 보인다 (#177)
                 log.info("인용 없음 (시도 %d)", attempt)
@@ -318,6 +326,9 @@ class AnswerGenerator:
         if p.answerable:
             body = verify.cite_used_evidence(body, draft.used_evidence, citable)
         body, citations = verify.render_citations(body, evidence)
+        if override:
+            # 모델이 지시를 따라 위반 소지를 뺐어도 안내로 남긴다. 사용자 지시로 지울 수 없는 마지막 안전망이다 (#222)
+            p.notices.extend(guard.unmentioned_notices(body, evidence))
         # 분해가 추정한 값이나 가정을 새 추천의 사실 근거로 확대하지 않는다.
         suggestions = (grounded_suggestions(draft.suggested_questions, evidence, [decomposition.original_query])
                        if report and report.ok and not report.masked and not p.missing and not p.options else [])
