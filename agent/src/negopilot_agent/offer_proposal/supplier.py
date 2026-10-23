@@ -42,7 +42,7 @@ def sections(d: OfferDocument) -> list[tuple[str, list[Block]]]:
         ('단가 및 거래조건 제안서', [('table', [
             ['문서 번호', f'{d.document_id} (v{d.version})'], ['작성일', d.issued_on.isoformat()],
             ['수신', f'{d.supplier_name} ({d.supplier_id}) 귀중'],
-            ['발신', f'{s.company} {s.department} {s.contact_name} (전화 {s.phone}, {s.email})'],
+            ['발신', f'{s.company} {s.department} {s.contact()}'],
             ['제목', d.title]])]),
         ('인사말', [('p', d.cover_letter)]),
         ('대상 품목', [('table', item)]),
@@ -52,9 +52,9 @@ def sections(d: OfferDocument) -> list[tuple[str, list[Block]]]:
             ['지급 조건', d.payment_terms()], ['납품대금 연동', linkage]])]),
         ('납품대금 연동', [('list', d.linkage_lines())]),
         ('납품 및 비고', [('p', d.delivery_notes or '-')]),
-        ('회신 요청', [('p', f'{d.reply_by.isoformat()}까지 회신 부탁드립니다. '
-                         f'문의: {s.contact_name} ({s.phone}, {s.email})')]),
-        ('서명', [('table', [['발신', f'{s.company} {s.department}'], ['담당자', f'{s.contact_name} (서명/인)'],
+        ('회신 요청', [('p', f'{d.reply_by.isoformat()}까지 회신 부탁드립니다. 문의: {s.contact()}')]),
+        ('서명', [('table', [['발신', f'{s.company} {s.department}'],
+                            ['담당자', f'{s.contact_name}{" " + s.job_title if s.job_title else ""} (서명/인)'],
                             ['수신 확인', f'{d.supplier_name} (서명/인)']])]),
     ]
 

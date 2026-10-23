@@ -34,13 +34,25 @@ def single_request(args):
         body['price_linkage'] = args.price_linkage == 'yes'
     if args.linkage_waived:
         body['linkage_waived_by_agreement'] = True
+    if sender := sender_from(args):
+        body['sender'] = sender
     return OfferProposalRequest.model_validate(body, strict=False)
+
+
+def sender_from(args) -> dict | None:
+    """로컬 시험용 발신 담당자. 실제 서비스에서는 백엔드가 로그인 세션의 회원 정보로 채운다."""
+    if not args.sender_name:
+        return None
+    sender = {'name': args.sender_name, 'department': args.sender_department, 'job_title': args.sender_title or '',
+              'email': args.sender_email}
+    return sender | ({'phone': args.sender_phone} if args.sender_phone else {})
 
 
 async def main(args):
     from negopilot_agent import timing
     from negopilot_agent.api.offer_api import summary_line
     from negopilot_agent.offer_proposal import excel, render
+    from negopilot_agent.offer_proposal.request import SenderInfo
     from negopilot_agent.offer_proposal.service import build_package, package_files
     from negopilot_agent.offer_proposal.writer import NegotiationWriter
     from negopilot_agent.routing.mcp_client import McpToolCaller
@@ -57,7 +69,11 @@ async def main(args):
         path = Path(args.excel)
         rows = excel.parse_rows(path.read_bytes(), path.name, args.as_of)
 
+        sender = sender_from(args)
+
         async def produce(req):
+            if sender:   # 엑셀에는 발신 칸이 없다. 서비스에서는 백엔드가 세션 회원으로 채운다
+                req = req.model_copy(update={'sender': SenderInfo.model_validate(sender)})
             async with caller.session():
                 pkg = await build_package(req, caller, writer)
             return summary_line(pkg), package_files(pkg)
@@ -105,6 +121,11 @@ if __name__ == '__main__':
         parser.add_argument('--' + name.replace('_', '-'), type=kind)
     parser.add_argument('--price-linkage', choices=['yes', 'no'])
     parser.add_argument('--linkage-waived', action='store_true', help='연동하지 않기로 합의함')
+    parser.add_argument('--sender-name', help='발신 담당자 이름 (로그인 회원 대신 로컬 시험용)')
+    parser.add_argument('--sender-department')
+    parser.add_argument('--sender-title')
+    parser.add_argument('--sender-email')
+    parser.add_argument('--sender-phone')
     parser.add_argument('--excel', help='.xlsx 또는 .csv. 한 행 = 요청 하나')
     parser.add_argument('--out-dir', help='제안서 PDF·DOCX, 내부 브리핑 PDF(, summary.csv)를 저장할 폴더')
     parser.add_argument('--template', help='엑셀 양식을 이 경로에 만들고 끝낸다')
@@ -113,5 +134,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if not (args.template or args.excel or (args.rfq_id and args.supplier)):
         parser.error('rfq_id와 supplier, 또는 --excel, --template 중 하나가 필요하다')
+    if args.sender_name and not (args.sender_department and args.sender_email):
+        parser.error('--sender-name을 쓰면 --sender-department와 --sender-email도 필요하다')
     load_env()
     asyncio.run(main(args))

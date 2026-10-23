@@ -50,6 +50,7 @@ business-mcp `get_price_benchmarks`가 기준값을 주고, Agent `offer_proposa
 | `linkage_waived_by_agreement` | | 연동하지 않기로 합의함 | false |
 | `notes` | | 납품·비고(500자 이하). 문서에 그대로 옮긴다 | |
 | `supplier_size`, `buyer_size` | | `/review`와 같은 `ReviewCompanyFacts` | 규모 판정 보류(경고) |
+| `sender` | | 발신 담당자 `{name, department, job_title, email, phone?}`. **백엔드 프록시가 로그인 세션의 회원 정보로 채운다(클라이언트 입력 금지)**. [offer-document.md](offer-document.md) 5절 | `NEGOPILOT_BUYER_*` 설정값 |
 
 - 비워서 데이터로 채운 값은 결과의 `filled[]`에 `{field, value, source}`로 적는다.
 - 요청 조건이 법 기준을 넘으면 고치고 `offer.adjustments[]`에 적는다. 예: `요청 조건 지급 90일 → 법정 60일 이내로 조정`, `요청 조건 연동 없음 → 원재료 비중 42%로 법정 연동 대상이라 연동 포함`.
@@ -64,7 +65,7 @@ business-mcp `get_price_benchmarks`가 기준값을 주고, Agent `offer_proposa
 
 - 모든 후보 단가는 `max_price`를 넘지 않게 자른다.
 - 연동 약정: 원재료 비중이 `MAJOR_MATERIAL_RATIO` 이상이고 거래 기간·하도급대금이 면제 기준을 넘고 미연동 합의도 아니면 넣는다. `linkage_status`는 `included` / `not_required` / `exempt` / `waived` / `needs_input`이다.
-- 원재료 비중을 모르면(요청에도 기존 계약에도 없음) 연동 없음으로 두지 않는다. 요청이나 기존 계약이 연동 포함이면 포함하고, 아니면 `needs_input`(연동 약정 확인 필요)으로 두고 `input_needed`에 `raw_material_ratio`("원재료 비중을 입력하면 연동 의무를 판정합니다")를, 경고에 `RAW_MATERIAL_RATIO_REQUIRED`를 넣는다.
+- 원재료 비중을 모르면(요청에도 기존 계약에도 없음) 연동 없음으로 두지 않는다. 요청이나 기존 계약이 연동 포함이면 포함하고, 아니면 `needs_input`(연동 약정 확인 필요)으로 두고 `input_needed`에 `raw_material_ratio`("원재료 비중을 입력하면 연동 의무를 판정합니다")를 넣는다. 경고는 check_offer가 같은 뜻의 `RAW_MATERIAL_RATIO_UNKNOWN`을 이미 냈으면 그것 하나만 두고, 없을 때만 `RAW_MATERIAL_RATIO_REQUIRED`를 붙인다(중복 경고 방지, #248).
 - 후보마다 `check_offer`를 부른다. violation이면 코드별로 고쳐(`PAYMENT_DAYS_OVER_60` → 60일, `LINKAGE_TERMS_MISSING`·`ENERGY_LINKAGE_TERMS_MISSING` → 연동 포함) 최대 2번 다시 검사한다. 고칠 수 없거나 끝까지 남으면 그 후보는 버린다.
 - 하나 고르기: 요청한 `intent` → warning 수가 적음 → 목표 단가와 차이가 작음 → 위 표 순서.
 - 협상 범위: 제시가 = 고른 단가, 최대 수용가 = 요청 값 또는 직전 견적·시장 중앙값 중 제시가 이상인 낮은 값(제시가보다 낮지 않음), 목표 합의가 = 둘의 가운데(반올림). 목표 합의가와 최대 수용가도 같은 조건으로 `check_offer`를 불러, 문서의 모든 가격에 위반 소지가 없게 한다.

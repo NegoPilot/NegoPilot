@@ -25,7 +25,7 @@ ALIASES = {
     '원재료비중': 'raw_material_ratio', '에너지비중': 'energy_ratio', '계약기간': 'contract_days',
     '계약기간일': 'contract_days', '미연동합의': 'linkage_waived_by_agreement', '비고': 'notes', '납품비고': 'notes',
 }
-FIELDS = [f for f in OfferProposalRequest.model_fields if f not in ('supplier_size', 'buyer_size')]
+FIELDS = [f for f in OfferProposalRequest.model_fields if f not in ('supplier_size', 'buyer_size', 'sender')]
 TRUE = {'예', 'y', 'yes', 'o', 'true', '1', '포함', '있음', '연동'}
 FALSE = {'아니오', '아니요', 'n', 'no', 'x', 'false', '0', '없음', '미포함'}
 RATIO_FIELDS = ('raw_material_ratio', 'energy_ratio')

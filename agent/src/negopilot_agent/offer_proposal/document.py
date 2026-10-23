@@ -17,6 +17,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .generator import Proposal
+from .request import SenderInfo
 
 SCHEMA_VERSION = '1'
 DEFAULT_RESPONSE_DAYS = 7
@@ -27,21 +28,35 @@ NEEDS_INPUT_WORDING = '하도급대금 연동 여부는 주요 원재료 비중�
 
 
 class BuyerSettings(BaseModel):
-    """발신(구매사) 정보. 코드에 적지 않고 환경 변수로 받는다 (.env.example 참고)."""
+    """제안서 발신 정보. 회사명은 조직 설정(NEGOPILOT_BUYER_COMPANY), 담당자는 로그인 회원(SenderInfo)에서 온다.
+
+    회원 정보가 없으면 환경 변수 값을 쓴다(.env.example 참고). 전화번호는 없으면 비워 두고 문서에서 뺀다.
+    """
     model_config = ConfigDict(extra='forbid')
     company: str = Field(max_length=100)
     department: str = Field(max_length=100)
-    contact_name: str = Field(max_length=50)
-    phone: str = Field(max_length=50)
-    email: str = Field(max_length=200)
+    contact_name: str = Field(max_length=100)
+    job_title: str = Field(default='', max_length=100)
+    phone: str | None = Field(default=None, max_length=50)
+    email: str = Field(max_length=254)
 
     @classmethod
-    def from_env(cls) -> 'BuyerSettings':
-        return cls(company=os.getenv('NEGOPILOT_BUYER_COMPANY', '[구매사명]'),
-                   department=os.getenv('NEGOPILOT_BUYER_DEPARTMENT', '[구매 부서]'),
-                   contact_name=os.getenv('NEGOPILOT_BUYER_CONTACT_NAME', '[담당자]'),
-                   phone=os.getenv('NEGOPILOT_BUYER_PHONE', '[전화번호]'),
-                   email=os.getenv('NEGOPILOT_BUYER_EMAIL', '[이메일]'))
+    def from_env(cls, sender: SenderInfo | None = None) -> 'BuyerSettings':
+        phone = (sender.phone if sender else None) or os.getenv('NEGOPILOT_BUYER_PHONE') or None
+        company = os.getenv('NEGOPILOT_BUYER_COMPANY') or '[구매사명]'
+        if sender:
+            return cls(company=company, department=sender.department, contact_name=sender.name,
+                       job_title=sender.job_title, phone=phone, email=sender.email)
+        return cls(company=company,
+                   department=os.getenv('NEGOPILOT_BUYER_DEPARTMENT') or '[구매 부서]',
+                   contact_name=os.getenv('NEGOPILOT_BUYER_CONTACT_NAME') or '[담당자]',
+                   phone=phone, email=os.getenv('NEGOPILOT_BUYER_EMAIL') or '[이메일]')
+
+    def contact(self) -> str:
+        """'홍길동 담당 (전화 02-…, a@b.c)'. 전화가 없으면 이메일만."""
+        title = f' {self.job_title}' if self.job_title else ''
+        reach = ', '.join(x for x in (f'전화 {self.phone}' if self.phone else '', self.email) if x)
+        return f'{self.contact_name}{title} ({reach})'
 
 
 class OfferDocument(BaseModel):
@@ -119,7 +134,7 @@ def default_cover(rfq_id: str, part_name: str) -> str:
 
 
 def build_document(proposal: Proposal, buyer: BuyerSettings | None = None,
-                   cover_letter: str | None = None) -> OfferDocument:
+                   cover_letter: str | None = None, sender: SenderInfo | None = None) -> OfferDocument:
     """협상안 결과에서 제안서를 만든다. 내부 값(합의가·수용가·비교·경고)은 옮기지 않는다."""
     o = proposal.offer
     if o is None:
@@ -130,7 +145,7 @@ def build_document(proposal: Proposal, buyer: BuyerSettings | None = None,
         document_id=f'NP-{proposal.rfq_id}-{proposal.supplier_id}-{issued:%Y%m%d}',
         issued_on=issued, reply_by=issued + timedelta(days=DEFAULT_RESPONSE_DAYS), as_of=issued,
         supplier_id=proposal.supplier_id, supplier_name=proposal.supplier_name,
-        sender=buyer or BuyerSettings.from_env(),
+        sender=buyer or BuyerSettings.from_env(sender),
         title=f'{proposal.rfq_id} {proposal.part_name} 단가 및 거래조건 제안',
         rfq_id=proposal.rfq_id, part_name=proposal.part_name, vehicle=rfq.get('vehicle'),
         material=rfq.get('material'), annual_volume=o.annual_volume, unit_price=o.unit_price,
