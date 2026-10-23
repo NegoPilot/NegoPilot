@@ -36,9 +36,20 @@ export function formatCapacity(value: number | null | undefined): string {
   return value == null ? NO_DATA : `${integer.format(value)} EA/월`
 }
 
+const dateTime = new Intl.DateTimeFormat('ko-KR', {
+  timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', hour12: false,
+})
+
 /** 한국 날짜 기준 오늘 (YYYY-MM-DD) */
 export function todayIso(): string {
   return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(new Date())
+}
+
+/** 서버 시각(ISO)을 한국 시간으로. 읽을 수 없으면 '확인 불가' */
+export function formatDateTime(value: string): string {
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) ? dateTime.format(timestamp) : '확인 불가'
 }
 
 /** "50,000" 같은 입력을 양의 정수로. 숫자가 아니면 null */

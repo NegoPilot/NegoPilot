@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref } from 'vue'
 
 import { SOURCE_LABEL, addQuotes, createSupplier } from '@/api/admin-suppliers'
 import FormField from '@/components/form/FormField.vue'
@@ -55,6 +55,8 @@ async function submit() {
   saveError.value = null
   serverErrors.value = {}
   if (errorCount.value) {
+    // aria-invalid는 다음 렌더링에 붙으므로 오류 표시를 그린 뒤 첫 오류 칸을 찾는다
+    await nextTick()
     document.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus()
     return
   }
@@ -96,6 +98,8 @@ function reset() {
     <SavedNotice
       v-if="done"
       :message="`${done.name}(${done.id})를 등록했습니다.`"
+      :to="{ name: 'admin-supplier-detail', params: { supplierId: done.id } }"
+      link-text="상세 보기 →"
       :warning="done.warning"
     />
 
