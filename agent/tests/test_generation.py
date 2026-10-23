@@ -218,6 +218,25 @@ async def test_unknown_citation_triggers_retry():
     assert "E99" in backend.prompts[1]
 
 
+async def test_missing_citation_triggers_retry():
+    _, r = load("07_number_needs_grounding")
+    hit = next(e for e in build_evidence(r) if e.citable)
+    backend = FakeBackend(draft("지급 기한 조항입니다."), draft(f"지급 기한 조항입니다. [{hit.id}]", [hit.id]))
+    answer, _ = await run("07_number_needs_grounding", backend=backend)
+    assert answer.verification.attempts == 2 and answer.grounded and answer.text.endswith("[1]")
+    assert "인용이 하나도 없다" in backend.prompts[1]
+
+
+async def test_used_evidence_is_cited_when_retry_still_has_no_citation():
+    _, r = load("07_number_needs_grounding")
+    hit = next(e for e in build_evidence(r) if e.citable)
+    backend = FakeBackend(draft("지급 기한 조항입니다.", [hit.id, "E99"]))
+    answer, _ = await run("07_number_needs_grounding", backend=backend)
+    assert answer.verification.attempts == 2 and answer.grounded
+    assert answer.text == "지급 기한 조항입니다. [1]"
+    assert [c.evidence_id for c in answer.citations] == [hit.id]
+
+
 async def test_ungrounded_number_is_masked_after_retry():
     backend = FakeBackend(draft("지급 기한은 93일입니다."))
     answer, _ = await run("07_number_needs_grounding", backend=backend)
