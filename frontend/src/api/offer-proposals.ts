@@ -1,14 +1,10 @@
 // 08-2 법규 검토 + 협상안 화면의 API.
-// Spring 프록시(협상안 생성·렌더, 메일 미리보기·발송)는 아직 main에 없다. 그 전까지는 mock으로 화면을 돌리고,
-// VITE_OFFER_API=live 로 켜면 아래 live 함수가 Spring 공개 API를 부른다.
-// 형식은 docs/contracts/offer-proposal.md, offer-document.md, mail.md, check-offer.md 를 따른다.
-import { ApiError, request } from './client'
+// 기본은 Spring 협상 작업 API(live)를 부른다. VITE_OFFER_API=mock 이면 피그마 예시 데이터로만 돈다.
+// 형식은 docs/contracts/negotiation-workspace.md(작업·검토·협상안·내보내기·메일), offer-document.md, mail.md 를 따른다.
+import { API_PATHS, ApiError, request } from './client'
 import type { Member } from './auth'
 
-const LIVE = import.meta.env.VITE_OFFER_API === 'live'
-// TODO(백엔드): 경로는 Spring 프록시가 정해지면 client.ts의 API_PATHS로 옮긴다.
-const OFFER_PATH = '/api/offer-proposals'
-const MAIL_PATH = '/api/offer-mails'
+const LIVE = import.meta.env.VITE_OFFER_API !== 'mock'
 
 // ── ② 법규 검토 ──
 
@@ -100,8 +96,12 @@ export interface MailPreview {
   subject: string
   body: string
   attachments: Array<{ filename: string; content_type: string; bytes: number }>
-  confirmation_token: string
   expires_at: string
+  /** mock만 쓴다. live는 확인 토큰을 서버에만 둔다 */
+  confirmation_token?: string
+  /** live: 서버의 메일 미리보기 id와 내용 해시 */
+  mail_id?: string
+  content_hash?: string
 }
 
 export interface MailSendResult { status: 'SENT' | 'DRY_RUN'; to: string; subject: string; sent_at: string }
@@ -121,8 +121,8 @@ export function createOfferProposal(review: OfferReview, member: Member | null):
 }
 
 /** ③ 고친 제안서를 다시 검사하고 확정본(final)과 첨부를 받는다. 위반이면 422 OFFER_VIOLATION */
-export function renderOfferDocument(document: OfferDocument, files: FileFormat | 'both' = 'both'): Promise<RenderedOffer> {
-  return LIVE ? live.render(document, files) : mock.render(document, files)
+export function renderOfferDocument(document: OfferDocument, files: FileFormat | 'both' = 'both', briefing?: InternalBriefing): Promise<RenderedOffer> {
+  return LIVE ? live.render(document, files, briefing) : mock.render(document, files)
 }
 
 // 메일에는 협력사 제안서 PDF만 붙인다. 본문은 mail-mcp가 정한 문장이고, 담당자는 가운데에 들어갈 추가 문구(message)만 쓴다.
@@ -153,42 +153,289 @@ export function saveAttachment(rendered: RenderedOffer, format: FileFormat) {
   setTimeout(() => URL.revokeObjectURL(url), 0)
 }
 
-// ── live: Spring 프록시가 생기면 쓴다 ──
+// ── live: Spring 협상 작업 API (docs/contracts/negotiation-workspace.md) ──
+// 화면의 함수 모양은 그대로 두고, 서버가 저장한 작업·검토·협상안·내보내기·메일 식별자는 여기서 들고 다닌다.
+
+type Json = Record<string, any>
+const idempotent = () => ({ 'Idempotency-Key': crypto.randomUUID() })
+const SLOW = 330_000
+const nego = (id: string) => `${API_PATHS.negotiations}/${encodeURIComponent(id)}`
+
+interface ReviewRef { negotiationId: string; revision: number; summaries: Record<string, string> }
+interface ProposalRef {
+  negotiationId: string; proposalId: string; head: number; summaries: Record<string, string>
+  base: { document: OfferDocument; briefing: InternalBriefing }
+  unresolved: string[]; checkNeeded: boolean
+}
+const reviewRefs = new Map<string, ReviewRef>()      // key: OfferReview.review_id (= 협상 작업 id)
+const proposalRefs = new Map<string, ProposalRef>()  // key: OfferDocument.document_id (버전이 바뀌어도 같다)
+
+function proposalRef(document: OfferDocument) {
+  const ref = proposalRefs.get(document.document_id)
+  if (!ref) throw new ApiError(409, 'PROPOSAL_NOT_LOADED', 'Proposal is not loaded.', false)
+  return ref
+}
+const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 
 const live = {
-  // TODO(백엔드): 엑셀 → 항목별 check_offer 결과를 주는 API가 아직 없다. Agent /batch는 zip만 돌려준다.
-  async review(_supplierName: string, _file: File): Promise<OfferReview> {
-    throw new ApiError(501, 'NOT_IMPLEMENTED', 'Excel review API is not ready.', false)
+  async review(supplierName: string, file: File): Promise<OfferReview> {
+    const conditions = await readConditions(file)
+    const supplierId = conditions.supplier_id ?? await resolveSupplier(supplierName)
+    const work = await request<Json>(API_PATHS.negotiations, { method: 'POST', headers: idempotent(),
+      body: JSON.stringify({ supplier_id: supplierId, rfq_id: conditions.rfq_id }) })
+    const id = String(work.negotiation_id)
+    const stored = await request<Json>(`${nego(id)}/reviews`, { method: 'POST', headers: idempotent(), body: JSON.stringify(conditions.review) }, SLOW)
+    if (stored.execution_status === 'FAILED') throw new ApiError(502, 'REVIEW_FAILED', 'Legal review failed.', true)
+    const findings: Json[] = stored.legal_review?.assessment?.findings ?? []
+    const summaries = Object.fromEntries(findings.map(f => [String(f.id), String(f.summary ?? f.id)]))
+    reviewRefs.set(id, { negotiationId: id, revision: Number(stored.review_revision), summaries })
+    const rows = reviewRows(stored)
+    // 서버 판정이 생성 불가(blocked)인데 표에 반려가 없으면 화면과 서버가 어긋나지 않게 적용 대상 행을 반려로 둔다
+    if (stored.eligibility === 'blocked' && !rows.some(r => r.verdict === 'rejected') && rows[0]) {
+      rows[0] = { ...rows[0], verdict: 'rejected', reason: rows[0].reason ?? '법규 검토에서 협상안 생성이 막혔습니다. 조건을 확인해 주세요.' }
+    }
+    return { review_id: id, supplier_name: supplierName, file_name: file.name, rows }
   },
+
   async create(review: OfferReview): Promise<OfferProposal> {
-    const body = await request<{ offer_document: OfferDocument | null; check: OfferProposal['check']; internal_briefing: Record<string, unknown> }>(
-      OFFER_PATH, { method: 'POST', body: JSON.stringify({ review_id: review.review_id }) }, 330_000)
-    if (!body.offer_document) throw new ApiError(422, 'NO_OFFER', 'No offer.', false)
-    return { document: body.offer_document, check: body.check, briefing: briefingFrom(body.internal_briefing) }
+    const ref = reviewRefs.get(review.review_id)
+    if (!ref) throw new ApiError(409, 'REVIEW_NOT_LOADED', 'Review is not loaded.', false)
+    const view = await request<Json>(`${nego(ref.negotiationId)}/proposals`, { method: 'POST', headers: idempotent(),
+      body: JSON.stringify({ review_revision: ref.revision, offer: {} }) }, SLOW)
+    if (view.proposal?.status !== 'offer') {
+      const reasons: string[] = view.proposal?.no_offer_reasons ?? []
+      throw new ApiError(422, 'NO_OFFER', reasons.join(' / ') || 'No offer.', false)
+    }
+    const external = await request<Json>(`${nego(ref.negotiationId)}/proposals/${encodeURIComponent(view.proposal_id)}/external`)
+    const document = external.external_document as OfferDocument
+    const briefing = briefingFrom(view.proposal)
+    proposalRefs.set(document.document_id, {
+      negotiationId: ref.negotiationId, proposalId: String(view.proposal_id), head: Number(view.head_revision), summaries: ref.summaries,
+      base: { document: clone(document), briefing: clone(briefing) },
+      unresolved: view.validation?.unresolved_issue_ids ?? [], checkNeeded: view.proposal?.offer?.verdict_code === 'CHECK_NEEDED',
+    })
+    return { document, briefing, check: { verdict_code: view.proposal.offer.verdict_code ?? null, warnings: warningsOf(view.proposal.offer.warnings) } }
   },
-  render(document: OfferDocument, files: FileFormat | 'both') {
-    return request<RenderedOffer>(`${OFFER_PATH}/render`, { method: 'POST', body: JSON.stringify({ document, files }) }, 120_000)
+
+  // [제안서 확정]: 고친 값을 새 버전으로 저장 → 검사가 끝나지 않았으면 재검사 → 확정본 Word·PDF를 만든다
+  async render(document: OfferDocument, _files: FileFormat | 'both', briefing?: InternalBriefing): Promise<RenderedOffer> {
+    const ref = proposalRef(document)
+    const path = `${nego(ref.negotiationId)}/proposals/${encodeURIComponent(ref.proposalId)}`
+    const changes = changesOf(ref.base, document, briefing ?? ref.base.briefing)
+    let view: Json = Object.keys(changes).length
+      ? await request<Json>(path, { method: 'PATCH', headers: idempotent(), body: JSON.stringify({ base_revision: ref.head, changes }) })
+      : await request<Json>(path)
+    ref.head = Number(view.head_revision)
+    let validation: Json = view.validation
+    if (validation.status !== 'checked') {
+      validation = (await request<Json>(`${path}/revisions/${ref.head}/validations`, { method: 'POST', headers: idempotent(), body: '{}' }, SLOW)).validation
+    }
+    if (validation.status !== 'checked') throw new ApiError(503, 'VALIDATION_FAILED', 'Validation did not finish.', true)
+    if (validation.conclusion === 'risk_identified') {
+      const found = (validation.violations ?? []).map((v: Json) => v.message ?? v.code).join(' / ')
+      throw new ApiError(422, 'OFFER_VIOLATION', found || 'Offer violates a rule.', false)
+    }
+    const bundle = await exportFinal(ref, ['docx', 'pdf'])
+    const attachments = await Promise.all((bundle.files as Json[]).map(async file => ({
+      filename: String(file.file_name), content_type: String(file.content_type), data_base64: await downloadBase64(String(file.download_url)),
+    })))
+    const external = await request<Json>(`${path}/external`)
+    const final = { ...(external.external_document as OfferDocument), status: 'final' as const, content_hash: String(bundle.content_hash) }
+    view = await request<Json>(path)
+    ref.base = { document: clone(final), briefing: clone(briefingFrom(view.proposal)) }
+    ref.unresolved = validation.unresolved_issue_ids ?? []
+    ref.checkNeeded = bundle.render_check?.verdict_code === 'CHECK_NEEDED'
+    const warnings = [...warningsOf(bundle.render_check?.warnings),
+      ...ref.unresolved.map(id => ({ code: id, message: `추가 확인 필요: ${ref.summaries[id] ?? id}` }))]
+    return { document: final, attachments, check: { verdict_code: bundle.render_check?.verdict_code ?? final.verdict_code, warnings } }
   },
-  // TODO(#264): Spring 메일 API가 생기면 경로와 요청 형식을 맞춘다. 첨부는 확정본 그대로 보낸다(해시 검사).
-  preview(rendered: RenderedOffer, message?: string) {
-    return request<MailPreview>(`${MAIL_PATH}/preview`, { method: 'POST', body: JSON.stringify(mailInput(rendered, message)) })
+
+  // 메일에는 PDF만 붙이므로 PDF 하나짜리 확정본으로 미리보기를 받는다.
+  // 확인 체크(경고·미확인 사항)는 화면 창에서 받는다. 실제 발송은 체크 뒤 send에서 미리보기를 새로 받아 그것으로만 보낸다.
+  async preview(rendered: RenderedOffer, message?: string): Promise<MailPreview> {
+    const ref = proposalRef(rendered.document)
+    const bundle = await exportFinal(ref, ['pdf'])
+    const mail = await request<Json>(`${nego(ref.negotiationId)}/proposals/${encodeURIComponent(ref.proposalId)}/mail-previews`, {
+      method: 'POST', headers: idempotent(), body: JSON.stringify({ bundle_id: bundle.bundle_id, ...(message ? { message } : {}),
+        acknowledgements: { check_needed: ref.checkNeeded, unresolved_issue_ids: ref.unresolved } }) }, SLOW)
+    return {
+      to: { name: mail.to.name, email: mail.to.email, supplier_name: mail.to.supplier_name ?? rendered.document.supplier_name },
+      from: decodeHeader(String(mail.from)), subject: mail.subject, body: mail.body, attachments: mail.attachments,
+      expires_at: mail.expires_at, mail_id: mail.mail_id, content_hash: mail.content_hash,
+    }
   },
-  send(rendered: RenderedOffer, preview: MailPreview, message?: string) {
-    return request<MailSendResult>(`${MAIL_PATH}/send`, { method: 'POST',
-      body: JSON.stringify({ ...mailInput(rendered, message), confirmation_token: preview.confirmation_token }) })
+
+  async send(rendered: RenderedOffer, _preview: MailPreview, message?: string): Promise<MailSendResult> {
+    const fresh = await live.preview(rendered, message)
+    const sent = await request<Json>(`${API_PATHS.negotiationMails}/${encodeURIComponent(fresh.mail_id!)}/send`, {
+      method: 'POST', headers: idempotent(), body: JSON.stringify({ content_hash: fresh.content_hash }) }, SLOW)
+    if (sent.status === 'FAILED') throw new ApiError(422, String(sent.error_code ?? 'MAIL_SEND_FAILED'), 'Mail was not sent.', false)
+    if (sent.status === 'UNKNOWN') throw new ApiError(202, 'MAIL_RESULT_UNKNOWN', 'Mail result is unknown.', false)
+    return { status: sent.status, to: String(sent.to?.email ?? '').replace(/^(..).*@/, '$1***@'), subject: sent.subject,
+      sent_at: sent.finished_at ?? new Date().toISOString() }
   },
 }
 
-function mailInput(rendered: RenderedOffer, message?: string) {
-  return { document: rendered.document, attachments: rendered.attachments.filter(a => a.filename.endsWith('.pdf')),
-    ...(message ? { message } : {}) }
+async function exportFinal(ref: ProposalRef, formats: FileFormat[]) {
+  const bundle = await request<Json>(`${nego(ref.negotiationId)}/proposals/${encodeURIComponent(ref.proposalId)}/exports`, {
+    method: 'POST', headers: idempotent(), body: JSON.stringify({ revision: ref.head, document_type: 'external', formats, final: true }) }, SLOW)
+  if (bundle.status !== 'ready') throw new ApiError(503, 'EXPORT_NOT_READY', 'Export is not ready.', true)
+  return bundle
 }
+
+async function downloadBase64(url: string) {
+  if (!url.startsWith('/api/negotiation-exports/')) throw new ApiError(502, 'INVALID_RESPONSE', 'Invalid download url.', false)
+  const response = await fetch(url, { credentials: 'same-origin' })
+  if (!response.ok) throw new ApiError(response.status, `HTTP_${response.status}`, 'Download failed.', response.status >= 500)
+  const bytes = new Uint8Array(await response.arrayBuffer())
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return btoa(binary)
+}
+
+// 화면에서 고친 값을 PATCH changes로 바꾼다. 공통 조건은 offer, 제안서 문구는 external, 브리핑 문구는 writing·offer
+function changesOf(base: ProposalRef['base'], document: OfferDocument, briefing: InternalBriefing) {
+  const changes: Json = {}
+  const put = (section: string, key: string, before: unknown, after: unknown) => {
+    if (JSON.stringify(before) !== JSON.stringify(after)) (changes[section] ??= {})[key] = after
+  }
+  for (const key of ['unit_price', 'payment_days', 'contract_days', 'price_linkage'] as const) put('offer', key, base.document[key], document[key])
+  put('offer', 'notes', base.document.delivery_notes, document.delivery_notes)
+  put('offer', 'concessions', base.briefing.concessions, briefing.concessions.map(c => c.trim()).filter(Boolean))
+  put('offer', 'objections', base.briefing.objections, briefing.objections)
+  for (const key of ['title', 'cover_letter', 'reply_by'] as const) put('external', key, base.document[key], document[key])
+  put('writing', 'strategy', base.briefing.strategy, briefing.strategy)
+  put('writing', 'opening_message', base.briefing.opening_message, briefing.opening_message)
+  return changes
+}
+
+// ② 표: 저장된 법규 검토(Agent)의 쟁점 판단과 check_offer 검사 항목을 승인/반려 두 가지로 보여 준다.
+// 반려는 생성이 막히는 판단(blocked)이나 위반 소지(violation)만이다. 추가 확인이 필요한 항목은 승인으로 두고 결과에 적는다.
+const LAW_URL = 'https://www.law.go.kr/법령/하도급거래공정화에관한법률'
+const ROWS: Array<{ id: string; item: string; finding: string | null; codes: RegExp; basis: string; article: string | null }> = [
+  { id: 'payment', item: '대금 지급기한', finding: 'payment.deadline', codes: /^PAYMENT_|^MIDSIZE_PAYMENT/, basis: '하도급법 제13조', article: '제13조' },
+  { id: 'linkage', item: '납품대금 연동 약정', finding: 'linkage.agreement', codes: /LINKAGE|RAW_MATERIAL_RATIO|^ENERGY_/, basis: '하도급법 제3조', article: '제3조' },
+  { id: 'price_cut', item: '단가 인하 폭', finding: 'price.scope', codes: /^PRICE_CUT|^ABOVE_TARGET/, basis: '하도급법 제4조', article: '제4조' },
+  { id: 'size', item: '구매자·협력사 규모', finding: 'transaction.applicability', codes: /^SME_|^BUYER_SIZE|^SUBCONTRACT_ACT/, basis: '하도급법 제2조', article: '제2조' },
+  { id: 'duration', item: '계약 기간·물량', finding: 'duration.commitment', codes: /^$/, basis: '하도급법 제3조·제8조', article: '제8조' },
+  { id: 'market', item: '시장가 하한', finding: null, codes: /^PRICE_BELOW_MARKET/, basis: 'rules.py', article: null },
+  { id: 'capability', item: '생산능력 / 인증', finding: null, codes: /^CERT_|^CAPABILITY_|^CAPACITY_/, basis: 'business-mcp', article: null },
+]
+const PASS: Record<string, string> = { market: '시장가 하한 이상', capability: 'RFQ 생산능력·인증 조건 충족' }
+
+function reviewRows(stored: Json): ReviewRow[] {
+  const findings: Json[] = stored.legal_review?.assessment?.findings ?? []
+  // TRANSACTION_* 항목은 위 쟁점 판단(findings)을 옮긴 것이라 겹쳐 쓰지 않는다
+  const evidence: Json[] = (stored.answer?.evidence ?? []).filter((e: Json) => e.kind === 'offer_finding' && !String(e.meta?.code ?? '').startsWith('TRANSACTION_'))
+  const checked = (stored.answer?.evidence ?? []).some((e: Json) => e.kind === 'offer_verdict')
+  return ROWS.map(row => {
+    const finding = row.finding ? findings.find(f => f.id === row.finding) : undefined
+    const codes = evidence.filter(e => row.codes.test(String(e.meta?.code ?? '')))
+    const violations = codes.filter(e => e.meta?.severity === 'violation')
+    const rejected = finding?.status === 'blocked' || violations.length > 0
+    const plain = (e: Json) => String(e.text ?? '').replace(/^\[[^\]]+\]\s*/, '').replace(/\s*관련 조문:.*$/, '')
+    const texts = [finding?.summary, ...codes.map(plain)]
+      .filter((t): t is string => !!t && t.trim().length > 0)
+    const missing: string[] = finding?.missing_fields ?? []
+    const result = texts.join(' · ') || (checked ? PASS[row.id] ?? '검사 범위 내 문제 없음' : '검사 결과 없음')
+    const url = finding?.law_refs?.[0]?.url ?? (row.article ? `${LAW_URL}/${row.article}` : null)
+    return {
+      id: row.id, verdict: rejected ? 'rejected' : 'approved', item: row.item,
+      result: missing.length ? `${result} (추가 확인 ${missing.length}건)` : result,
+      basis: row.basis, reason: rejected ? (violations.map(plain).join(' / ') || finding?.summary || '조건을 고쳐 다시 검토해 주세요.') : null,
+      action: url ? { label: '원문 보기 ↗', url } : { label: '정보 조회', url: null },
+    }
+  })
+}
+
+const warningsOf = (raw: unknown): OfferWarning[] =>
+  Array.isArray(raw) ? raw.map((w: Json) => ({ code: String(w.code ?? ''), message: String(w.message ?? w.code ?? '') })) : []
 
 function briefingFrom(raw: Record<string, unknown>): InternalBriefing {
   const offer = (raw.offer ?? {}) as { concessions?: string[]; objections?: InternalBriefing['objections'] }
   const writing = (raw.writing ?? {}) as { strategy?: string; opening_message?: string }
   return { concessions: offer.concessions ?? [], objections: offer.objections ?? [],
     strategy: writing.strategy ?? '', opening_message: writing.opening_message ?? '' }
+}
+
+// 메일 헤더의 =?utf-8?b?…?= 를 읽을 수 있게 바꾼다
+function decodeHeader(value: string) {
+  return value.replace(/=\?utf-8\?b\?([^?]+)\?=/gi, (_, b64: string) => new TextDecoder().decode(Uint8Array.from(atob(b64), c => c.charCodeAt(0))))
+}
+
+async function resolveSupplier(name: string) {
+  const list = await request<{ data: { items: Array<{ supplier_id: string; name: string }> } }>(
+    `${API_PATHS.suppliers}?${new URLSearchParams({ q: name, limit: '10' })}`)
+  const exact = list.data.items.filter(s => s.name === name)
+  const found = exact.length === 1 ? exact[0] : list.data.items.length === 1 ? list.data.items[0] : null
+  if (!found) throw new ApiError(422, 'SUPPLIER_AMBIGUOUS', exact.length > 1 || list.data.items.length > 1
+    ? '같은 이름의 협력사가 여러 곳입니다. 엑셀에 공급자 ID를 넣어 주세요.' : '협력사를 찾을 수 없습니다.', false)
+  return found.supplier_id
+}
+
+// TODO(#284): 엑셀(.xlsx) 해석은 #284 업로드 API로 바꾼다. 그 전까지는 CSV 한 행(머리글 + 값)만 읽는다.
+const COLUMNS: Record<string, string> = {
+  공급자id: 'supplier_id', 협력사id: 'supplier_id', supplierid: 'supplier_id', rfqid: 'rfq_id', rfq: 'rfq_id',
+  검토기준일: 'as_of', 기준일: 'as_of', asof: 'as_of', 제안단가: 'unit_price', 단가: 'unit_price', unitprice: 'unit_price',
+  지급기한: 'payment_days', 지급일수: 'payment_days', paymentdays: 'payment_days', 계약기간: 'contract_days', 거래기간: 'contract_days',
+  contractdays: 'contract_days', 연동여부: 'price_linkage', 연동약정: 'price_linkage', pricelinkage: 'price_linkage',
+  원재료비중: 'raw_material_ratio', rawmaterialratio: 'raw_material_ratio', 에너지비중: 'energy_ratio', energyratio: 'energy_ratio',
+  미연동합의: 'linkage_waived_by_agreement', 거래유형: 'transaction_type', transactiontype: 'transaction_type',
+}
+const YES = /^(y|yes|true|1|예|o|포함|있음)$/i, NO = /^(n|no|false|0|아니오|아니요|x|미포함|없음)$/i
+
+async function readConditions(file: File) {
+  if (!/\.csv$/i.test(file.name)) {
+    throw new ApiError(501, 'EXCEL_API_PENDING', '엑셀(.xlsx) 해석 API(#284)가 아직 연결되지 않았습니다. 지금은 CSV로 불러와 주세요.', false)
+  }
+  const lines = (await file.text()).replace(/^﻿/, '').split(/\r?\n/).filter(line => line.trim())
+  if (lines.length < 2) throw new ApiError(400, 'VALIDATION_ERROR', 'CSV에 머리글과 값 한 줄이 필요합니다.', false)
+  const cells = (line: string) => line.split(',').map(c => c.trim().replace(/^"|"$/g, ''))
+  // 머리글의 공백·괄호 속 단위(원, 일, %)·밑줄은 무시한다
+  const header = cells(lines[0] ?? '').map(h => COLUMNS[h.toLowerCase().replace(/\([^)]*\)/g, '').replace(/[\s%_]/g, '')] ?? '')
+  const values = cells(lines[1] ?? '')
+  const raw: Record<string, string> = {}
+  header.forEach((key, i) => { const value = values[i]; if (key && value) raw[key] = value })
+  const missing = ['rfq_id', 'as_of', 'unit_price', 'payment_days', 'contract_days', 'price_linkage'].filter(k => !raw[k])
+  if (missing.length) throw new ApiError(400, 'VALIDATION_ERROR', `CSV에 필수 항목이 없습니다: ${missing.join(', ')}`, false)
+  const at = (key: string) => raw[key] ?? ''
+  const number = (v: string) => Number(v.replace(/,/g, ''))
+  const ratio = (v?: string) => v === undefined ? null : number(v.replace('%', '')) > 1 ? number(v.replace('%', '')) / 100 : number(v.replace('%', ''))
+  const flag = (v: string) => YES.test(v) ? true : NO.test(v) ? false : null
+  const linkage = flag(at('price_linkage'))
+  if (linkage === null) throw new ApiError(400, 'VALIDATION_ERROR', '연동 여부는 예/아니오로 적어 주세요.', false)
+  const type = raw.transaction_type ? (/제조/.test(raw.transaction_type) ? 'manufacturing' : /구매/.test(raw.transaction_type) ? 'purchase' : 'unknown') : null
+  const review: Json = {
+    as_of: at('as_of'), unit_price: number(at('unit_price')), payment_days: number(at('payment_days')), contract_days: number(at('contract_days')),
+    price_linkage: linkage, raw_material_ratio: ratio(raw.raw_material_ratio), energy_ratio: ratio(raw.energy_ratio),
+    linkage_waived_by_agreement: raw.linkage_waived_by_agreement ? flag(raw.linkage_waived_by_agreement) === true : false,
+    supplier_size: {}, buyer_size: {}, ...(type ? { transaction: { transaction_type: type } } : {}),
+  }
+  return { supplier_id: raw.supplier_id ?? null, rfq_id: raw.rfq_id, review }
+}
+
+/** 서버 오류 코드를 화면 문구로 바꾼다 */
+export function describeOfferError(error: ApiError): string | null {
+  const reasons = Array.isArray(error.details?.reasons) ? (error.details!.reasons as string[]) : []
+  const REASONS: Record<string, string> = {
+    BUNDLE_NOT_FINAL: '확정본이 아닙니다', BUNDLE_STALE: '확정 이후 조건이 바뀌었습니다', PROPOSAL_SUPERSEDED: '새 협상안이 만들어졌습니다',
+    REVIEW_RECHECK_REQUIRED: '법규 검토를 다시 해야 합니다', VALIDATION_REQUIRED: '제안서를 다시 확정해 주세요', RISK_IDENTIFIED: '위반 소지가 있습니다',
+    OFFER_VIOLATION: '위반 소지가 있습니다', CHECK_NEEDED_NOT_ACKNOWLEDGED: '확인 필요 항목을 체크해 주세요', UNRESOLVED_NOT_ACKNOWLEDGED: '확인 필요 항목을 체크해 주세요',
+  }
+  const known: Record<string, string> = {
+    SEND_NOT_ALLOWED: `발송할 수 없습니다: ${[...new Set(reasons.map(r => REASONS[r] ?? r))].join(' / ')}`,
+    MESSAGE_INTERNAL_INFO: '추가 문구에 내부 협상 정보(대외비·목표 합의가·최대 수용가·내부 가격 등)가 있습니다.',
+    ALREADY_SENT: '같은 제안서 버전을 이 담당자에게 이미 보냈습니다.',
+    PREVIEW_EXPIRED: '미리보기 확인 시간(15분)이 지났습니다. 미리보기를 다시 열어 주세요.',
+    PREVIEW_STALE: '미리보기 이후 제안서가 바뀌었습니다. 미리보기를 다시 열어 주세요.',
+    RECIPIENT_MISSING: '협력사 담당자가 등록되어 있지 않습니다.', SENDER_INCOMPLETE: '발신자 정보(회원 이름·부서·이메일)가 비어 있습니다.',
+    MAIL_SEND_FAILED: '메일 서버가 발송을 거절했습니다. 잠시 뒤 다시 시도해 주세요.',
+    MAIL_RESULT_UNKNOWN: '발송 결과를 아직 알 수 없습니다. 잠시 뒤 발송 기록을 확인해 주세요. 자동으로 다시 보내지 않습니다.',
+    REVISION_CONFLICT: '다른 곳에서 먼저 고쳤습니다. 화면을 새로 고친 뒤 다시 수정해 주세요.',
+    EXCEL_API_PENDING: error.message, SUPPLIER_AMBIGUOUS: error.message, NO_OFFER: `협상안을 만들 수 없습니다: ${error.message}`,
+    VALIDATION_ERROR: error.message.startsWith('CSV') || error.message.startsWith('연동') ? error.message : '입력값을 확인해 주세요.',
+  }
+  return known[error.code] ?? null
 }
 
 // ── mock: 피그마 08-2 시안 값 ──

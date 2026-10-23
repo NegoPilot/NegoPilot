@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { ApiError } from '@/api/client'
 import {
-  createOfferProposal, previewOfferMail, renderOfferDocument, reviewOfferExcel, saveAttachment, sendOfferMail,
+  createOfferProposal, describeOfferError, previewOfferMail, renderOfferDocument, reviewOfferExcel, saveAttachment, sendOfferMail,
   type FileFormat, type MailPreview, type MailSendResult, type OfferProposal, type OfferReview, type RenderedOffer,
 } from '@/api/offer-proposals'
 import MailPreviewDialog from '@/components/offer/MailPreviewDialog.vue'
@@ -12,7 +12,7 @@ import { session } from '@/stores/session'
 
 // 단계는 ① 엑셀 → ② 법규 검토 → ③ 협상안 확인·수정 → ④ 저장·발송 순서로만 열린다.
 // 앞 단계 결과가 없거나 바뀌면 뒤 단계 결과를 지우고 화면에서도 내린다.
-const MOCK = import.meta.env.VITE_OFFER_API !== 'live'
+const MOCK = import.meta.env.VITE_OFFER_API === 'mock'
 
 const supplierName = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -38,6 +38,8 @@ function message(error: unknown, fallback: string) {
   if (!(error instanceof ApiError)) return fallback
   if (error.code === 'OFFER_VIOLATION') return '고친 조건에 위반 소지가 있어 확정하지 못했습니다. 지급기한 등 조건을 다시 확인해 주세요.'
   if (error.code === 'NOT_IMPLEMENTED') return '서버 API가 아직 연결되지 않았습니다.'
+  const known = describeOfferError(error)
+  if (known) return known
   return `${fallback} (${error.code})`
 }
 
@@ -84,7 +86,7 @@ async function confirmDocument() {
   if (!proposal.value || busy.value) return
   busy.value = 'render'; errors.value.render = ''
   try {
-    const result = await renderOfferDocument(proposal.value.document)
+    const result = await renderOfferDocument(proposal.value.document, 'both', proposal.value.briefing)
     rendered.value = result
     proposal.value.document = { ...result.document }
     proposal.value.check = result.check
