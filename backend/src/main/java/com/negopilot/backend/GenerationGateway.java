@@ -31,10 +31,18 @@ final class GenerationGateway {
     }
 
     JsonNode execute(UUID requestId, ObjectNode body) {
+        return executeAt(requestId, body, "/internal/v2/query-executions");
+    }
+
+    JsonNode review(UUID requestId, ObjectNode body) {
+        return executeAt(requestId, body, "/internal/v2/legal-reviews");
+    }
+
+    private JsonNode executeAt(UUID requestId, ObjectNode body, String path) {
         if (properties.internalApiKey().isBlank()) throw ApiException.unavailable(requestId);
         try {
             return client.post()
-                    .uri(properties.baseUrl().resolve("/internal/v2/query-executions"))
+                    .uri(properties.baseUrl().resolve(path))
                     .contentType(MediaType.APPLICATION_JSON)
                     .accept(MediaType.APPLICATION_JSON)
                     .header("X-Internal-Api-Key", properties.internalApiKey())

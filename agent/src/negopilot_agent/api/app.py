@@ -132,6 +132,8 @@ def create_app(settings: ApiSettings | None = None, decomposer: Decomposer | Non
     add_generation_routes(application, settings, authenticate, error_response,
                           decomposer=generation_decomposer, caller=generation_caller,
                           backend=generation_backend)
+    from .review_api import add_review_routes
+    add_review_routes(application, settings, authenticate, error_response, generation_caller)
     add_refresh_routes(application, settings, authenticate, error_response, law_refresh_control)
     add_admin_law_routes(application, settings, authenticate, error_response, admin_law_caller)
     return application
