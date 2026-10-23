@@ -45,6 +45,8 @@ class DecomposerSettings:
     # 안전 분류기가 거절하면 서버가 다른 모델로 다시 실행하게 한다 (anthropic 전용)
     use_fallbacks: bool = field(
         default_factory=lambda: os.getenv("NEGOPILOT_DECOMPOSER_FALLBACKS", "1") != "0")
+    # 실험: 하위 질문마다 intent 앞에 판단 근거 한 문장을 쓰게 한다 (openai 전용, wire.REASON_RULE). 기본은 끔
+    reason: bool = field(default_factory=lambda: os.getenv("NEGOPILOT_DECOMPOSER_REASON", "0") == "1")
 
 
 def failed_result(query: str) -> DecompositionResult:
@@ -63,7 +65,8 @@ def make_backend(settings: DecomposerSettings, client: anthropic.AsyncAnthropic 
     if settings.backend == "ollama":
         return OllamaBackend.from_env(settings.model, settings.max_tokens)
     if settings.backend == "openai":
-        return OpenAIBackend(openai.AsyncOpenAI(), settings.model, settings.max_tokens)  # OPENAI_API_KEY
+        return OpenAIBackend(openai.AsyncOpenAI(), settings.model, settings.max_tokens,  # OPENAI_API_KEY
+                            reason=settings.reason)
     if settings.backend == "anthropic":
         return AnthropicBackend(client or anthropic.AsyncAnthropic(), settings.model, settings.effort,
                                 settings.max_tokens, settings.use_fallbacks)
@@ -76,7 +79,8 @@ class QueryDecomposer:
         self.settings = settings or DecomposerSettings()
         self.backend = backend or make_backend(self.settings, client)
         # openai 백엔드는 짧은 출력 형식(wire.py)을 쓰므로 프롬프트의 출력 규칙과 예시도 그 형식으로 보여 준다
-        self.system = build_system_prompt(compact=getattr(self.backend, "COMPACT_OUTPUT", False))
+        self.system = build_system_prompt(compact=getattr(self.backend, "COMPACT_OUTPUT", False),
+                                          reason=getattr(self.backend, "reason", False))
 
     async def decompose(self, query: str, history: list[dict] | None = None, *,
                         context: dict[str, list[str]] | None = None) -> DecompositionResult:

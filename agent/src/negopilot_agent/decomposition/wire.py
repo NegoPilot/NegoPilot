@@ -54,6 +54,31 @@ class DecompositionWire(BaseModel):
     assumptions: list[str]
 
 
+# 실험: intent를 고르기 전에 판단 근거를 한 문장 쓰게 한다 (짧은 CoT). strict 출력은 필드 순서대로 생성되므로
+# reason을 intent 앞에 둔다. 계약에는 없는 필드라 to_contract_json이 지운다. NEGOPILOT_DECOMPOSER_REASON=1일 때만 쓴다.
+class WireSubQueryWithReason(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    id: str = Field(pattern=r"^q\d+$")
+    question: str
+    original_text: str
+    reason: str
+    intent: str
+    grounding: Literal["required", "none"]
+    confidence: float
+    entities: list[EntityValue]
+    inputs: list[InputRef]
+    depends_on: list[str]
+
+
+class DecompositionWireWithReason(DecompositionWire):
+    sub_queries: list[WireSubQueryWithReason]
+
+
+REASON_RULE = ("\n    각 하위 질문의 reason에는 intent를 고르기 전에 그 근거를 한 문장(40자 안쪽)으로 쓴다."
+               " 예: \"법이 정한 지급 기한을 묻는다\", \"용어 뜻만 묻는다\". 예시에는 reason이 없지만 출력에는 반드시 넣는다.")
+
+
 def contract_to_wire(result: dict) -> dict:
     """계약 형식 결과(프롬프트 예시) → 짧은 형식. 예시와 실제 출력 형식이 같아야 모델이 헷갈리지 않는다."""
     out = {k: v for k, v in result.items() if k not in ("original_query", "schema_version")}
@@ -73,6 +98,8 @@ def to_contract_json(text: str) -> str:
     if not isinstance(sub_queries, list):
         return text
     for sq in sub_queries:
+        if isinstance(sq, dict):
+            sq.pop("reason", None)   # 실험용 필드 (DecompositionWireWithReason). 계약에는 없다
         if isinstance(sq, dict) and isinstance(sq.get("entities"), list):
             sq["entities"] = {e["key"]: e["value"] for e in sq["entities"]
                               if isinstance(e, dict) and "key" in e and "value" in e}

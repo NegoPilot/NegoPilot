@@ -11,7 +11,7 @@ from datetime import date
 
 from negopilot_shared import CLARIFY_CONFIDENCE, MAX_SUB_QUERIES, SCHEMA_VERSION, load_intents
 
-from negopilot_agent.decomposition.wire import COMPACT_RULE, contract_to_wire
+from negopilot_agent.decomposition.wire import COMPACT_RULE, REASON_RULE, contract_to_wire
 
 # 현업 표현 → 법률·코드 용어. question 필드를 정규화할 때 쓴다
 GLOSSARY = [
@@ -251,7 +251,7 @@ def _intent_table() -> str:
     return "\n".join(lines)
 
 
-def build_system_prompt(compact: bool = False) -> str:
+def build_system_prompt(compact: bool = False, reason: bool = False) -> str:
     """compact면 출력 형식(규칙 10과 예시)을 짧은 형식(wire.py)으로 보여 준다. openai 백엔드가 쓴다."""
     glossary = "\n".join(f"- {src} → {dst}" for src, dst in GLOSSARY)
     laws = "\n".join(f"- {k}: {v}" for k, v in LAW_KEYS.items())
@@ -261,6 +261,8 @@ def build_system_prompt(compact: bool = False) -> str:
         + f"현재 질문: {ex['query']}\n결과:\n{json.dumps(shown(ex['result']), ensure_ascii=False)}" for ex in EXAMPLES)
     output_rule = (COMPACT_RULE if compact else
                    f'original_query에는 사용자 질문을 한 글자도 바꾸지 않고 그대로 넣는다. schema_version은 "{SCHEMA_VERSION}"이다.')
+    if compact and reason:
+        output_rule += REASON_RULE
     return f"""너는 NegoPilot의 쿼리 분해기다. NegoPilot은 자동차 1차 협력사의 협상 담당자가 2차 협력사와 협상할 때 쓰는 도구다.
 사용자 질문을 MCP 도구 하나로 답할 수 있는 크기의 하위 질문으로 나누고, 각 하위 질문에 intent와 엔티티를 붙인다.
 너는 질문에 답하지 않는다. 분해 결과만 낸다. 뒤 단계(Routing)가 intent를 보고 도구를 부르고, Generation이 답을 만든다.
