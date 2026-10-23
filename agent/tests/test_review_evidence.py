@@ -118,3 +118,27 @@ async def test_stricter_transaction_deadline_adds_a_violation():
     data = offer(transaction=facts) | {'payment_days': 45, 'price_linkage': True}
     result = await ReviewedToolCaller(ReviewOffer(**data), caller)('business-mcp', 'check_offer', data)
     assert 'TRANSACTION_PAYMENT_DEADLINE' in codes(result, 'violations') and result['verdict'] == '위반 소지 있음'
+
+
+# 화면(TransactionFactsForm.vue)이 아무것도 입력하지 않았을 때 보내는 값
+EMPTY_FORM = {
+    "transaction_type": "unknown", "party_requirements_confirmed": None, "price_scope": "unknown", "contracted_on": None,
+    "renewed_on": None, "actual_contract_amount": None, "committed_quantity": None, "previous_unit_price": None,
+    "payment_basis": "unknown", "receipt_date": None, "completion_date": None, "monthly_agreed_date": None,
+    "agreed_due_date": None, "upstream_received_on": None, "upstream_payment_applicable": None,
+    "payment_exception_claimed": False, "payment_exception_reason": None, "payment_exception_evidence": [],
+    "reduction_reason": None, "reduction_evidence": [], "waiver_reason": None, "waiver_evidence": [],
+    "evidence_references": [], "linkage_details": [],
+}
+
+
+async def test_empty_web_form_counts_as_not_entered():
+    """폼은 '지급기한 예외 주장'을 기본으로 '주장하지 않음'(false)으로 보낸다. 그것만으로 입력한 것으로 보지 않는다."""
+    async def caller(server, tool, args):
+        return {'verdict': '문제 없음', 'verdict_code': 'OK', 'violations': [], 'warnings': [], 'info': []}
+    data = offer(transaction=EMPTY_FORM)
+    result = await ReviewedToolCaller(ReviewOffer(**data), caller)('business-mcp', 'check_offer', data)
+    assert result['verdict'] == '문제 없음' and result['warnings'] == []
+    entered_one = offer(transaction=EMPTY_FORM | {"payment_basis": "receipt"})
+    result = await ReviewedToolCaller(ReviewOffer(**entered_one), caller)('business-mcp', 'check_offer', entered_one)
+    assert any(f['code'].startswith('TRANSACTION_') for f in result['warnings'] + result['info'])

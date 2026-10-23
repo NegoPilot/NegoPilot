@@ -54,10 +54,17 @@ class ReviewedToolCaller:
         return result
 
 
+# 화면 폼에 '모름' 선택지가 없어 비워 둬도 기본으로 보내는 값
+FORM_DEFAULTS = {"payment_exception_claimed": False}
+
+
 def entered(transaction: TransactionFacts | None) -> bool:
-    """거래 사실을 하나라도 입력했는지. 화면은 비워 둬도 빈 객체를 보내므로, 그때는 check_offer 결과를 그대로 둔다.
+    """거래 사실을 하나라도 입력했는지. 화면은 비워 둬도 기본값을 채운 객체를 보내므로, 그때는 check_offer 결과를 그대로 둔다.
     구조화된 거래 사실 검토(legal_review)는 review_api가 따로 낸다."""
-    return transaction is not None and transaction.model_dump() != TransactionFacts().model_dump()
+    if transaction is None:
+        return False
+    given = transaction.model_dump(exclude_defaults=True)
+    return any(given[key] != FORM_DEFAULTS.get(key) for key in given)
 
 
 def transaction_finding(f: dict, severity: str) -> dict:
