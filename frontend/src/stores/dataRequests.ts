@@ -7,7 +7,7 @@ import { CURRENT_ADMIN } from '@/data/accounts'
 
 export interface DataRequest {
   id: string
-  kind: 'supplier' | 'law'
+  kind: 'supplier'
   target: string
   summary: string
   requestedAt: string
