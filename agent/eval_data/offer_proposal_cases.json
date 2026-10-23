@@ -1,0 +1,109 @@
+{
+  "description": "협상안 생성 평가 사례 (#231). rank_suppliers 상위 2곳 × RFQ 6개, 경계 사례와 요청 조건 사례 4개. 실제 seed DB 값 기준. 사례의 조건 필드는 OfferProposalRequest와 같다",
+  "as_of": "2026-10-23",
+  "cases": [
+    {
+      "id": "o01_001_top1",
+      "rfq_id": "RFQ-2026-001",
+      "supplier": "SUP-0034",
+      "note": "rank_suppliers RFQ-2026-001 1위"
+    },
+    {
+      "id": "o02_001_top2",
+      "rfq_id": "RFQ-2026-001",
+      "supplier": "SUP-0143",
+      "note": "rank_suppliers RFQ-2026-001 2위"
+    },
+    {
+      "id": "o03_002_top1",
+      "rfq_id": "RFQ-2026-002",
+      "supplier": "SUP-0061",
+      "note": "rank_suppliers RFQ-2026-002 1위"
+    },
+    {
+      "id": "o04_002_top2",
+      "rfq_id": "RFQ-2026-002",
+      "supplier": "SUP-0144",
+      "note": "rank_suppliers RFQ-2026-002 2위"
+    },
+    {
+      "id": "o05_003_top1",
+      "rfq_id": "RFQ-2026-003",
+      "supplier": "SUP-0007",
+      "note": "rank_suppliers RFQ-2026-003 1위"
+    },
+    {
+      "id": "o06_003_top2",
+      "rfq_id": "RFQ-2026-003",
+      "supplier": "SUP-0004",
+      "note": "rank_suppliers RFQ-2026-003 2위"
+    },
+    {
+      "id": "o07_004_top1",
+      "rfq_id": "RFQ-2026-004",
+      "supplier": "SUP-0040",
+      "note": "rank_suppliers RFQ-2026-004 1위"
+    },
+    {
+      "id": "o08_004_top2",
+      "rfq_id": "RFQ-2026-004",
+      "supplier": "SUP-0013",
+      "note": "rank_suppliers RFQ-2026-004 2위"
+    },
+    {
+      "id": "o09_005_top1",
+      "rfq_id": "RFQ-2026-005",
+      "supplier": "SUP-0023",
+      "note": "rank_suppliers RFQ-2026-005 1위"
+    },
+    {
+      "id": "o10_005_top2",
+      "rfq_id": "RFQ-2026-005",
+      "supplier": "SUP-0051",
+      "note": "rank_suppliers RFQ-2026-005 2위"
+    },
+    {
+      "id": "o11_006_top1",
+      "rfq_id": "RFQ-2026-006",
+      "supplier": "SUP-0119",
+      "note": "rank_suppliers RFQ-2026-006 1위"
+    },
+    {
+      "id": "o12_006_top2",
+      "rfq_id": "RFQ-2026-006",
+      "supplier": "SUP-0009",
+      "note": "rank_suppliers RFQ-2026-006 2위"
+    },
+    {
+      "id": "o13_004_request_pay90_no_linkage",
+      "rfq_id": "RFQ-2026-004",
+      "supplier": "SUP-0055",
+      "note": "요청 조건 지급 90일·연동 없음, 원재료 42%: 60일과 연동 포함으로 조정해야 함 (기존 계약도 지급 90일)",
+      "payment_days": 90,
+      "price_linkage": false
+    },
+    {
+      "id": "o14_002_pay90_last_quote_high",
+      "rfq_id": "RFQ-2026-002",
+      "supplier": "SUP-0060",
+      "note": "기존 계약 지급 90일, 직전 견적 2050원이 목표 1750원보다 17% 높음: 직전 견적 5% 하한이 목표가를 끌어올림"
+    },
+    {
+      "id": "o15_005_intent_market_short",
+      "rfq_id": "RFQ-2026-005",
+      "supplier": "SUP-0111",
+      "intent": "market",
+      "contract_days": 60,
+      "note": "시장가 중심 요청, 거래 기간 60일(연동 면제 기간), 기존 계약 지급 90일"
+    },
+    {
+      "id": "o16_002_max_price_notes",
+      "rfq_id": "RFQ-2026-002",
+      "supplier": "SUP-0061",
+      "target_price": 1700,
+      "max_price": 1760,
+      "notes": "월 2회 분할 납품, 울산 공장 입고",
+      "note": "요청 목표 단가·최대 수용가·비고 입력"
+    }
+  ]
+}
