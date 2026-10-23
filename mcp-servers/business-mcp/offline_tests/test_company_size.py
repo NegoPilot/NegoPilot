@@ -49,9 +49,22 @@ def test_grace_needs_explicit_review_and_does_not_prove_small_status():
     result=assess(company(average_revenue_eok=1201,deemed_sme=True),DAY)
     assert result['is_sme'] is True and result['is_small_business'] is None
 
-@pytest.mark.parametrize('day',['2025-12-31','2026-10-24'])
-def test_unreviewed_dates_do_not_fallback(day):
-    assert assess(company(),day)['is_sme'] is None
+def test_dates_before_annex_effective_do_not_fallback():
+    assert assess(company(),'2025-12-31')['is_sme'] is None
+
+@pytest.mark.parametrize('day',['2026-10-24','2027-06-30'])
+def test_dates_after_review_still_judge_with_notice(day):
+    result=assess(company(),day)
+    assert result['is_sme'] is True and result['status']=='criteria_met'
+    assert RULES['reviewed_as_of'] in result['review_notice']
+
+def test_review_day_has_no_notice():
+    assert 'review_notice' not in assess(company(),DAY)
+
+def test_dates_after_known_amendment_do_not_fallback(monkeypatch):
+    monkeypatch.setitem(RULES,'effective_until','2026-12-31')
+    assert assess(company(),'2026-12-31')['is_sme'] is True
+    assert assess(company(),'2027-01-01')['is_sme'] is None
 
 @pytest.mark.parametrize('value',[-1,float('nan'),float('inf')])
 def test_invalid_money(value):
