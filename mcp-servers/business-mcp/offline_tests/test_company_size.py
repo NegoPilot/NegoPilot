@@ -106,3 +106,17 @@ def test_unverified_buyer_boolean_does_not_create_exemption(offer_db):
     result=asyncio.run(call('check_offer',offer_db|{'buyer_is_small_business':True}))
     assert 'BUYER_SIZE_UNVERIFIED' in [f['code'] for f in result['warnings']]
     assert 'LINKAGE_EXEMPT' not in [f['code'] for f in result['info']]
+
+def test_unknown_buyer_preserves_unknown_linkage_exception(offer_db):
+    result=asyncio.run(call('check_offer',offer_db|{'supplier_size':company(),
+        'buyer_size':company(average_revenue_eok=120,independence_met=None)}))
+    assert result['company_size']['buyer']['is_small_business'] is None
+    assert 'BUYER_SIZE_UNKNOWN' in [f['code'] for f in result['warnings']]
+    assert 'LINKAGE_TERMS_MISSING' not in [f['code'] for f in result['violations']]
+    assert 'LINKAGE_EXEMPT' not in [f['code'] for f in result['info']]
+
+def test_known_non_small_buyer_still_flags_missing_terms(offer_db):
+    result=asyncio.run(call('check_offer',offer_db|{'supplier_size':company(),
+        'buyer_size':company(average_revenue_eok=120.01)}))
+    assert result['company_size']['buyer']['is_small_business'] is False
+    assert 'LINKAGE_TERMS_MISSING' in [f['code'] for f in result['violations']]

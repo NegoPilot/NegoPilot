@@ -31,6 +31,7 @@ from negopilot_agent.generation.answer import Answer, Evidence, GenerationDraft
 from negopilot_agent.generation.backends import Backend, GenerationAnthropicBackend, GenerationOpenAIBackend, GenerationOllamaBackend
 from negopilot_agent.generation.evidence import build_evidence
 from negopilot_agent.generation.prompt import SYSTEM_PROMPT, build_user_message
+from negopilot_agent.generation.size_answer import render_size_answer
 
 log = logging.getLogger(__name__)
 
@@ -253,6 +254,9 @@ class AnswerGenerator:
         return await self._write(decomposition, evidence, p)
 
     async def _write(self, decomposition: DecompositionResult, evidence: list[Evidence], p: Plan) -> Answer:
+        deterministic = render_size_answer(evidence, p.notices, decomposition.original_query)
+        if deterministic is not None:
+            return deterministic
         user = build_user_message(decomposition, evidence, p.notices)
         allowed = [decomposition.original_query, *decomposition.assumptions,
                    *(sq.question for sq in decomposition.sub_queries)]
@@ -272,12 +276,6 @@ class AnswerGenerator:
                 continue
             report = verify.check(draft.answer, evidence, allowed)
             report.attempts = attempt
-            if any(e.kind == "company_size" for e in evidence) and not verify.CITE_RE.search(draft.answer):
-                # Size decisions must retain inspectable evidence in the web UI.
-                if attempt == self.settings.max_attempts:
-                    return Answer(kind="failed", text=GENERATION_FAILED_TEXT, evidence=evidence)
-                extra = "\n\n기업 규모 판정의 근거 인용이 빠졌다. 각 판정 문장 끝에 실제 근거 id [E1] 등의 인용을 붙여 다시 작성해라."
-                continue
             if report.ok:
                 break
             log.info("근거 검사 실패 (시도 %d): %s", attempt, report.model_dump(exclude={"attempts", "masked"}))

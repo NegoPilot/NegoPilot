@@ -531,6 +531,14 @@ def check_offer(supplier: str, rfq_id: str, unit_price: int, payment_days: int, 
     findings = payment_findings(payment_days)
     findings += linkage_findings(ratio, price_linkage, contract_amount, contract_days,
                                  linkage_waived_by_agreement, buyer_assessment['is_small_business'] is True)
+    if buyer_assessment['is_small_business'] is None:
+        # Unknown is not false: do not assert a missing-terms violation while the
+        # buyer's statutory small-business exemption is still unresolved.
+        findings = [f for f in findings if f['code'] != 'LINKAGE_TERMS_MISSING']
+        findings.append(finding('BUYER_SIZE_UNKNOWN', 'warning',
+            '구매자 소기업 판정 보류: ' + ', '.join(buyer_assessment['missing']) +
+            '. 소기업이 아니라고 판단한 것이 아니다. 소기업 예외 적용 여부와 연동 약정 의무를 추가 확인해야 한다',
+            ('sme_decree', '제8조'), ('subcontract_act', '제3조')))
     if buyer_is_small_business and buyer_assessment['is_small_business'] is not True:
         findings.append(finding('BUYER_SIZE_UNVERIFIED', 'warning',
             '소기업이라는 입력만으로 연동 예외를 적용하지 않았다. buyer_size에 별표 3 및 본문 요건 확인 근거가 필요하다',
