@@ -162,7 +162,7 @@ def run(args):
     gold = json.loads((HERE / "retrieval_gold.json").read_text(encoding="utf-8"))
     as_of = gold["as_of"]
     keys = tuple(server.LAWS)
-    units, bm25 = server.search_units(keys, as_of, False)
+    units, bm25, _ = server.search_units(keys, as_of, False)
     arts = [unit_article(u) for u in units]
     print(f"색인: 항 {len(units)}개, 질문 {len(gold['items'])}개, 기준일 {as_of}")
 
@@ -308,7 +308,7 @@ def run_decomposition(gold: dict, path: Path, units: list[dict], bm25, stepback:
                 continue
             law = s["entities"].get("law")
             keys = (server.resolve_law(law)["law_key"],) if law else tuple(server.LAWS)
-            us, bm = server.search_units(keys, as_of, False)   # 서버처럼 법령 필터면 그 법령만으로 색인한다
+            us, bm, _ = server.search_units(keys, as_of, False)   # 서버처럼 법령 필터면 그 법령만으로 색인한다
             qs = make(s)
             ranking = (rank_bm25(bm, " ".join(qs), expand) if mode == "concat"
                        else rank_rrf(*(rank_bm25(bm, q, expand) for q in qs)))

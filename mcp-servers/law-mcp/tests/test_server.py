@@ -109,6 +109,32 @@ def test_glossary_keeps_question_order_and_drops_duplicates():
     assert server.expand_query("관련 없는 질문") == "관련 없는 질문"
 
 
+def test_search_attaches_definition_of_terms_in_hits():
+    """연동 의무 조문만 찾으면 10% 기준이 빠진다. 결과에 나온 '주요 원재료'의 정의 항을 뒤에 붙인다 (#167)."""
+    hits = run(call("search_regulation", {"query": "원재료 비중이 높은 부품이면 납품대금 연동 약정을 서면에 꼭 적어야 하나요?"}))
+    regular = [h for h in hits if h["type"] == "조문"]
+    definitions = [h for h in hits if h["type"] == "정의"]
+    assert len(regular) == 5 and hits[:5] == regular          # 정의는 top_k 뒤에만 붙는다
+    assert 0 < len(definitions) <= server.MAX_DEFINITIONS
+    major = next(h for h in definitions if h["law_key"] == "subcontract_act")
+    assert (major["article_no"], major["paragraph"]) == ("제2조", "⑯") and "100분의 10" in major["text"]
+    # 상생협력법 제2조는 한 항에 모든 용어를 정의해, 그 용어를 정의한 호만 남긴다
+    winwin = next(h for h in definitions if h["law_key"] == "winwin_act")
+    assert winwin["text"].startswith('12. "주요 원재료"란') and "중소기업" not in winwin["text"]
+
+
+def test_definition_text_keeps_only_the_defining_item():
+    text = '이 법에서 사용하는 용어의 뜻은 다음과 같다.\n\n  1. "가나"란 첫째를 말한다.\n  2. "다라"란 다음을 말한다.\n    가. 하나\n    나. 둘\n  3. "마바"란 셋째를 말한다.'
+    assert server.definition_text(text, "다라") == '2. "다라"란 다음을 말한다.\n가. 하나\n나. 둘'
+    assert server.definition_text('이 법에서 "가나"란 첫째를 말한다.', "가나") == '이 법에서 "가나"란 첫째를 말한다.'
+
+
+def test_common_terms_get_no_definition():
+    _, _, definitions = server.search_units(("subcontract_act",), server.parse_as_of(None), False)
+    terms = {t for _, t in definitions}
+    assert "주요 원재료" in terms and "원사업자" not in terms and "수급사업자" not in terms
+
+
 def test_search_cache_is_keyed_by_version_in_force():
     server._search_cache.clear()
     keys = ("subcontract_act",)
