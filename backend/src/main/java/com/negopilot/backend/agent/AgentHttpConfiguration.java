@@ -24,6 +24,11 @@ public class AgentHttpConfiguration {
                 .build();
     }
 
+    @Bean
+    public LegalReviewRequestFactory legalReviewRequestFactory(JsonMapper mapper) {
+        return new LegalReviewRequestFactory(mapper);
+    }
+
     @Bean(destroyMethod = "close")
     public CloseableHttpClient agentHttpClient(AgentProperties properties) {
         var connectionConfig = ConnectionConfig.custom()

@@ -16,10 +16,12 @@ import tools.jackson.databind.json.JsonMapper;
 final class LegalReviewController {
     private final GenerationGateway gateway;
     private final JsonMapper mapper;
+    private final LegalReviewRequestFactory requests;
 
-    LegalReviewController(GenerationGateway gateway, JsonMapper mapper) {
+    LegalReviewController(GenerationGateway gateway, JsonMapper mapper, LegalReviewRequestFactory requests) {
         this.gateway = gateway;
         this.mapper = mapper;
+        this.requests = requests;
     }
 
     @PostMapping(value = "/api/legal-reviews", consumes = MediaType.APPLICATION_JSON_VALUE,
@@ -32,11 +34,6 @@ final class LegalReviewController {
         catch (RuntimeException e) { throw ApiException.validation(id); }
         if (!request.getParameterMap().isEmpty() || offer == null || !offer.isObject()
                 || raw.length() > 16000) throw ApiException.validation(id);
-        var body = mapper.createObjectNode();
-        body.put("request_id", id.toString());
-        body.put("query", "입력한 기업 정보와 계약 조건의 법규 검토");
-        body.putObject("context").putArray("selected_supplier_ids");
-        body.set("offer", offer);
-        return gateway.review(id, body);
+        return gateway.review(id, requests.create(id, offer));
     }
 }

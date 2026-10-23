@@ -12,7 +12,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 negopilot \
-    && useradd --uid 10001 --gid negopilot --no-create-home --shell /usr/sbin/nologin negopilot
+    && useradd --uid 10001 --gid negopilot --no-create-home --shell /usr/sbin/nologin negopilot \
+    && mkdir -p /app/var/negotiation-exports && chown -R 10001:10001 /app/var
 COPY --from=build --chown=10001:10001 /workspace/backend/target/negopilot-backend-0.1.0-SNAPSHOT.jar /app/app.jar
 USER 10001:10001
 EXPOSE 8080
