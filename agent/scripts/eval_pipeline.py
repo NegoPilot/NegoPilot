@@ -3,6 +3,10 @@
 uv run python scripts/eval_pipeline.py --set dev --limit 3 --repeat 3
 uv run python scripts/eval_pipeline.py --set validation --no-judge
 uv run python scripts/eval_pipeline.py --set validation --cross-judge gpt-5.4-mini   # 같은 답변을 다른 모델로도 채점
+uv run python scripts/eval_pipeline.py --set validation --repeat 6 --compare eval_results/pipeline-<이전>.json
+
+--repeat 2 이상이면 회차별 값과 표준편차·표준오차를 낸다. --compare는 지표 차이가 두 결과의 표준오차를
+합친 폭의 2배보다 작으면 "흔들림 범위"로 표시한다. 같은 세트·모델로 잰 결과끼리 비교한다.
 
 Generation 평가의 질문과 정답을 재사용하되 저장된 분해·Routing을 실행 입력으로
 쓰지 않는다. 채점은 별도 호출이며 실제 Agent의 토큰/시간과 분리한다.
@@ -11,6 +15,7 @@ Generation 평가의 질문과 정답을 재사용하되 저장된 분해·Routi
 import argparse
 import asyncio
 import json
+import statistics
 import subprocess
 import sys
 from datetime import datetime
@@ -101,33 +106,159 @@ def cross_metrics(rows):
             "point_agreement": ratio(agree, points)}
 
 
-def summarize(rows):
+def quality(rows):
+    """품질 비율. 전체 합계와 회차별 값(spread)이 같은 기준을 쓴다."""
     expected_points = sum(row["points"] for row in rows)
     covered = sum(row.get("points_covered", 0) for row in rows)
     scored = sum(row["points"] for row in rows if "points_covered" in row)
     return {
-        "cases": len(rows),
-        "execution_errors": sum("error" in row for row in rows),
-        "tool_errors": sum(row.get("tool_errors", 0) for row in rows),
         "kind_accuracy": sum(row["kind_ok"] for row in rows) / len(rows) if rows else None,
-        "retried": sum(row.get("retried", False) for row in rows),
-        "masked": sum(row.get("masked", False) for row in rows),
         # 미채점 항목을 정답으로 취급하지 않고 평가 범위를 명시한다.
         "expected_points": expected_points,
         "scored_points": scored,
         "covered_points": covered,
         "point_coverage": covered / expected_points if expected_points and scored == expected_points else None,
         "point_coverage_lower_bound": covered / expected_points if expected_points else None,
-        "judge_errors": sum(row.get("judge_status") == "error" for row in rows),
-        "unsupported_claims": sum(len(row.get("unsupported_claims", [])) for row in rows),
         "intent_match": ratio(sum(row["intent_match"] for row in rows if "intent_match" in row),
                               sum("intent_match" in row for row in rows)),
         "grounded_when_needed": ratio(sum(row["grounded"] for row in rows if row.get("needs_grounding")),
                                       sum(bool(row.get("needs_grounding")) for row in rows)),
+    }
+
+
+# 회차별로 흩어짐을 보는 지표 → 보고서 이름
+SPREAD_METRICS = {"point_coverage": "정답 포인트 커버", "kind_accuracy": "답변 종류 일치",
+                  "intent_match": "분해 intent 일치", "grounded_when_needed": "근거 표시"}
+
+
+def spread(rows):
+    """회차별 값과 흩어짐. 변경 전후 차이가 이 폭보다 작으면 소음으로 본다 (eval_generation과 같은 방식).
+
+    회차가 2개 이상이고 값이 있는 회차가 2개 이상인 지표만 낸다. 채점이 빠진 회차는 point_coverage가 None이라 빠진다.
+    """
+    runs = {}
+    for row in rows:
+        runs.setdefault(row.get("run", 1), []).append(row)
+    if len(runs) < 2:
+        return {}
+    result = {}
+    for key in SPREAD_METRICS:
+        values = [value for run in sorted(runs) if (value := quality(runs[run])[key]) is not None]
+        if len(values) < 2:
+            continue
+        stdev = statistics.stdev(values)
+        # 평균의 표준오차. 회차를 늘리면 줄어든다 (n회 → 1/√n)
+        result[key] = {"per_run": values, "mean": statistics.mean(values),
+                       "stdev": stdev, "sem": stdev / len(values) ** 0.5}
+    return result
+
+
+def by_case(rows):
+    """문항별로 회차를 모은다. 매번 같은 문항이 틀리는지 본다."""
+    cases = {}
+    for row in rows:
+        case = cases.setdefault(row["case"], {"runs": 0, "kind_ok": 0, "intent_match": 0, "points": 0,
+                                              "covered": 0, "retried": 0, "tool_errors": 0, "errors": 0})
+        case["runs"] += 1
+        case["kind_ok"] += row["kind_ok"]
+        case["intent_match"] += row.get("intent_match", False)
+        case["points"] += row["points"]
+        case["covered"] += row.get("points_covered", 0)
+        case["retried"] += row.get("retried", False)
+        case["tool_errors"] += row.get("tool_errors", 0)
+        case["errors"] += "error" in row
+    return cases
+
+
+def summarize(rows):
+    return {
+        "cases": len(rows),
+        "execution_errors": sum("error" in row for row in rows),
+        "tool_errors": sum(row.get("tool_errors", 0) for row in rows),
+        "retried": sum(row.get("retried", False) for row in rows),
+        "masked": sum(row.get("masked", False) for row in rows),
+        **quality(rows),
+        "judge_errors": sum(row.get("judge_status") == "error" for row in rows),
+        "unsupported_claims": sum(len(row.get("unsupported_claims", [])) for row in rows),
+        "spread": spread(rows),
         "cross_judge": cross_metrics(rows),
         "agent": aggregate(rows),
         "judge": aggregate([{"timings": row["judge_timings"]} for row in rows if "judge_timings" in row]),
     }
+
+
+def pct(value):
+    return "-" if value is None else f"{100 * value:.1f}%"
+
+
+def compare(base, summary):
+    """이전 결과와 지표별 차이. 두 결과의 표준오차를 합친 폭의 2배보다 작으면 흔들림 범위로 본다."""
+    result = {}
+    for key in SPREAD_METRICS:
+        before, after = base["summary"].get(key), summary.get(key)
+        if before is None or after is None:
+            continue
+        sems = [s[key]["sem"] for s in (base["summary"].get("spread") or {}, summary["spread"]) if key in s]
+        noise = 2 * sum(sem ** 2 for sem in sems) ** 0.5 if len(sems) == 2 else None
+        diff = after - before
+        verdict = "흔들림 모름" if noise is None else ("흔들림 범위" if abs(diff) <= noise else
+                                                     ("개선" if diff > 0 else "하락"))
+        result[key] = {"before": before, "after": after, "diff": diff, "noise": noise, "verdict": verdict}
+    return result
+
+
+def report(metadata, summary, rows, base=None, base_path=None):
+    """사람이 읽는 Markdown 보고서. 원본 수치는 JSON 결과 파일에 있다."""
+    answers = sum(row.get("kind") == "answer" for row in rows)
+    total = summary["agent"].get("total", {})
+    lines = [f"# 전체 흐름 평가: {metadata['set']}",
+             "",
+             f"- 커밋 `{metadata['revision'][:7]}`{' (dirty)' if metadata['dirty'] else ''} · "
+             f"{len(by_case(rows))}문항 × {metadata['repeat']}회",
+             f"- 분해 {metadata['decomposer']['model']} · 생성 {metadata['generator']['model']} · "
+             f"채점 {metadata['judge_model'] or '없음'}",
+             "",
+             "| 지표 | 값 |", "| --- | --- |",
+             f"| 정답 포인트 커버 | {pct(summary['point_coverage'])} "
+             f"({summary['covered_points']}/{summary['expected_points']}) |",
+             f"| 답변 종류 일치 | {pct(summary['kind_accuracy'])} |",
+             f"| 분해 intent 일치 | {pct(summary['intent_match'])} |",
+             f"| 근거 표시 (근거가 필요한 답변) | {pct(summary['grounded_when_needed'])} |",
+             f"| 근거 없는 주장 (답변당 평균) | "
+             f"{summary['unsupported_claims'] / answers:.2f}개 |" if answers else "| 근거 없는 주장 | - |",
+             f"| 재생성 / [확인 필요]로 가림 | {summary['retried']} / {summary['masked']} |",
+             f"| 실행 오류 / 도구 오류 / 채점 오류 | {summary['execution_errors']} / {summary['tool_errors']} / "
+             f"{summary['judge_errors']} |"]
+    if total:
+        lines.append(f"| 질문당 시간 (평균 / p90) | {total['mean']:.2f}초 / {total['p90']:.2f}초 |")
+    cost = summary["agent"].get("cost_usd")
+    if cost:
+        lines.append(f"| 질문당 비용 (평균) | ${cost['mean']:.4f} |")
+    for key, label in SPREAD_METRICS.items():
+        if key in summary["spread"]:
+            s = summary["spread"][key]
+            lines.append(f"| {label} 회차별 | {', '.join(pct(v) for v in s['per_run'])} "
+                         f"(표준편차 {100 * s['stdev']:.1f}pp, 표준오차 {100 * s['sem']:.1f}pp) |")
+
+    if base is not None:
+        changes = compare(base, summary)
+        lines += ["", f"## 이전 결과와 비교 ({Path(base_path).name}, 커밋 `{base.get('revision', '')[:7]}`)", ""]
+        if (base.get("set"), base.get("decomposer"), base.get("generator")) != \
+                (metadata["set"], metadata["decomposer"], metadata["generator"]):
+            lines += ["**주의: 세트나 모델이 달라 같은 기준 비교가 아니다.**", ""]
+        lines += ["| 지표 | 이전 | 지금 | 차이 | 흔들림 폭 | 판단 |", "| --- | --- | --- | --- | --- | --- |"]
+        for key, c in changes.items():
+            noise = "-" if c["noise"] is None else f"±{100 * c['noise']:.1f}pp"
+            lines.append(f"| {SPREAD_METRICS[key]} | {pct(c['before'])} | {pct(c['after'])} | "
+                         f"{100 * c['diff']:+.1f}pp | {noise} | {c['verdict']} |")
+
+    lines += ["", "## 문항별", "",
+              "| 문항 | 종류 일치 | intent 일치 | 포인트 | 재생성 | 도구 오류 | 실행 오류 |",
+              "| --- | --- | --- | --- | --- | --- | --- |"]
+    for name, c in by_case(rows).items():
+        lines.append(f"| {name} | {c['kind_ok']}/{c['runs']} | {c['intent_match']}/{c['runs']} | "
+                     f"{c['covered']}/{c['points']} | {c['retried']} | {c['tool_errors']} | {c['errors']} |")
+    return "\n".join(lines) + "\n"
 
 
 async def main():
@@ -138,9 +269,13 @@ async def main():
     parser.add_argument("--no-judge", action="store_true", help="채점 API 없이 종류·근거·시간·토큰 기록")
     parser.add_argument("--judge-model", default="gpt-4.1-mini")
     parser.add_argument("--cross-judge", help="같은 답변을 이 모델로도 채점해 비교 (예: gpt-5.4-mini)")
+    parser.add_argument("--report", help="Markdown 보고서를 이 경로에도 저장")
+    parser.add_argument("--compare", help="이전 결과 JSON(eval_results/pipeline-*.json)과 지표를 비교")
     args = parser.parse_args()
     if args.repeat < 1 or (args.limit is not None and args.limit < 1):
         parser.error("--repeat와 --limit는 1 이상이어야 합니다")
+    # 비용을 쓰기 전에 비교 대상 파일부터 읽어 본다
+    base = json.loads(Path(args.compare).read_text(encoding="utf-8")) if args.compare else None
     load_env()
     from negopilot_agent.graph import build_graph
     from negopilot_agent.decomposition import DecomposerSettings
@@ -181,7 +316,11 @@ async def main():
     finally:
         if client is not None:
             await client.close()
-    print(json.dumps(summarize(rows), ensure_ascii=False, indent=2))
+    text = report(metadata, summarize(rows), rows, base, args.compare)
+    print("\n" + text)
+    if args.report:
+        Path(args.report).write_text(text, encoding="utf-8")
+        print(f"보고서: {args.report}")
     print(f"저장: {out}")
 
 
