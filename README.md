@@ -61,8 +61,9 @@ flowchart LR
   BE -->|내부 HTTP + API 키| AG[Agent 서버<br/>FastAPI + LangGraph]
   AG -->|MCP Streamable HTTP| LAW[law-mcp<br/>법령 조회·검색]
   AG -->|MCP Streamable HTTP| BIZ[business-mcp<br/>협력사·RFQ·협상안 검사]
-  AG -.->|예정| MAIL[mail-mcp<br/>메일 발송]
+  BE -.->|발송 버튼, 화면 연결 예정| MAIL[mail-mcp<br/>제안서 메일 발송]
   BIZ --> BDB[(PostgreSQL<br/>협력사 DB)]
+  MAIL -->|담당자 이메일| BDB
   LAW --> IDX[[법령 색인 JSON]]
   BE --> PG[(PostgreSQL<br/>회원·대화)]
 ```
@@ -107,14 +108,16 @@ flowchart LR
 | --- | --- | --- | --- |
 | law-mcp | `list_laws`, `get_article`, `search_regulation`, `law://catalog`, `law://{law_key}/{article_no}` | 법령 6종(법률 3, 시행령 3)의 시행일자별 색인 `data/index/*.json` | 9103 |
 | business-mcp | `list_rfqs`, `search_suppliers`, `find_suppliers`, `get_supplier`, `rank_suppliers`, `get_price_benchmarks`, `check_offer`, `business://catalog` | 협력사 150곳(OpenDART 공시 기업 30곳, 가상 기업 120곳), 완성차, RFQ (PostgreSQL 16) | 9102 |
+| mail-mcp | `preview_offer_mail`, `send_offer_mail`, `list_offer_mail_sends` | 협력사 담당자(`supplier_contacts`), 발송 기록(SQLite). 기본 dry-run | 9104 |
 
-- **조회 전용:** 모든 도구에 `readOnlyHint`를 달았습니다. 협상안 검사(`check_offer`)도 위반 여부만 돌려주고 DB는 바꾸지 않습니다.
+- **조회 전용:** law-mcp·business-mcp의 모든 도구에 `readOnlyHint`를 달았습니다. 협상안 검사(`check_offer`)도 위반 여부만 돌려주고 DB는 바꾸지 않습니다.
+- **메일 발송은 사람만:** mail-mcp의 `send_offer_mail`은 사람이 미리보기를 확인하고 받은 1회용 확인 토큰이 있어야 동작합니다. 챗봇(Agent)은 부르지 않습니다. 자세한 형식은 [메일 계약](docs/contracts/mail.md)에 있습니다.
 - **오류 처리:** 입력이 잘못되면 `ToolError`로 허용되는 값을 알려 줘서 Agent가 고쳐 다시 부를 수 있습니다.
 - **외부 호출 없음:** 실행 중에는 외부 API를 부르지 않습니다. law-mcp는 로컬 색인만, business-mcp는 PostgreSQL만 읽습니다.
 - **두 서버의 연결:** business-mcp는 순위 결과의 `notes`와 `flags`에 결제 기간 60일 초과나 연동 약정처럼 법 확인이 필요한 부분을 남기고, Agent는 law-mcp에서 해당 조문을 찾아 인용합니다.
 - **법령 갱신:** 실행 중에는 법령 데이터를 바꾸는 경로가 없습니다. 개발자가 law-mcp의 수집·색인 스크립트로 내장 색인을 다시 만듭니다.
 
-자세한 내용은 [law-mcp README](mcp-servers/law-mcp/README.md)와 [business-mcp README](mcp-servers/business-mcp/README.md)에 있습니다.
+자세한 내용은 [law-mcp README](mcp-servers/law-mcp/README.md), [business-mcp README](mcp-servers/business-mcp/README.md), [mail-mcp README](mcp-servers/mail-mcp/README.md)에 있습니다.
 
 ## 인증과 권한
 

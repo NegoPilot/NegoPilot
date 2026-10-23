@@ -96,6 +96,46 @@ services:
       start_period: 15s
     restart: unless-stopped
 
+  mail-mcp:
+    build:
+      context: .
+      dockerfile: deploy/local/mail.Dockerfile
+    environment:
+      PGPASSWORD: ${MAIL_READER_PASSWORD:-local-mail-reader-password}
+      # 미리보기 확인 토큰 서명 키. 로컬 기본값은 공개 값이라 실제 발송 환경에서는 반드시 바꾼다
+      MAIL_CONFIRM_SECRET: ${MAIL_CONFIRM_SECRET:-local-mail-confirm-secret-not-for-production}
+      # dry_run이면 실제로 보내지 않고 보낼 메일을 돌려준다
+      MAIL_TRANSPORT: ${MAIL_TRANSPORT:-dry_run}
+      SMTP_HOST: ${SMTP_HOST-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+      SMTP_USERNAME: ${SMTP_USERNAME-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD-}
+      MAIL_FROM: ${MAIL_FROM:-purchasing@negopilot.local}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-NegoPilot 구매팀}
+      MAIL_BUYER_NAME: ${MAIL_BUYER_NAME:-NegoPilot}
+      MAIL_REPLY_TO: ${MAIL_REPLY_TO-}
+    volumes:
+      - mail-data:/app/runtime
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, "import socket; socket.create_connection(('127.0.0.1', 9104), 2).close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+    restart: unless-stopped
+
+  # 메일 확인용 SMTP 서버. 받은 메일을 배달하지 않고 http://localhost:8025 에서 보여 준다
+  # docker compose --profile mailpit up -d 후 MAIL_TRANSPORT=smtp SMTP_HOST=mailpit SMTP_PORT=1025 SMTP_SECURITY=none
+  mailpit:
+    image: axllent/mailpit:v1.27
+    profiles: [mailpit]
+    ports:
+      - "127.0.0.1:8025:8025"
+
   agent:
     build:
       context: .
@@ -194,3 +234,4 @@ services:
 
 volumes:
   postgres-data:
+  mail-data:
