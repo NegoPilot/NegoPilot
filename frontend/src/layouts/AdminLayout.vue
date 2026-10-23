@@ -32,16 +32,23 @@ const GROUPS = [
     ],
   },
   {
-    label: '등록',
+    label: '협력사 관리',
     tabs: [
+      { name: 'admin-suppliers', label: '협력사 목록', also: ['admin-supplier-detail'] },
       { name: 'admin-supplier-new', label: '협력사 등록' },
-      { name: 'admin-law-new', label: '법령 등록' },
     ],
   },
 ] as const
 
-const group = computed(() => GROUPS.find((g) => g.tabs.some((t) => t.name === route.name)) ?? GROUPS[0])
-const connected = computed(() => ['admin', 'admin-members', 'admin-approvals', 'admin-supplier-new'].includes(String(route.name)))
+type Tab = { name: string; label: string; also?: readonly string[] }
+/** 탭에 없는 화면(협력사 상세)은 also로 묶인 탭을 켠다 */
+function tabMatches(tab: Tab): boolean {
+  return tab.name === route.name || (tab.also ?? []).includes(String(route.name))
+}
+const group = computed(() => GROUPS.find((g) => g.tabs.some(tabMatches)) ?? GROUPS[0])
+const connected = computed(() =>
+  ['admin', 'admin-members', 'admin-approvals', 'admin-suppliers', 'admin-supplier-new', 'admin-supplier-detail'].includes(String(route.name)),
+)
 </script>
 
 <template>
@@ -82,8 +89,8 @@ const connected = computed(() => ['admin', 'admin-members', 'admin-approvals', '
             :key="t.name"
             :to="{ name: t.name }"
             class="tab"
-            :class="{ on: route.name === t.name }"
-            :aria-current="route.name === t.name ? 'page' : undefined"
+            :class="{ on: tabMatches(t) }"
+            :aria-current="tabMatches(t) ? 'page' : undefined"
           >
             {{ t.label }}
           </RouterLink>
@@ -167,6 +174,7 @@ const connected = computed(() => ['admin', 'admin-members', 'admin-approvals', '
 .admin-tabs .tab {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   text-decoration: none;
 }
 .side-bottom {
