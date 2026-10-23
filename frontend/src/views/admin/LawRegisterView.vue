@@ -3,7 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 
 import FormField from '@/components/form/FormField.vue'
 import PanelSection from '@/components/form/PanelSection.vue'
-import RequestSavedNotice from '@/components/form/RequestSavedNotice.vue'
+import SavedNotice from '@/components/form/SavedNotice.vue'
 import { LEGALIZE_REPO, STORED_LAWS, lawVersionsAsOf } from '@/data/dataCatalog'
 import { downloadJson, useDataRequests } from '@/stores/dataRequests'
 import {
@@ -171,7 +171,7 @@ const downloadName = computed(() => `law-${(mode.value === 'legalize' ? fetchFor
     <p class="intro">
       law-mcp는 DB가 아니라 법령 원문 파일을 색인해 읽습니다. 새 법령은 legalize-kr(국가법령정보센터 원문)에서 받거나 같은 형식의 원문 파일을 올려 추가합니다.
     </p>
-    <RequestSavedNotice v-if="done" :message="done" />
+    <SavedNotice v-if="done" :message="done" :to="{ name: 'admin-data' }" link-text="등록 요청 목록 보기 →" />
 
     <PanelSection :title="`저장된 법령 ${STORED_LAWS.length}개`" :sub="`기준일 ${today} · 시행 예정 판이 있으면 오늘 기준 답변은 현재 시행 판으로 합니다.`">
       <div class="table-wrap">

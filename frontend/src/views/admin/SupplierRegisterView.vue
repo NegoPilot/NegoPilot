@@ -1,84 +1,150 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 
-import RequestSavedNotice from '@/components/form/RequestSavedNotice.vue'
-import SupplierBasicSection from '@/components/supplier-register/SupplierBasicSection.vue'
-import SupplierCapabilitySection from '@/components/supplier-register/SupplierCapabilitySection.vue'
-import SupplierContractSection from '@/components/supplier-register/SupplierContractSection.vue'
-import SupplierFinancialSection from '@/components/supplier-register/SupplierFinancialSection.vue'
-import SupplierQualitySection from '@/components/supplier-register/SupplierQualitySection.vue'
-import SupplierQuoteSection from '@/components/supplier-register/SupplierQuoteSection.vue'
-import SupplierSavePreview from '@/components/supplier-register/SupplierSavePreview.vue'
-import { SEED_SUPPLIER_MAX } from '@/data/dataCatalog'
-import { useDataRequests } from '@/stores/dataRequests'
-import { emptySupplierForm, supplierPayload, validateSupplier } from '@/utils/supplierForm'
+import { SOURCE_LABEL, addQuotes, createSupplier } from '@/api/admin-suppliers'
+import FormField from '@/components/form/FormField.vue'
+import FormGrid from '@/components/form/FormGrid.vue'
+import PanelSection from '@/components/form/PanelSection.vue'
+import SavedNotice from '@/components/form/SavedNotice.vue'
+import CapabilityRowsTable from '@/components/supplier-form/CapabilityRowsTable.vue'
+import QualityFields from '@/components/supplier-form/QualityFields.vue'
+import QuoteRowsTable from '@/components/supplier-form/QuoteRowsTable.vue'
+import SupplierProfileFields from '@/components/supplier-form/SupplierProfileFields.vue'
+import SupplierRegisterSummary from '@/components/supplier-form/SupplierRegisterSummary.vue'
+import { describeError, isApiError } from '@/utils/errors'
+import { todayIso } from '@/utils/format'
+import {
+  createRequest,
+  emptyCapability,
+  emptyQuote,
+  emptyRegisterForm,
+  quotesInput,
+  validateRegister,
+} from '@/utils/supplierForm'
 
-const requests = useDataRequests()
 const thisYear = new Date().getFullYear()
+const today = todayIso()
 
-const takenIds = computed(() => {
-  const ids = new Set<string>()
-  for (let n = 1; n <= SEED_SUPPLIER_MAX; n++) ids.add(`SUP-${String(n).padStart(4, '0')}`)
-  requests.state.items.filter((r) => r.kind === 'supplier').forEach((r) => ids.add(r.target))
-  return ids
-})
-function nextId(): string {
-  let n = SEED_SUPPLIER_MAX + 1
-  while (takenIds.value.has(`SUP-${String(n).padStart(4, '0')}`)) n++
-  return `SUP-${String(n).padStart(4, '0')}`
-}
-
-const form = reactive(emptySupplierForm(nextId()))
+const form = reactive(emptyRegisterForm())
 const tried = ref(false)
-const done = ref<string | null>(null)
+const saving = ref(false)
+const saveError = ref<string | null>(null)
+/** 서버가 거절한 입력칸 (예: 이미 쓰는 DART 고유번호) */
+const serverErrors = ref<Record<string, string>>({})
+const done = ref<{ id: string; name: string; warning: string | null } | null>(null)
 
-const errors = computed(() => validateSupplier(form, takenIds.value, thisYear))
+const localErrors = computed(() => validateRegister(form, thisYear, today))
+const errors = computed(() => ({ ...localErrors.value, ...serverErrors.value }))
 const errorCount = computed(() => Object.keys(errors.value).length)
 function err(key: string): string | undefined {
   return tried.value ? errors.value[key] : undefined
 }
-const payload = computed(() => supplierPayload(form))
+const requestBody = computed(() => (Object.keys(localErrors.value).length ? null : createRequest(form)))
 
-function submit() {
+function clearForm() {
+  Object.assign(form, emptyRegisterForm())
+  tried.value = false
+  saveError.value = null
+  serverErrors.value = {}
+}
+
+async function submit() {
+  if (saving.value) return
   tried.value = true
   done.value = null
+  saveError.value = null
+  serverErrors.value = {}
   if (errorCount.value) {
     document.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus()
     return
   }
-  const p = payload.value
-  requests.add('supplier', p.suppliers.supplier_id, `${p.suppliers.name} · ${p.capabilities.map((c) => `${c.process} ${c.material}`).join(', ')}`, p)
-  done.value = `${p.suppliers.name}(${p.suppliers.supplier_id}) 등록 요청을 저장했습니다.`
-  Object.assign(form, emptySupplierForm(nextId()))
-  tried.value = false
-  window.scrollTo({ top: 0 })
+  saving.value = true
+  try {
+    const created = await createSupplier(createRequest(form))
+    const { supplier_id: id, name } = created.supplier
+    // 견적은 등록 API가 받지 않아서 등록 직후 견적 추가 API로 넣는다. 실패해도 등록은 이미 끝났다
+    let warning: string | null = null
+    if (form.quotes.length) {
+      try {
+        await addQuotes(id, created.supplier.version, quotesInput(form.quotes))
+      } catch (error) {
+        warning = `견적 ${form.quotes.length}건은 추가하지 못했습니다. (${describeError(error).message}) 상세 화면에서 다시 추가해 주세요.`
+      }
+    }
+    done.value = { id, name, warning }
+    clearForm()
+    window.scrollTo({ top: 0 })
+  } catch (error) {
+    if (isApiError(error, 'DATA_CONFLICT')) serverErrors.value = { corpCode: '이미 다른 협력사가 쓰는 DART 고유번호입니다.' }
+    saveError.value = describeError(error).message
+  } finally {
+    saving.value = false
+  }
 }
 
 function reset() {
   if (!window.confirm('입력한 내용을 모두 지울까요?')) return
-  Object.assign(form, emptySupplierForm(nextId()))
-  tried.value = false
+  clearForm()
 }
 </script>
 
 <template>
   <main class="page-body">
     <p class="intro">
-      business-mcp DB에 새 협력사를 넣을 정보를 입력합니다. 저장 형식은 표(schema.sql) 열 이름 그대로 만들어집니다.
+      협력사 DB에 새 협력사를 등록합니다. 협력사 ID는 서버가 정하고, 거래 조건과 재무는 관리자 화면에서 입력하지 않습니다.
     </p>
-    <RequestSavedNotice v-if="done" :message="done" />
+    <SavedNotice
+      v-if="done"
+      :message="`${done.name}(${done.id})를 등록했습니다.`"
+      :warning="done.warning"
+    />
 
     <div class="layout">
       <form class="sections" novalidate @submit.prevent="submit">
-        <SupplierBasicSection :form="form" :err="err" />
-        <SupplierCapabilitySection :form="form" :err="err" />
-        <SupplierQualitySection :form="form" :err="err" :on-time-rate="payload.quality.on_time_rate" />
-        <SupplierContractSection :form="form" :err="err" />
-        <SupplierQuoteSection :form="form" :err="err" />
-        <SupplierFinancialSection :form="form" :err="err" />
+        <PanelSection title="기본 정보" sub="DART 공시 기업은 등록 뒤 기본 정보를 수정할 수 없습니다. 인증은 수정할 수 있습니다.">
+          <FormGrid :cols="3" class="source-row">
+            <FormField id="r-source" label="기본 정보 출처" required>
+              <select id="r-source" v-model="form.source">
+                <option v-for="(label, key) in SOURCE_LABEL" :key="key" :value="key">{{ label }} ({{ key }})</option>
+              </select>
+            </FormField>
+            <FormField v-if="form.source === 'DART'" id="r-corp" label="DART 고유번호" required :error="err('corpCode')">
+              <input id="r-corp" v-model="form.corpCode" type="text" inputmode="numeric" maxlength="8" placeholder="8자리" :aria-invalid="!!err('corpCode')" />
+            </FormField>
+          </FormGrid>
+          <SupplierProfileFields :profile="form.profile" :certs="form.certs" :err="err" />
+        </PanelSection>
+
+        <PanelSection title="생산능력" required sub="공정·소재 조합마다 한 줄. 협력사 검색은 이 표로 찾습니다.">
+          <template #actions>
+            <button class="btn" type="button" @click="form.capabilities.push(emptyCapability())">+ 공정 추가</button>
+          </template>
+          <CapabilityRowsTable :rows="form.capabilities" :err="err" />
+        </PanelSection>
+
+        <PanelSection title="품질·납기 실적" sub="선택 입력. 비워 두면 품질 없이 등록하고, 하나라도 채우면 네 칸 모두 필요합니다.">
+          <QualityFields :quality="form.quality" :err="err" optional />
+        </PanelSection>
+
+        <PanelSection title="견적 이력" sub="선택 입력. 등록 직후 견적 추가로 넣습니다. 추천 순위는 생산능력과 같은 공정·소재의 견적만 씁니다.">
+          <template #actions>
+            <button class="btn" type="button" @click="form.quotes.push(emptyQuote())">+ 견적 추가</button>
+          </template>
+          <QuoteRowsTable v-if="form.quotes.length" :rows="form.quotes" :err="err" :today="today" />
+          <p v-else class="muted">견적 이력이 없습니다.</p>
+        </PanelSection>
       </form>
 
-      <SupplierSavePreview :form="form" :payload="payload" :tried="tried" :error-count="errorCount" @submit="submit" @reset="reset" />
+      <SupplierRegisterSummary
+        :form="form"
+        :request-body="requestBody"
+        :tried="tried"
+        :error-count="errorCount"
+        :saving="saving"
+        :save-error="saveError"
+        @submit="submit"
+        @reset="reset"
+      />
     </div>
   </main>
 </template>
@@ -100,6 +166,9 @@ function reset() {
   flex-direction: column;
   gap: 18px;
   min-width: 0;
+}
+.source-row {
+  margin-bottom: 14px;
 }
 @media (max-width: 1100px) {
   .layout {

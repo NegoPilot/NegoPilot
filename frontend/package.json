@@ -11,7 +11,7 @@
     "build": "vue-tsc --noEmit -p tsconfig.json && vite build",
     "typecheck": "vue-tsc --noEmit -p tsconfig.json",
     "preview": "vite preview",
-    "check:api": "node scripts/check-api.mjs && node scripts/check-admin-members.mjs && node scripts/check-citations.mjs && node scripts/check-suppliers.mjs",
+    "check:api": "node scripts/check-api.mjs && node scripts/check-admin-members.mjs && node scripts/check-admin-suppliers.mjs && node scripts/check-citations.mjs && node scripts/check-suppliers.mjs",
     "check:citations": "node scripts/check-citations.mjs"
   },
   "dependencies": {
