@@ -3,6 +3,7 @@ import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { ApiError } from '@/api/client'
+import NumberedPagination from '@/components/NumberedPagination.vue'
 import {
   type AdminMember,
   formatMemberDate,
@@ -26,22 +27,6 @@ const actionError = ref<string | null>(null)
 const busy = computed(() => loading.value || saving.value !== null)
 const requestedEmail = computed(() => typeof route.query.request === 'string' ? route.query.request.trim() : '')
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
-const rangeText = computed(() => {
-  if (!total.value) return '승인 대기 중인 신청이 없습니다'
-  const start = (page.value - 1) * PAGE_SIZE + 1
-  return `전체 ${total.value}건 중 ${start}~${start + rows.value.length - 1}건`
-})
-const pageItems = computed<(number | '…')[]>(() => {
-  const keep = new Set([1, page.value - 1, page.value, page.value + 1, pageCount.value].filter((p) => p >= 1 && p <= pageCount.value))
-  const sorted = [...keep].sort((a, b) => a - b)
-  const items: (number | '…')[] = []
-  sorted.forEach((p, i) => {
-    const previous = sorted[i - 1]
-    if (previous !== undefined && p - previous > 1) items.push('…')
-    items.push(p)
-  })
-  return items
-})
 
 let controller: AbortController | null = null
 let requestSequence = 0
@@ -205,17 +190,7 @@ onUnmounted(() => {
           </tbody>
         </table>
       </div>
-      <div v-if="!loading && !loadError" class="list-foot">
-        <span class="muted">{{ rangeText }}</span>
-        <nav v-if="pageCount > 1" class="pages" aria-label="가입 신청 페이지">
-          <button class="link-btn" type="button" :disabled="busy || page === 1" @click="changePage(page - 1)">이전</button>
-          <template v-for="(p, i) in pageItems" :key="`${p}-${i}`">
-            <span v-if="p === '…'" class="muted">…</span>
-            <button v-else class="link-btn" :class="{ current: p === page }" type="button" :disabled="busy" :aria-current="p === page ? 'page' : undefined" @click="changePage(p)">{{ p }}</button>
-          </template>
-          <button class="link-btn" type="button" :disabled="busy || page === pageCount" @click="changePage(page + 1)">다음</button>
-        </nav>
-      </div>
+      <NumberedPagination v-if="!loading && !loadError && total" :page="page - 1" :total-pages="pageCount" :total="total" :loading="busy" label="가입 신청 페이지" @select="(p) => changePage(p + 1)" />
     </section>
   </main>
 </template>
@@ -230,9 +205,6 @@ onUnmounted(() => {
 .email { overflow-wrap: anywhere; }
 .row-actions { display: flex; gap: 6px; white-space: nowrap; }
 .row-actions .btn { min-height: 30px; padding: 4px 10px; font-size: 12px; }
-.list-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
-.pages { display: flex; align-items: center; gap: 8px; }
-.pages .current { font-weight: 700; text-decoration: underline; }
 button:disabled { cursor: not-allowed; opacity: .55; }
 @media (max-width: 760px) { .filters { grid-template-columns: minmax(0, 1fr); } }
 </style>
