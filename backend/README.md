@@ -14,7 +14,7 @@ Java 21과 Spring Boot 4.1.1을 사용한다. 기본 실행은 PostgreSQL에 회
 | 개인 채팅 이력 | [history.md](../docs/contracts/history.md) | `/api/conversations` |
 | 협력사 조회 | [supplier-lookup.md](../docs/contracts/supplier-lookup.md) | `/api/business/catalog` 및 `/api/suppliers` |
 | 협력사 관리 | [admin-suppliers.md](../docs/contracts/admin-suppliers.md) | `/api/admin/suppliers` |
-| 데이터 현황과 법령 버전 및 최신화 | [admin-laws.md](../docs/contracts/admin-laws.md) | `/api/admin/data/summary` 및 `/api/admin/laws` |
+| 관리자 데이터 현황 | [admin-suppliers.md](../docs/contracts/admin-suppliers.md#관리자-데이터-요약) | `/api/admin/data/summary` |
 | Agent 실행 응답 | [agent-generation.md](../docs/contracts/agent-generation.md) | `/internal/query-executions` |
 
 일반 업무 API는 ACTIVE 회원만 사용한다. 관리자 API는 ACTIVE ADMIN만 사용한다. 관리자도 다른 회원의 채팅은 읽을 수 없다. 회원 제거는 비활성화와 세션 폐기로 처리한다. 개인 대화 삭제는 메시지와 저장 응답 및 근거까지 물리 삭제한다.
@@ -60,7 +60,7 @@ java -jar backend/target/negopilot-backend-0.1.0-SNAPSHOT.jar
 
 협력사 조회는 위 채팅 모드와 관계없이 business-mcp를 조회한다. 모델을 호출하지 않으며 성공 응답은 `schema_version: "0.3"`과 `mode: "live"`다. 채팅이 stub이어도 협력사 조회에는 Python과 business-mcp 및 business DB 연결이 필요하다. `/suppliers` 화면도 이 API로 검색과 상세를 조회한다. v1 조회와 메모리 대화 API는 #130에서 제거됐다.
 
-법령 조회에는 law-mcp가 필요하다. 법령 최신화에는 law-mcp의 `LAW_RUNTIME_DIR`과 별도 `LAW_ADMIN_API_KEY`가 필요하다. Python에도 같은 법령 관리 키와 `LAW_MCP_URL`을 설정한다. [법령 서버 실행 안내](../mcp-servers/law-mcp/README.md)를 따른다.
+법령 조회에는 law-mcp가 필요하다. Python에 `LAW_MCP_URL`을 설정한다. [법령 서버 실행 안내](../mcp-servers/law-mcp/README.md)를 따른다.
 
 로컬 Ollama로 직접 대화하려면 [Ollama native 공급자](../agent/README.md#ollama-native-공급자)와 [개발 시작 가이드의 실행 순서](../docs/GETTING_STARTED.md#5-로컬에서-돌려-보기)를 따른다. 전체 실행 제한은 Python의 `AGENT_REQUEST_TIMEOUT_SECONDS`와 Spring의 `AGENT_RESPONSE_TIMEOUT_SECONDS`에 각각 설정한다. 프런트 대화 생성 요청은 기본 330초를 기다린다. 각 제한은 실제 환경에 맞춰 조정한다.
 

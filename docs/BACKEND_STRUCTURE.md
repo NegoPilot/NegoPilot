@@ -11,8 +11,7 @@ Java 소스의 시작 패키지는 `com.negopilot.backend`다. HTTP 경로와 �
 | `agent` | 답변 생성의 요청 및 응답 계약과 `/health`. [GenerationGateway](../backend/src/main/java/com/negopilot/backend/agent/GenerationGateway.java)와 [HealthController](../backend/src/main/java/com/negopilot/backend/agent/HealthController.java) |
 | `supplier` | 실제 공급사 조회. [SupplierLookupController](../backend/src/main/java/com/negopilot/backend/supplier/SupplierLookupController.java) |
 | `admin.supplier` | 공급사 관리. [AdminSupplierController](../backend/src/main/java/com/negopilot/backend/admin/supplier/AdminSupplierController.java) |
-| `admin.law` | 법령 조회와 갱신 작업. [AdminLawController](../backend/src/main/java/com/negopilot/backend/admin/law/AdminLawController.java) |
-| `admin.data` | 공급사와 법령의 상태 요약. [AdminDataController](../backend/src/main/java/com/negopilot/backend/admin/data/AdminDataController.java) |
+| `admin.data` | 공급사 상태 요약. [AdminDataController](../backend/src/main/java/com/negopilot/backend/admin/data/AdminDataController.java) |
 | `common.api` | 공통 예외와 JSON 오류 응답 및 `request_id` 해석. [ApiException](../backend/src/main/java/com/negopilot/backend/common/api/ApiException.java)과 [ApiErrorHandler](../backend/src/main/java/com/negopilot/backend/common/api/ApiErrorHandler.java) 및 [RequestIds](../backend/src/main/java/com/negopilot/backend/common/api/RequestIds.java) |
 | `common.http` | 내부 API의 HTTP 전송. [AgentHttpTransport](../backend/src/main/java/com/negopilot/backend/common/http/AgentHttpTransport.java) |
 
@@ -44,7 +43,7 @@ Java 소스의 시작 패키지는 `com.negopilot.backend`다. HTTP 경로와 �
 
 `BusinessDataStore`는 회원과 대화에 쓰는 기본 datasource와 별도의 Hikari 풀을 관리한다. `business.datasource.enabled`가 꺼져 있으면 풀을 만들지 않는다. 관리 기능을 호출하면 기존 `BUSINESS_DATA_UNAVAILABLE` 오류를 반환한다. 활성화할 때는 기존 업무 테이블과 컬럼을 확인한 뒤 business migration을 적용한다. seed 데이터를 자동 생성하지 않는다.
 
-법령 조회와 갱신은 `AdminLawGateway`를 거쳐 Python 내부 API를 호출한다. `AdminDataController`는 공급사 요약과 법령 요약을 차례로 조회한다. 한 원천의 `ApiException`은 해당 원천의 `UNAVAILABLE`과 오류 코드로 표시하며 다른 원천의 조회를 계속한다.
+`AdminDataController`는 공급사 요약을 조회한다. 원천의 `ApiException`은 `UNAVAILABLE`과 오류 코드로 표시한다.
 
 기본 DB migration은 [db/migration](../backend/src/main/resources/db/migration)에 있다. business migration은 [db/business](../backend/src/main/resources/db/business)에 있다. 두 migration 이력을 구분해 확인한다.
 

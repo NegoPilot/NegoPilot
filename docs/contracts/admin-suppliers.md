@@ -101,6 +101,27 @@ profile과 certifications 중 하나 이상이 필요하다. 각 영역은 부�
 
 ACTIVE로 복구할 수 있다. 하위 자료나 과거 채팅에 저장한 근거를 삭제하지 않는다. 비활성 기업은 MCP 검색과 이름 조회 및 상세와 추천 순위 및 협상안 검사 대상에서 제외한다. 소재 카탈로그와 지역 및 출처별 기업 수도 활성 기업만 집계한다. 협상안의 시장 견적 중앙값에서도 비활성 기업을 제외한다.
 
+## 관리자 데이터 요약
+
+```http
+GET /api/admin/data/summary
+```
+
+이 경로도 활성 관리자만 사용할 수 있다. 쿼리 파라미터는 받지 않는다. 협력사 데이터의 연결 상태와 출처별·상태별 건수를 반환한다. 관리자 법령 요약은 #230에서 제거했다.
+
+```ts
+type SourceSummary =
+  | { status: "AVAILABLE"; data: { total: number; by_source: Record<"DART" | "MOCK" | "MANUAL", number>; by_status: Record<"ACTIVE" | "INACTIVE", number> } }
+  | { status: "UNAVAILABLE"; data: null; error_code: string }
+
+type DataSummary = {
+  checked_at: string
+  suppliers: SourceSummary
+}
+```
+
+UNAVAILABLE은 0건을 뜻하지 않는다. 화면은 `data: null`을 0건으로 변환하지 않아야 한다. `checked_at`은 이번 연결 상태 확인 시각이다.
+
 ## 입력 제한과 오류
 
 - 기본 문자열은 공백 제거 후 1부터 100자까지다. 제어 문자는 받지 않는다.
