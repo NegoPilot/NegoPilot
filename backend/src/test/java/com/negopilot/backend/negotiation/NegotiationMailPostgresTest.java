@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
@@ -108,6 +109,31 @@ class NegotiationMailPostgresTest {
         verify(mail, times(1)).send(any(), any(), any(), eq(7L), isNull(), eq("tok-1"), eq(owner.toString()), eq(mailId.toString()));
         assertThat(jdbc.queryForObject("SELECT confirmation_token FROM neg_mail_sends WHERE id=?", String.class, mailId)).isNull();
         assertThat(code(() -> mails.send(owner, mailId, sendBody(), UUID.randomUUID(), UUID.randomUUID()))).isEqualTo("ALREADY_SENT");
+    }
+
+    @Test void internalBriefingNeverReachesTheMailDocumentOrAttachments() {
+        Flow flow = exported(true);
+        UUID mailId = previewed(flow, null);
+        when(mail.send(any(), any(), any(), anyLong(), any(), anyString(), anyString(), anyString()))
+                .thenReturn(object("{\"send_id\":\"" + sendId("s-4") + "\",\"status\":\"DRY_RUN\",\"message_id\":null}"));
+        mails.send(owner, mailId, sendBody(), UUID.randomUUID(), UUID.randomUUID());
+        var previewDocument = org.mockito.ArgumentCaptor.forClass(ObjectNode.class);
+        var previewFiles = org.mockito.ArgumentCaptor.forClass(tools.jackson.databind.node.ArrayNode.class);
+        verify(mail).preview(any(), previewDocument.capture(), previewFiles.capture(), any(), any());
+        var sentDocument = org.mockito.ArgumentCaptor.forClass(ObjectNode.class);
+        var sentFiles = org.mockito.ArgumentCaptor.forClass(tools.jackson.databind.node.ArrayNode.class);
+        verify(mail).send(any(), sentDocument.capture(), sentFiles.capture(), anyLong(), any(), anyString(), anyString(), anyString());
+        for (ObjectNode document : List.of(previewDocument.getValue(), sentDocument.getValue())) {
+            assertThat(document.propertyNames()).doesNotContain("price_range", "concessions", "objections", "writing",
+                    "target_price", "max_price", "benchmarks", "internal_briefing");
+            // 내부 브리핑 fixture의 최대 수용가·전략·양보 문구
+            assertThat(document.toString()).doesNotContain("987654321", "내부 전략", "내부 양보 순서", "내부 제안 멘트", "외부 비공개");
+        }
+        for (JsonNode file : List.of(previewFiles.getValue(), sentFiles.getValue())) {
+            assertThat(file).hasSize(2);
+            file.forEach(attachment -> assertThat(attachment.path("filename").asText()).startsWith("제안서_"));
+        }
+        assertThat(sentDocument.getValue()).isEqualTo(previewDocument.getValue());
     }
 
     @Test void secondPreviewCannotSendTheSameVersionToTheSameContactAgain() {
