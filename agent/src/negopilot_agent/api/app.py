@@ -94,6 +94,8 @@ def create_app(settings: ApiSettings | None = None,
                           backend=generation_backend)
     from .review_api import add_review_routes
     add_review_routes(application, settings, authenticate, error_response, generation_caller)
+    from .offer_api import add_offer_routes
+    add_offer_routes(application, settings, authenticate, error_response, generation_caller)
     return application
 
 
