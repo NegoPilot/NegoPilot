@@ -77,13 +77,14 @@ def add_review_routes(app, settings, authenticate, error_response, caller=None):
         try:
             async with asyncio.timeout(settings.request_timeout_seconds):
                 actual_caller = caller or (GenerationStubToolCaller() if settings.mode == "stub" else None)
-                executor = GenerationExecutor(settings, decomposer=ReviewDecomposer(body.offer),
-                    caller=ReviewedToolCaller(body.offer, actual_caller))
+                reviewed = ReviewedToolCaller(body.offer, actual_caller)
+                executor = GenerationExecutor(settings, decomposer=ReviewDecomposer(body.offer), caller=reviewed)
                 result = await executor.execute(GenerationExecutionRequest(
                     request_id=body.request_id, query=body.query, context=body.context))
                 content = result.model_dump(mode="json", by_alias=True)
                 offer = body.offer.model_dump(mode="json")
-                assessment = assess_transaction(body.offer.transaction, offer, body.offer.as_of)
+                assessment = assess_transaction(body.offer.transaction, offer, body.offer.as_of,
+                                                await reviewed.law_version())
                 complete = all(outcome.get("status") == "ok" for outcome in content["routing"]["outcomes"])
                 assessment["sources_complete"] = complete
                 if not complete:

@@ -4,12 +4,15 @@
 business-mcp의 판정(지급 기한, 연동 누락, 예외 안내)은 지우지 않는다 (#257).
 같은 쟁점의 MCP 위반이 이미 있으면 거래 사실 판단은 설명(info)으로만 붙여 위반이 두 번 세어지지 않게 한다.
 """
+import logging
 from contextlib import asynccontextmanager
 
 from negopilot_shared.transaction import TransactionFacts
 
 from negopilot_agent.legal_assessment import assess_transaction
 from negopilot_agent.routing.mcp_client import McpToolCaller
+
+log = logging.getLogger(__name__)
 
 SEVERITY = {"blocked": "violation", "needs_information": "warning", "supported": "info"}
 BUCKET = {"violation": "violations", "warning": "warnings", "info": "info"}
@@ -24,6 +27,19 @@ SAME_ISSUE = {
 class ReviewedToolCaller:
     def __init__(self, offer, caller=None):
         self.offer, self.caller = offer, caller or McpToolCaller()
+        self._law_version: dict | None = None
+        self._law_version_loaded = False
+
+    async def law_version(self) -> dict | None:
+        """검토 기준일에 시행 중인 하도급법 판 (law-mcp list_laws). 한 번만 묻고, 실패하면 None (#261)."""
+        if not self._law_version_loaded:
+            self._law_version_loaded = True
+            try:
+                laws = await self.caller('law-mcp', 'list_laws', {'as_of': self.offer.as_of.isoformat()})
+                self._law_version = next((law for law in laws or [] if law.get('law_key') == 'subcontract_act'), None)
+            except Exception as error:  # noqa: BLE001  판본 조회 실패가 검토 전체를 막지 않게 한다
+                log.warning('law-mcp 판본 조회 실패: %s', type(error).__name__)
+        return self._law_version
 
     @asynccontextmanager
     async def session(self):
@@ -40,7 +56,8 @@ class ReviewedToolCaller:
             return result
         result = {**result, **{key: list(result.get(key, [])) for key in BUCKET.values()}}
         mcp_violations = {f['code'] for f in result['violations']}
-        assessment = assess_transaction(self.offer.transaction, self.offer.model_dump(mode='json'), self.offer.as_of)
+        assessment = assess_transaction(self.offer.transaction, self.offer.model_dump(mode='json'), self.offer.as_of,
+                                        await self.law_version())
         for f in assessment['findings']:
             severity = SEVERITY[f['status']]
             if severity == 'violation' and SAME_ISSUE.get(f['id'], set()) & mcp_violations:

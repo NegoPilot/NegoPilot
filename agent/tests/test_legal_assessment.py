@@ -154,11 +154,20 @@ def test_modifying_proposal_payment_term_rechecks_existing_agreed_due_date():
     assert assess(facts, payment_days=30)["status"] == "blocked"
 
 
-def test_source_version_is_fixed_only_for_researched_date():
-    result = assess(complete_facts())
+LAW_VERSION = {"law_key": "subcontract_act", "law_type": "법률", "in_force_effective_date": "2026-10-02",
+               "in_force_promulgation_no": "21857", "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률"}
+
+
+@pytest.mark.parametrize("as_of", ["2026-10-23", "2026-10-24", "2027-01-15"])
+def test_source_version_comes_from_law_mcp_for_any_date(as_of):
+    """판본은 law-mcp가 기준일에 시행 중이라고 돌려준 판에서 채운다. 날짜를 하드코딩하지 않는다 (#261)."""
+    result = assess_transaction(complete_facts(), TERMS, as_of, LAW_VERSION)
     ref = result["findings"][0]["law_refs"][0]
-    assert "21857" in ref["version"]
-    assert "lsiSeq=288625" in ref["source_url"]
-    other = assess_transaction(complete_facts(), TERMS, "2026-10-24")
-    assert other["findings"][0]["law_refs"][0]["source_url"] is None
+    assert ref["version"] == "법률 제21857호, 시행 2026-10-02"
+    assert ref["source_url"] == LAW_VERSION["source_url"] and ref["as_of"] == as_of
     assert "linkage_details" not in result["findings"][0]["facts"]
+
+
+def test_version_is_not_invented_without_law_mcp():
+    ref = assess_transaction(complete_facts(), TERMS, "2026-10-23")["findings"][0]["law_refs"][0]
+    assert ref["version"] == "기준일 판본 확인 실패" and ref["source_url"] is None

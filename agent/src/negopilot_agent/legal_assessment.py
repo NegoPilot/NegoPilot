@@ -9,11 +9,20 @@ from typing import Any
 from negopilot_shared.transaction import TransactionFacts
 
 LAW_URL = "https://www.law.go.kr/법령/하도급거래공정화에관한법률"
-HISTORICAL_LAW_URL = "https://www.law.go.kr/LSW/lsInfoP.do?lsiSeq=288625"
+VERSION_UNKNOWN = "기준일 판본 확인 실패"
+
+
+def version_label(law_version: dict | None) -> str:
+    """law-mcp list_laws가 돌려준, 기준일에 시행 중인 판 (#261). 받지 못하면 판본을 지어내지 않는다."""
+    if not law_version or not law_version.get("in_force_effective_date"):
+        return VERSION_UNKNOWN
+    number = law_version.get("in_force_promulgation_no")
+    prefix = f"{law_version.get('law_type', '법률')} 제{number}호, " if number else ""
+    return f"{prefix}시행 {law_version['in_force_effective_date']}"
 
 
 def assess_transaction(
-    facts: TransactionFacts | dict | None, terms: dict, as_of: date | str
+    facts: TransactionFacts | dict | None, terms: dict, as_of: date | str, law_version: dict | None = None
 ) -> dict[str, Any]:
     facts = facts if isinstance(facts, TransactionFacts) else TransactionFacts.model_validate(facts or {})
     as_of = date.fromisoformat(as_of) if isinstance(as_of, str) else as_of
@@ -40,8 +49,8 @@ def assess_transaction(
             "facts": {name: snapshot[name] for name in relevant[key]},
             "evidence_refs": list(dict.fromkeys(facts.evidence_references + extra_evidence)),
             "law_refs": [{"title": f"하도급법 제{article}조", "url": f"{LAW_URL}/제{article}조",
-                          "source_url": HISTORICAL_LAW_URL if as_of == date(2026, 10, 23) else None,
-                          "version": "법률 제21857호, 시행 2026-10-02" if as_of == date(2026, 10, 23) else "검토 기준일별 원문 대조 필요",
+                          "source_url": (law_version or {}).get("source_url"),
+                          "version": version_label(law_version),
                           "as_of": as_of.isoformat()}
                          for article in articles],
             "missing_fields": list(missing), "constraints": list(constraints),
