@@ -35,11 +35,11 @@ def select_example(value: str) -> str:
 class CompanySizeFacts(BaseModel):
     model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
     ksic_code: str | None = None
-    average_revenue_eok: float | None = Field(default=None, ge=0)
-    assets_eok: float | None = Field(default=None, ge=0)
+    average_revenue_eok: float | None = Field(default=None, ge=0, description="평균매출액, 억원 단위. 1100억원은 1100; 원으로 환산하지 않음.")
+    assets_eok: float | None = Field(default=None, ge=0, description="자산총액, 억원 단위. 2000억원은 2000; 원으로 환산하지 않음.")
     independence_met: bool | None = None
     has_related_enterprises: bool | None = None
-    related_aggregate_revenue_eok: float | None = Field(default=None, ge=0)
+    related_aggregate_revenue_eok: float | None = Field(default=None, ge=0, description="검증된 관계기업 합산 평균매출액, 억원 단위.")
     related_calculation_verified: bool = False
     # Seat exceptions: C30/C31 parent groups and C31202/C31322 subclasses.
     seat_manufacturing: bool | None = None

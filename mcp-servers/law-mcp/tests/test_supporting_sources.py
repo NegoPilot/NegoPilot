@@ -40,6 +40,12 @@ def test_future_annex_not_used_for_old_contract():
     hits=asyncio.run(call('search_regulation',{'query':'자동차 중소기업 규모','as_of':'2025-01-01','top_k':20}))
     assert not any(h.get('document_id','').startswith('sme_annex') for h in hits)
 
+def test_small_business_industry_table_natural_query_top_five():
+    hits=asyncio.run(call('search_regulation', {
+        'query':'소기업 해당 여부를 확인하는 업종별 기준표',
+        'as_of':'2026-10-23', 'top_k':5}))
+    assert any(h.get('document_id')=='sme_annex_3' for h in hits)
+
 def test_full_template_pages_reconstruct_without_loss():
     first=asyncio.run(call('get_supporting_document',{'document_id':'linkage_templates','limit':100}))
     assert first['effective_date'] is None

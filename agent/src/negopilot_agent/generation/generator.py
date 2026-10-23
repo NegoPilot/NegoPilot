@@ -272,6 +272,12 @@ class AnswerGenerator:
                 continue
             report = verify.check(draft.answer, evidence, allowed)
             report.attempts = attempt
+            if any(e.kind == "company_size" for e in evidence) and not verify.CITE_RE.search(draft.answer):
+                # Size decisions must retain inspectable evidence in the web UI.
+                if attempt == self.settings.max_attempts:
+                    return Answer(kind="failed", text=GENERATION_FAILED_TEXT, evidence=evidence)
+                extra = "\n\n기업 규모 판정의 근거 인용이 빠졌다. 각 판정 문장 끝에 실제 근거 id [E1] 등의 인용을 붙여 다시 작성해라."
+                continue
             if report.ok:
                 break
             log.info("근거 검사 실패 (시도 %d): %s", attempt, report.model_dump(exclude={"attempts", "masked"}))

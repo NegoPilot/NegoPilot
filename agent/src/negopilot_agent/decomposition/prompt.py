@@ -277,7 +277,11 @@ def build_system_prompt() -> str:
    price_change_pct는 넣지 않는다. 증감률(5% 인하, 3% 인상)은 question에 남긴다.
    "넣지 않는다"는 값이 null이라는 뜻이다. 출력 형식상 모든 엔티티 칸이 있으므로, 쓰지 않는 칸은 null로 둔다.
    엔티티 값은 질문에 나온 문자열 그대로 쓴다. 따옴표, 괄호, 쉼표 같은 기호를 값에 붙이지 않는다.
-   rfq_id는 RFQ-YYYY-NNN, article_no는 "제N조" 또는 "제N조의M", 날짜는 YYYY-MM-DD, 금액은 원 단위 정수다.
+   rfq_id는 RFQ-YYYY-NNN, article_no는 "제N조" 또는 "제N조의M", 날짜는 YYYY-MM-DD다.
+   unit_price는 원 단위 정수다. supplier_size/buyer_size의 *_eok 필드는 반드시 억원 단위 실수다.
+   예: 평균매출액 1100억원 → average_revenue_eok=1100, 자산 2000억원 → assets_eok=2000,
+   평균매출액 120.01억원 → average_revenue_eok=120.01. 이 필드들에 100000000을 곱하지 않는다.
+   related_calculation_verified는 관계기업 합산 계산을 검증했다고 명시한 경우에만 true다. 관계기업 없음은 검증 완료가 아니다.
    현재 질문과 해당 작업의 대화 이력에 없는 값을 지어내서 채우지 않는다. 특히 top_n 같은 숫자는 사용자가 제시했을 때만 넣는다. 예시의 값을 따라 하지 않는다.
    "1등", "1위", "제일 나은 곳"은 개수가 아니다. 뒤 질문의 inputs에서 select top1로 받고, 순위 하위 질문에는 top_n을 넣지 않는다.
    top_n은 "상위 3곳", "두 군데만"처럼 개수를 말했을 때만 넣는다.

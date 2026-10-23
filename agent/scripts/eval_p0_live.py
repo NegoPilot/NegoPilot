@@ -1,7 +1,7 @@
 """Read-only live MCP/router evaluation. Synthetic company facts; no DB updates.
 From repository root: PYTHONPATH=agent/src:shared/src agent/.venv/bin/python agent/scripts/eval_p0_live.py
 """
-import asyncio, json, math, statistics, time
+import argparse, asyncio, json, math, statistics, time
 from datetime import datetime, timezone
 from pathlib import Path
 from negopilot_agent.routing import McpToolCaller, Router
@@ -55,7 +55,7 @@ async def main():
   for name,patch,sme,small,*day in SIZES:
    t=time.perf_counter();r=await c('business-mcp','assess_company_size',{'company':BASE|patch,'as_of':day[0] if day else DAY});times['size'].append((time.perf_counter()-t)*1000)
    o['size'].append(dict(case=name,expected_sme=sme,expected_small=small,actual_sme=r['is_sme'],actual_small=r['is_small_business'],passed=r['is_sme']==sme and r['is_small_business']==small))
-  # Separate queries added after the initial tuning; do not tune using these results.
+  # Regression queries, including the previously missed small-business table query.
   holdout = [
    ('자동차 부품업체 매출 1100억이면 중소기업 기준에 들어가나','sme_annex_1'),
    ('모회사와 자회사 매출을 지분 비율로 계산하는 별표','sme_annex_2'),
@@ -83,7 +83,7 @@ async def main():
     o['integration'].append(dict(case='route: '+q,passed=oc.status=='ok' and any(e['meta'].get('document_id')==expected for e in ev)))
  n=sum(map(len,SEARCH.values()));o['metrics']={'hit_at_1':sum(x['rank']==1 for x in o['search'])/n,'hit_at_5':sum(x['rank'] is not None for x in o['search'])/n,'mrr_at_5':sum(1/x['rank'] if x['rank'] else 0 for x in o['search'])/n,'traceability':sum(x['traceable'] for x in o['search'])/n,'size_accuracy':sum(x['passed'] for x in o['size'])/len(SIZES),'abstention_accuracy':sum(x['passed'] for x in o['size'] if x['expected_sme'] is None)/sum(x[2] is None for x in SIZES),'integration_pass':sum(x['passed'] for x in o['integration']),'integration_total':len(o['integration']),'latency':{k:lat(v) for k,v in times.items()}}
  o['metrics']['holdout_hit_at_5']=sum(x['rank'] is not None for x in o['holdout'])/len(o['holdout'])
- path=Path(__file__).resolve().parents[1]/'eval_results/p0-live-2026-10-23/results.json';path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(o,ensure_ascii=False,indent=2)+'\n')
+ parser=argparse.ArgumentParser();parser.add_argument('--output',type=Path,default=Path(__file__).resolve().parents[1]/'eval_results/p0-live-2026-10-23/results.json');path=parser.parse_args().output;path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(o,ensure_ascii=False,indent=2)+'\n')
  render_report(o,path.with_suffix('.html'))
  print(json.dumps(o['metrics'],ensure_ascii=False,indent=2));print('Misses:',[(x['query'],x['hits']) for x in o['search'] if x['rank'] is None]);print(path)
 def render_report(o, path):
@@ -96,11 +96,11 @@ def render_report(o, path):
  body='<h1>NegoPilot P0 실서버 검증</h1><p>'+escape(o['evaluated_at'])+'</p><p>포트 9102·9103의 실제 HTTP MCP를 서비스 McpToolCaller·Router로 호출했다. 기업 사실은 합성 입력이며 DB에 저장하지 않았다.</p>'
  body+='<h2>평가지표</h2>'+table(['지표','측정값'],summary)
  body+='<p>Hit@5: 기대 자료가 상위 5개 결과에 포함된 질문 비율. MRR@5: 기대 자료 최초 순위의 역수 평균(없으면 0). 출처 포함률은 필드 존재 검사이며 법률 해석의 정확도 점수가 아니다.</p>'
- body+='<p>개발 질문 22개에서 두 실패 표현을 보완한 뒤 측정했다. 이후 추가 질문 11개는 결과를 보고 검색을 다시 조정하지 않았다. 독립된 외부 평가셋은 아니다. 소표본·단일 로컬 호스트·순차 요청·연결 재사용 측정이며 LLM 및 웹 요청 전체 지연시간은 포함하지 않는다.</p>'
+ body+='<p>개발 질문 22개에서 두 실패 표현을 보완한 뒤 측정했다. 추가 질문 11개에는 실패 후 개선한 소기업 기준표 질문이 포함되어 있다. 전체가 회귀 검증용이며 독립된 외부 평가셋은 아니다. 소표본·단일 로컬 호스트·순차 요청·연결 재사용 측정이며 LLM 및 웹 요청 전체 지연시간은 포함하지 않는다.</p>'
  body+='<h2>개발 질문 검색 결과</h2>'+table(['질문','기대 자료','순위'],[[x['query'],x['expected'],x['rank'] or '상위 5개 없음'] for x in o['search']])
  body+='<h2>별도 추가 질문</h2>'+table(['질문','기대 자료','순위'],[[x['query'],x['expected'],x['rank'] or '상위 5개 없음'] for x in o['holdout']])
  body+='<h2>기업 규모 경계값·정보 부족</h2>'+table(['사례','기대 중소/소기업','실제 중소/소기업','통과'],[[x['case'],str((x['expected_sme'],x['expected_small'])),str((x['actual_sme'],x['actual_small'])),x['passed']] for x in o['size']])
- body+='<h2>적용 범위와 한계</h2><p>제조업 및 검증된 기준일의 규모 규칙 검증이다. 법무 전문가의 독립 판정이나 실제 기업확인서 진위 검증이 아니다. 기존 상시 MCP 서버는 새 체크아웃으로 재시작했다. 웹·API 서버는 실행 중이지 않아 브라우저 전체 흐름과 LLM 분해·최종 답변 품질은 이번 평가에 포함하지 않았다. 별도 추가 질문 중 소기업 업종별 기준표 질문은 원하는 별표가 상위 5개에 나오지 않아 개선 과제로 남겼다.</p>'
+ body+='<h2>적용 범위와 한계</h2><p>제조업 및 검증된 기준일의 규모 규칙 검증이다. 법무 전문가의 독립 판정이나 실제 기업확인서 진위 검증이 아니다. 이 보고서는 실제 MCP와 라우터만 검증한다. 웹·API·LLM 전체 흐름의 별도 화면 검증 결과는 웹 검증 보고서를 참고한다.</p>'
  path.write_text('<!doctype html><html lang="ko"><meta charset="utf-8"><title>NegoPilot P0 실서버 검증</title><style>body{font:16px/1.6 system-ui;max-width:1100px;margin:48px auto;padding:0 24px;color:#1b263b}table{border-collapse:collapse;width:100%;margin:20px 0}th,td{border:1px solid #d6dee8;padding:10px;text-align:left}th{background:#eef3f8}h2{margin-top:36px}</style>'+body+'</html>')
 
 if __name__=='__main__':asyncio.run(main())

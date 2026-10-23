@@ -328,3 +328,18 @@ async def test_generate_node_in_graph():
     state = await app.ainvoke({"query": d.original_query, "decomposition": d, "routing": r})
     assert state["answer"].kind == "answer"
     assert state["answer"].citations[0].label.startswith("협상안 검사 결과")
+
+@pytest.mark.parametrize('recovers', [True, False])
+async def test_company_size_requires_visible_citations(recovers):
+    from negopilot_agent.generation.generator import plan
+    d, r = load('05_offer_check')
+    evidence = [Evidence(id='E1', sub_query='q1', source='business', kind='company_size',
+                         label='기업 규모 검토', text='중소기업 기준 충족, 소기업 아님')]
+    responses = [draft('중소기업 기준을 충족합니다.')]
+    if recovers:
+        responses.append(draft('중소기업 기준을 충족합니다. [E1]'))
+    backend = FakeBackend(*responses)
+    answer = await AnswerGenerator(backend=backend)._write(d, evidence, plan(d, r))
+    assert len(backend.prompts) == 2
+    assert answer.kind == ('answer' if recovers else 'failed')
+    assert bool(answer.citations) == recovers

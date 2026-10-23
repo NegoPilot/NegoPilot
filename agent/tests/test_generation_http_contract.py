@@ -384,7 +384,7 @@ async def test_model_rewritten_query_is_restored_before_generation(monkeypatch):
 
 @pytest.mark.parametrize("case,name", [
     ("today_as_of", "01_law_article"),
-    ("disallowed_as_of", "05_offer_check"),
+    ("disallowed_as_of", "06_general_knowledge"),
     ("disallowed_input", "03_rank_then_law"),
     ("both", "03_rank_then_law"),
 ])
@@ -686,3 +686,19 @@ async def test_request_timeout_cancels_generation_inside_the_real_graph(monkeypa
     assert_error(await post(harness.app, body), body, 504, "UPSTREAM_TIMEOUT", True)
     assert started == [True] and cancelled == [True]
     assert len(harness.graph_calls) == 1 and harness.answers == []
+
+
+async def test_offer_check_preserves_explicit_historical_date_through_http(monkeypatch):
+    dec, routing = load_recorded("05_offer_check")
+    dec.sub_queries[0].entities.as_of = "2025-01-01"
+    for outcome in routing["outcomes"]:
+        for call in outcome["calls"]:
+            if call["tool"] == "check_offer":
+                call["args"]["as_of"] = "2025-01-01"
+    caller = ReplayCaller(routing)
+    harness = Harness(monkeypatch, dec, caller)
+    body = payload(dec.original_query)
+    data = assert_wire(await post(harness.app, body))
+    harness.assert_completed_graph(data, body)
+    assert data["decomposition"]["sub_queries"][0]["entities"]["as_of"] == "2025-01-01"
+    assert caller.remaining == []
