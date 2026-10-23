@@ -1,5 +1,6 @@
 package com.negopilot.backend.common.api;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -20,13 +21,18 @@ import org.springframework.web.server.ResponseStatusException;
 
 @RestControllerAdvice
 final class ApiErrorHandler {
-    record ErrorDetail(String code, String message, boolean retryable) {}
+    record ErrorDetail(String code, String message, boolean retryable,
+                       @JsonInclude(JsonInclude.Include.NON_NULL) Object details) {
+        ErrorDetail(String code, String message, boolean retryable) {
+            this(code, message, retryable, null);
+        }
+    }
     record ErrorResponse(UUID request_id, ErrorDetail error) {}
 
     @ExceptionHandler(ApiException.class)
     ResponseEntity<ErrorResponse> apiError(ApiException exception) {
         return ResponseEntity.status(exception.status).body(new ErrorResponse(exception.requestId,
-                new ErrorDetail(exception.code, exception.getMessage(), exception.retryable)));
+                new ErrorDetail(exception.code, exception.getMessage(), exception.retryable, exception.details)));
     }
 
     @ExceptionHandler({HttpMessageNotReadableException.class, HttpMediaTypeNotSupportedException.class})

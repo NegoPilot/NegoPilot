@@ -7,7 +7,7 @@ import tools.jackson.databind.JsonNode;
 
 /** Live business-mcp lookup through the Python internal routes. */
 @Service
-final class SupplierLookupGateway {
+public final class SupplierLookupGateway {
     private final SupplierGatewayClient client;
     private final SupplierLookupResponseValidator validator;
 
@@ -30,7 +30,7 @@ final class SupplierLookupGateway {
                 body -> validator.validateQuotes(body, supplierId, filters));
     }
 
-    JsonNode detail(String supplierId, UUID requestId) {
+    public JsonNode detail(String supplierId, UUID requestId) {
         return client.detail(InternalPaths.SUPPLIERS + "/", supplierId, requestId,
                 body -> validator.validateDetail(body, supplierId));
     }
