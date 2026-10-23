@@ -367,14 +367,23 @@ def get_supplier(supplier: str) -> dict:
     source는 기본 정보의 출처다. DART는 공시 값이고 MOCK은 가상 값이며 MANUAL은 관리자 입력이다.
     재무 출처는 financials의 각 source를 확인한다. 운영 자료의 출처는 각각 *_source로 반환한다.
     금액 단위는 원, revenue_eok는 억 원.
+    flags는 기존 계약 조건의 법규 점검 결과다({code, severity, message, law_refs}, rank_suppliers와 같은 규칙).
+    law_refs는 flags의 조문을 겹치지 않게 모은 것이다. law-mcp get_article로 넘겨 조문을 인용한다.
     """
     sid = resolve_supplier_id(supplier)
     records = query("SELECT * FROM supplier_overview WHERE supplier_id = %s AND status = 'ACTIVE'", (sid,))
     if not records:
         raise ToolError("[SUPPLIER_NOT_FOUND] 활성 협력사가 없다")
     overview = records[0]
+    # 기존 계약 조건의 법규 점검. 거래 이력이 없으면 기존 계약이 없어 연동 검사를 하지 않는다 (rank_suppliers와 같음)
+    flags = (payment_findings(overview["payment_days"]) if overview.get("payment_days") else []) + (
+        linkage_findings(overview.get("raw_material_ratio"), overview.get("price_linkage"), None, None)
+        if overview.get("years_dealing") else [])
+    law_refs = list({(r["law"], r["article_no"]): r for f in flags for r in f["law_refs"]}.values())
     return {
         **overview,
+        "flags": flags,
+        "law_refs": law_refs,
         "capabilities": query("SELECT process, material, monthly_capacity FROM capabilities "
                               "WHERE supplier_id = %s ORDER BY process, material", (sid,)),
         "financials": query("SELECT bsns_year, fs_div, source, revenue, operating_income, net_income, "

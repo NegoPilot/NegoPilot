@@ -70,6 +70,16 @@ def test_get_supplier_by_loose_id_and_by_name():
     assert by_name["supplier_id"] == "SUP-0001"
 
 
+def test_get_supplier_flags_existing_contract_terms():
+    """기존 계약 조건의 법규 점검 결과를 rank_suppliers와 같은 규칙으로 붙인다 (#180)."""
+    for sid in ("SUP-0001", "SUP-0031", "SUP-0102"):
+        r = run(call("get_supplier", {"supplier": sid}))
+        codes = [f["code"] for f in r["flags"]]
+        assert ("PAYMENT_DAYS_OVER_60" in codes) == (r["payment_days"] is not None and r["payment_days"] > 60)
+        refs = {(ref["law"], ref["article_no"]) for f in r["flags"] for ref in f["law_refs"]}
+        assert {(ref["law"], ref["article_no"]) for ref in r["law_refs"]} == refs
+
+
 def test_ambiguous_name_lists_candidates():
     with pytest.raises(ToolError, match="곳이다"):
         run(call("get_supplier", {"supplier": "다이캐스팅"}))

@@ -172,8 +172,15 @@ def from_rank_suppliers(r: dict) -> list[Draft]:
 
 
 def from_get_supplier(r: dict) -> list[Draft]:
+    # 점검 결과는 잘리지 않게 본문 앞에 둔다. 잘리면 위반 소지가 있는 계약 조건을 "양호"로 쓸 수 있다 (#180)
+    flags = r.get("flags") or []
+    text = compact({k: v for k, v in r.items() if k not in ("flags", "law_refs")})
+    if flags:
+        text = "flags: " + "; ".join(f"[{f.get('severity')}] {f.get('message')}{law_refs_text(f.get('law_refs', []))}"
+                                     for f in flags) + " " + text
     return [{"source": "business", "kind": "supplier", "label": f"협력사 정보 {r.get('name')}({r.get('supplier_id')})",
-             "text": clip(compact(r)), "meta": {"supplier_id": r.get("supplier_id"), "data_source": r.get("source")}}]
+             "text": clip(text), "meta": {"supplier_id": r.get("supplier_id"), "data_source": r.get("source"),
+                                          "flags": flags}}]
 
 
 def from_list_rfqs(rows: list[dict]) -> list[Draft]:

@@ -397,3 +397,14 @@ async def test_generate_node_in_graph():
     state = await app.ainvoke({"query": d.original_query, "decomposition": d, "routing": r})
     assert state["answer"].kind == "answer"
     assert state["answer"].citations[0].label.startswith("협상안 검사 결과")
+
+
+def test_supplier_detail_evidence_puts_flags_first():
+    """get_supplier의 기존 계약 점검 결과가 잘리지 않게 근거 본문 앞에 온다 (#180)."""
+    from negopilot_agent.generation.evidence import from_get_supplier
+    flag = {"code": "PAYMENT_DAYS_OVER_60", "severity": "violation", "message": "지급 기한 90일",
+            "law_refs": [{"law": "subcontract_act", "article_no": "제13조"}]}
+    [d] = from_get_supplier({"supplier_id": "SUP-0001", "name": "한빛정밀", "payment_days": 90,
+                             "notes": "x" * 5000, "flags": [flag], "law_refs": flag["law_refs"]})
+    assert d["text"].startswith("flags: [violation] 지급 기한 90일")
+    assert d["meta"]["flags"] == [flag]

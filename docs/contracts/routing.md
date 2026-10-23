@@ -26,7 +26,7 @@ for sq in decomposition.sub_queries:
 | 3 | 일부만 성공 | **된 부분은 답하고, 안 된 부분만 밝힌다.** 되묻기·안내는 답변 끝에 모은다 |
 | 4 | 도구 결과 | `calls[].result`는 **MCP 도구 반환값 그대로**. 프롬프트가 너무 길어지면 Routing이 intent별로 필드를 추리는 방식으로 바꾼다 |
 | 5 | 법 근거 인용 | `search_regulation` 결과는 항 단위 citation을 인용한다. 해당 항에 없는 설명은 출처와 본문을 확인한 `get_article` 조문 전문을 인용할 수 있다 |
-| 6 | 결과에 붙은 조문 | `rank_suppliers`(flags)·`check_offer`의 `law_refs`는 **Routing이 `get_article`로 미리 조회**해 `referenced_articles`에 넣는다 (최대 5개). `check_offer`에 `as_of`를 넘겼으면 같은 날 시행판을 조회하고, 같은 조문은 항이 달라도 한 번만 조회한다. `law_refs[].paragraph`로 지목된 항은 Generation이 근거에 먼저 넣는다 |
+| 6 | 결과에 붙은 조문 | `rank_suppliers`(flags)·`get_supplier`·`check_offer`의 `law_refs`는 **Routing이 `get_article`로 미리 조회**해 `referenced_articles`에 넣는다 (최대 5개). `check_offer`에 `as_of`를 넘겼으면 같은 날 시행판을 조회하고, 같은 조문은 항이 달라도 한 번만 조회한다. `law_refs[].paragraph`로 지목된 항은 Generation이 근거에 먼저 넣는다 |
 | 7 | 사용자 문구 | 사용자에게 보일 문장은 **Generation이 쓴다.** `message`·`halt_reason`·`error`는 개발·로그용이라 그대로 보여 주지 않는다 |
 | 8 | 형식 버전 | `schema_version` 필드. 형식 변경은 PR + Routing·Generation 담당 승인 |
 
@@ -91,7 +91,7 @@ for sq in decomposition.sub_queries:
 | `list_rfqs` | `[{rfq_id, oem_name, vehicle, part_name, process, material, annual_volume, target_price, required_cert, due_date}]` (마감일 순) | RFQ ID |
 | `search_suppliers` | `[{supplier_id, name, region, defect_ppm, on_time_rate, ...}]` (불량률 순) | 업체 ID |
 | `find_suppliers` | `{matches: [{supplier_id, name, region}], total, match_type}`. 정확한 이름 일치를 우선하며 total은 반환 제한 전 기업 수 | 기업 구분에만 사용한다. 상세 정보 근거로 만들지 않는다 |
-| `get_supplier` | `{supplier_id, name, source(DART/MOCK), ..., capabilities, financials, recent_quotes}` | 업체 ID, `source` |
+| `get_supplier` | `{supplier_id, name, source(DART/MOCK), ..., capabilities, financials, recent_quotes, flags, law_refs}` | 업체 ID, `source` |
 | `rank_suppliers` | `{rfq, ranked: [{supplier_id, name, total_score, notes, flags}], excluded: [{supplier_id, name, reason}], ...}` | 업체 ID, 제외 사유 |
 | `check_offer` | `{verdict, supplier, rfq, offer, violations, warnings, info, law_refs}` (각 항목 `{code, severity, message, law_refs}`). v2 입력·출력·오류는 [협상안 검사 계약](check-offer.md) | `verdict`, 항목 `message`, `referenced_articles`의 `citation` |
 | `search_regulation` | `[{law_name, article_no, paragraph, title, text, citation, effective_date, source_url, score}]` | **`citation` 그대로** |
