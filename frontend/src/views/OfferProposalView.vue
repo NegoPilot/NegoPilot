@@ -135,7 +135,7 @@ async function sendMail(note: string) {
 
 <template>
   <header class="page-header">
-    <h1>법규 검토</h1>
+    <h1>협상안 검토</h1>
     <span class="context">엑셀 불러오기 → 법규 검토(승인/반려) → 협상안 만들기 → 제안서·내부 브리핑 → Word·PDF·메일</span>
     <span class="right"><span v-if="MOCK" class="badge badge-gray">예시 데이터 · 서버 연결 전</span></span>
   </header>

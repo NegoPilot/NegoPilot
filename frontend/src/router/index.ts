@@ -49,7 +49,7 @@ export const router = createRouter({
       path: '/review/offer',
       name: 'offer-proposal',
       component: () => import('@/views/OfferProposalView.vue'),
-      meta: { title: '협상안' },
+      meta: { title: '협상안 검토' },
     },
     {
       // 새 탭에서 열리므로 URL만으로 대화를 다시 불러온다
