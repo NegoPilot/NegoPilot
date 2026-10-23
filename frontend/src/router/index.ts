@@ -110,11 +110,27 @@ export const router = createRouter({
       component: () => import('@/views/admin/DataManagementView.vue'),
       meta: { title: '데이터 관리', layout: 'admin' },
     },
+    // ── 협력사 관리 (관리자 협력사 API) ──
     {
-      path: '/admin/data/suppliers/new',
+      // 검색 조건과 페이지는 query에 둔다
+      path: '/admin/suppliers',
+      name: 'admin-suppliers',
+      component: () => import('@/views/admin/AdminSuppliersView.vue'),
+      meta: { title: '협력사 목록', layout: 'admin' },
+    },
+    {
+      path: '/admin/suppliers/new',
       name: 'admin-supplier-new',
       component: () => import('@/views/admin/SupplierRegisterView.vue'),
       meta: { title: '협력사 등록', layout: 'admin' },
+    },
+    { path: '/admin/data/suppliers/new', redirect: { name: 'admin-supplier-new' } },
+    {
+      path: '/admin/suppliers/:supplierId',
+      name: 'admin-supplier-detail',
+      component: () => import('@/views/admin/AdminSupplierDetailView.vue'),
+      props: true,
+      meta: { title: '협력사 상세', layout: 'admin' },
     },
     {
       path: '/admin/data/laws/new',

@@ -96,6 +96,8 @@ function reset() {
     <SavedNotice
       v-if="done"
       :message="`${done.name}(${done.id})를 등록했습니다.`"
+      :to="{ name: 'admin-supplier-detail', params: { supplierId: done.id } }"
+      link-text="상세 보기 →"
       :warning="done.warning"
     />
 
