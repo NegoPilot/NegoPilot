@@ -95,7 +95,7 @@ def payloads(proposal: Proposal, document: OfferDocument) -> tuple[dict, dict]:
         'unit_price': document.unit_price, 'contract_days': document.contract_days,
         'contract_amount': document.contract_amount, 'payment_terms': document.payment_terms(),
         'price_linkage': document.price_linkage, 'raw_material_ratio': document.raw_material_ratio,
-        'response_due': document.response_due.isoformat(), 'delivery_notes': document.delivery_notes}
+        'reply_by': document.reply_by.isoformat(), 'delivery_notes': document.delivery_notes}
     full = {
         'supplier_terms': supplier_terms, 'headline': o.headline, 'target_price': proposal.target_price,
         'price_range': [p.model_dump() for p in o.price_range], 'concessions': o.concessions,

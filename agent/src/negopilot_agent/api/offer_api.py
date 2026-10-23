@@ -4,6 +4,7 @@ Generate, re-render an edited OfferDocument (re-checked with check_offer), or ru
 Contracts: docs/contracts/offer-proposal.md, docs/contracts/offer-document.md
 """
 import asyncio
+import base64
 import hashlib
 import json
 import re
@@ -27,6 +28,8 @@ from negopilot_agent.offer_proposal.writer import NegotiationWriter, writing_ena
 INPUT_ERRORS = {"RFQ_NOT_FOUND", "SUPPLIER_NOT_FOUND", "VALUE_OUT_OF_RANGE"}
 MAX_UPLOAD_BYTES = 2_000_000
 MAX_BATCH_ROWS = 50
+MAX_ATTACHMENT_BYTES = 10_000_000   # mail.md 2절: 첨부 하나 10MB 이하
+FILE_SETS = {"pdf": ("pdf",), "docx": ("docx",), "both": ("pdf", "docx")}
 
 
 class OfferProposalBody(BaseModel):
@@ -39,6 +42,7 @@ class OfferRenderBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request_id: UUID
     document: OfferDocument
+    files: Literal["pdf", "docx", "both"] = "both"     # 메일에 붙일 첨부. content_hash도 이 파일들로 계산한다
 
 
 def file_response(data: bytes, filename: str, media_type: str, headers: dict | None = None) -> Response:
@@ -47,11 +51,20 @@ def file_response(data: bytes, filename: str, media_type: str, headers: dict | N
         "X-File-Sha256": hashlib.sha256(data).hexdigest(), **(headers or {})})
 
 
+def checked_attachments(document: OfferDocument, kinds) -> list[tuple[str, str, bytes]]:
+    files = supplier.attachments(document, kinds)
+    for name, _, data in files:
+        if "/" in name or "\\" in name or len(data) > MAX_ATTACHMENT_BYTES:
+            raise ValueError(f"attachment {name!r} breaks the mail contract")
+    return files
+
+
 def document_file(document: OfferDocument, fmt: str) -> Response:
-    data = supplier.render_pdf(document) if fmt == "pdf" else supplier.render_docx(document)
-    media = "application/pdf" if fmt == "pdf" else supplier.DOCX_TYPE
-    return file_response(data, f"{document.file_stem()}.{fmt}", media,
-                         {"X-Content-Hash": document.content_hash(), "X-Document-Version": str(document.version)})
+    """제안서 파일 하나. X-Content-Hash는 이 파일 하나를 첨부로 본 content_hash다 (mail.md 3절)."""
+    [(name, media, data)] = checked_attachments(document, (fmt,))
+    hashed = document.hashed([(name, media, data)])
+    return file_response(data, name, media,
+                         {"X-Content-Hash": hashed.content_hash, "X-Document-Version": str(document.version)})
 
 
 def summary_line(pkg) -> dict:
@@ -61,7 +74,7 @@ def summary_line(pkg) -> dict:
     return {"status": "offer", "unit_price": o.unit_price, "payment_days": o.payment_days,
             "linkage": o.linkage_status, "warnings": len(o.warnings),
             "input_needed": "; ".join(x.message for x in pkg.proposal.input_needed),
-            "content_hash": pkg.content_hash}
+            "content_hash": pkg.document.content_hash}
 
 
 def add_offer_routes(app, settings, authenticate, error_response, caller=None, writer_factory=None):
@@ -96,8 +109,7 @@ def add_offer_routes(app, settings, authenticate, error_response, caller=None, w
             return document_file(pkg.document, format)
         return JSONResponse({"request_id": str(body.request_id),
                              "offer_document": pkg.document.model_dump(mode="json") if pkg.document else None,
-                             "content_hash": pkg.content_hash, "check": pkg.check(),
-                             "internal_briefing": pkg.briefing()})
+                             "check": pkg.check(), "internal_briefing": pkg.briefing()})
 
     @app.post("/internal/offer-proposals/render", dependencies=[Depends(authenticate)])
     async def render(body: OfferRenderBody, format: Literal["json", "pdf", "docx"] = Query("json")):
@@ -113,8 +125,13 @@ def add_offer_routes(app, settings, authenticate, error_response, caller=None, w
             return tool_error(exc, body.request_id)
         if format in ("pdf", "docx"):
             return document_file(document, format)
-        return JSONResponse({"request_id": str(body.request_id), "document": document.model_dump(mode="json"),
-                             "content_hash": document.content_hash(), "check": check})
+        files = checked_attachments(document, FILE_SETS[body.files])
+        hashed = document.hashed(files)
+        return JSONResponse({"request_id": str(body.request_id), "document": hashed.model_dump(mode="json"),
+                             "attachments": [{"filename": name, "content_type": media,
+                                              "data_base64": base64.b64encode(data).decode("ascii")}
+                                             for name, media, data in files],
+                             "check": check})
 
     @app.post("/internal/offer-proposals/batch", dependencies=[Depends(authenticate)])
     async def batch(request: Request, filename: str = Query(pattern=r"(?i)^[^/\\]{1,120}\.(xlsx|csv)$"),

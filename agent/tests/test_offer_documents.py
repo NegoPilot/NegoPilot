@@ -164,13 +164,46 @@ def test_unknown_ratio_with_existing_linkage_stays_linked():
 
 # ---------- 문서 모델과 해시 ----------
 
-def test_content_hash_is_stable_and_sensitive():
+def mail_mcp_content_hash(document: dict, attachments: list[tuple[str, str, bytes]]) -> str:
+    """기탁님 mail-mcp 계약(docs/contracts/mail.md 3절, #236 댓글)의 함수를 그대로 옮겼다. 바꾸지 않는다."""
+    import hashlib
+    doc = {k: v for k, v in document.items() if k != "content_hash"}
+    files = sorted(({"filename": name, "content_type": ctype, "sha256": hashlib.sha256(data).hexdigest()}
+                    for name, ctype, data in attachments), key=lambda f: f["filename"])
+    payload = json.dumps({"document": doc, "attachments": files},
+                         ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def test_content_hash_matches_mail_mcp_contract():
     _, doc = offer_and_doc()
-    assert doc.content_hash() == OfferDocument.model_validate(doc.model_dump(mode='json')).content_hash()
+    files = supplier.attachments(doc)
+    hashed = doc.hashed(files)
+    assert hashed.content_hash == mail_mcp_content_hash(hashed.model_dump(mode='json'), files)
+    assert hashed.content_hash == mail_mcp_content_hash(doc.model_dump(mode='json'), list(reversed(files)))
+    pdf_only = doc.hashed(files[:1]).content_hash
+    assert pdf_only == mail_mcp_content_hash(doc.model_dump(mode='json'), files[:1]) != hashed.content_hash
+
+
+def test_content_hash_is_sensitive_to_every_value():
+    _, doc = offer_and_doc()
+    files = supplier.attachments(doc)
+    base = doc.hashed(files).content_hash
     for change in ({'version': 2}, {'status': 'final'}, {'unit_price': doc.unit_price + 1}, {'cover_letter': '다름'}):
-        assert doc.model_copy(update=change).content_hash() != doc.content_hash()
-    assert doc.document_no == 'NP-RFQ-2026-001-SUP-0007-20261023'
-    assert doc.response_due.isoformat() == '2026-10-30'
+        changed = doc.model_copy(update=change)
+        assert changed.hashed(supplier.attachments(changed)).content_hash != base
+    assert doc.document_id == 'NP-RFQ-2026-001-SUP-0007-20261023'
+    assert doc.reply_by.isoformat() == '2026-10-30' and doc.verdict_code == 'OK'
+
+
+def test_rendering_twice_gives_identical_bytes_and_hash():
+    _, doc = offer_and_doc()
+    first, second = supplier.attachments(doc), supplier.attachments(doc.model_copy())
+    assert [f[2] for f in first] == [f[2] for f in second]
+    assert doc.hashed(first).content_hash == doc.hashed(second).content_hash
+    assert b'/CreationDate (D:20261023000000' in first[0][2]
+    import zipfile
+    assert {i.date_time for i in zipfile.ZipFile(io.BytesIO(first[1][2])).infolist()} == {(2026, 10, 23, 0, 0, 0)}
 
 
 def test_document_rejects_unknown_fields():
@@ -190,6 +223,7 @@ def test_package_files_names():
     pkg = asyncio.run(build_package(request(), FakeCaller(bench()), buyer=BUYER))
     assert set(package_files(pkg)) == {'내부브리핑_RFQ-2026-001_SUP-0007.pdf', '제안서_RFQ-2026-001_SUP-0007_v1.pdf',
                                        '제안서_RFQ-2026-001_SUP-0007_v1.docx'}
+    assert pkg.document.content_hash == pkg.document.hashed(supplier.attachments(pkg.document)).content_hash
 
 
 # ---------- 엑셀 입력 ----------

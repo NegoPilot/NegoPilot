@@ -1,4 +1,5 @@
 """POST /internal/offer-proposals(·/render·/batch): 인증, 입력 검증, JSON·PDF·DOCX 응답, 재검사, 일괄 처리 (#231, #236)."""
+import base64
 import csv
 import hashlib
 import io
@@ -15,7 +16,7 @@ from negopilot_agent.api.settings import ApiSettings
 from negopilot_agent.offer_proposal.document import OfferDocument
 from negopilot_agent.offer_proposal.supplier import docx_text
 from negopilot_agent.offer_proposal.writer import NegotiationWriter
-from tests.test_offer_documents import FakeBackend, good_draft
+from tests.test_offer_documents import FakeBackend, good_draft, mail_mcp_content_hash
 from tests.test_offer_proposal import FakeCaller, bench
 
 KEY = {'X-Internal-Api-Key': 'test-offer-key'}
@@ -59,7 +60,8 @@ async def test_json_response_has_document_briefing_and_check():
     assert data['request_id'] == payload['request_id']
     doc = OfferDocument.model_validate(data['offer_document'])
     assert doc.payment_days == 60 and doc.status == 'draft' and doc.delivery_notes == '월 2회 분할 납품'
-    assert data['content_hash'] == doc.content_hash()
+    assert doc.content_hash.startswith('sha256:') and doc.verdict_code == 'OK'
+    assert 'content_hash' not in data
     assert data['check']['verdict_code'] == 'OK'
     briefing = data['internal_briefing']
     assert briefing['offer']['adjustments'][0] == '요청 조건 지급 90일 → 법정 60일 이내로 조정'
@@ -91,7 +93,7 @@ async def test_supplier_files_and_briefing_pdf():
     assert all('대외비 — 협력사 발송 금지' in p.extract_text() for p in pages)
 
 
-async def test_render_rechecks_and_rejects_violations():
+async def test_render_returns_document_attachments_and_mail_hash():
     caller = FakeCaller(bench(market__median=4300.0))
     doc = (await post(caller, body())).json()['offer_document']
     edited = doc | {'unit_price': 4000, 'version': 2, 'status': 'final'}
@@ -99,7 +101,21 @@ async def test_render_rechecks_and_rejects_violations():
     assert ok.status_code == 200
     data = ok.json()
     assert data['document']['unit_price'] == 4000 and data['document']['version'] == 2
-    assert data['content_hash'] == OfferDocument.model_validate(data['document']).content_hash()
+    assert data['document']['content_hash'] != doc['content_hash'] and data['check']['verdict_code'] == 'OK'
+    files = [(a['filename'], a['content_type'], base64.b64decode(a['data_base64'])) for a in data['attachments']]
+    assert [f[0] for f in files] == ['제안서_RFQ-2026-001_SUP-0007_v2.pdf', '제안서_RFQ-2026-001_SUP-0007_v2.docx']
+    assert data['document']['content_hash'] == mail_mcp_content_hash(data['document'], files)
+    again = (await post(caller, {'request_id': str(uuid4()), 'document': data['document']},
+                        path='/internal/offer-proposals/render')).json()
+    assert again['document']['content_hash'] == data['document']['content_hash']     # 다시 렌더해도 같은 해시
+    pdf_only = (await post(caller, {'request_id': str(uuid4()), 'document': edited, 'files': 'pdf'},
+                           path='/internal/offer-proposals/render')).json()
+    assert [a['content_type'] for a in pdf_only['attachments']] == ['application/pdf']
+
+
+async def test_render_rejects_violations():
+    caller = FakeCaller(bench(market__median=4300.0))
+    doc = (await post(caller, body())).json()['offer_document']
     bad = doc | {'payment_days': 90}
     rejected = await post(caller, {'request_id': str(uuid4()), 'document': bad},
                           path='/internal/offer-proposals/render', params={'format': 'pdf'})
@@ -113,7 +129,12 @@ async def test_render_files_carry_the_document_hash():
     doc = (await post(caller, body())).json()['offer_document'] | {'status': 'final'}
     response = await post(caller, {'request_id': str(uuid4()), 'document': doc},
                           path='/internal/offer-proposals/render', params={'format': 'docx'})
-    assert response.headers['x-content-hash'] == OfferDocument.model_validate(doc).content_hash()
+    rendered = OfferDocument.model_validate(doc).model_copy(update={'content_hash': None})
+    files = [(response.headers['content-disposition'].split("UTF-8''")[1], response.headers['content-type'],
+              response.content)]
+    from urllib.parse import unquote
+    files = [(unquote(files[0][0]), files[0][1], files[0][2])]
+    assert response.headers['x-content-hash'] == mail_mcp_content_hash(rendered.model_dump(mode='json'), files)
     assert response.headers['x-document-version'] == '1'
 
 
@@ -154,6 +175,6 @@ async def test_no_offer_has_no_supplier_document():
     unfixable = {'verdict_code': 'VIOLATION', 'warnings': [], 'violations': [{'code': 'X', 'message': '위반'}]}
     caller = FakeCaller(bench(), lambda args: unfixable)
     data = (await post(caller, body())).json()
-    assert data['offer_document'] is None and data['content_hash'] is None
+    assert data['offer_document'] is None
     assert (await post(caller, body(), params={'format': 'pdf'})).json()['error']['code'] == 'NO_OFFER'
     assert json.dumps(data['internal_briefing']['no_offer_reasons'], ensure_ascii=False).count('위반') == 3

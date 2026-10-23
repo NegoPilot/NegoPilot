@@ -78,7 +78,7 @@ async def main(args):
             pkg = await build_package(single_request(args), caller, writer)
     if args.json:
         print(json.dumps({'offer_document': pkg.document.model_dump(mode='json') if pkg.document else None,
-                          'content_hash': pkg.content_hash, 'check': pkg.check(),
+                          'check': pkg.check(),
                           'internal_briefing': pkg.briefing(), 'timings': measured.summary()},
                          ensure_ascii=False, indent=2))
     else:

@@ -127,8 +127,8 @@ business-mcp `get_price_benchmarks`가 기준값을 주고, Agent `offer_proposa
 {"request_id": "uuid", "offer": {"supplier": "SUP-0060", "rfq_id": "RFQ-2026-002", "as_of": "2026-10-23", "payment_days": 90}}
 ```
 
-- `?format=json`(기본): `{request_id, offer_document, content_hash, check: {verdict_code, warnings}, internal_briefing}`
-  - `offer_document`: 협력사 제안서([offer-document.md](offer-document.md)). 협상안이 없으면 `null`
+- `?format=json`(기본): `{request_id, offer_document, check: {verdict_code, warnings}, internal_briefing}`
+  - `offer_document`: 협력사 제안서([offer-document.md](offer-document.md)). `content_hash`는 그 안에 있다(mail.md 3절 규칙). 협상안이 없으면 `null`
   - `internal_briefing`: 4절 출력 + `writing`(6절). 협력사에 보내지 않는다
 - `?format=pdf` / `?format=docx`: 협력사 제안서 파일. `?format=briefing_pdf`: 내부 브리핑 PDF
 - `?writing=false`: 모델 문구를 끈다. 서버 전체는 `NEGOPILOT_OFFER_WRITING=0`

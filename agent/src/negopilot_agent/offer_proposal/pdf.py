@@ -9,13 +9,16 @@ sections()가 문서 내용(제목과 문단·표)을 만들고 render_pdf()는 
 평가는 sections()의 숫자가 Proposal 값과 같은지 본다.
 """
 
+import calendar
+import time
+from datetime import date
 from io import BytesIO
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
-from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase import pdfdoc, pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from xml.sax.saxutils import escape
@@ -128,8 +131,21 @@ def column_widths(rows: list[list]) -> list[float]:
     return [width / len(rows[0])] * len(rows[0])
 
 
-def draw(sections_: list[tuple[str, list[Block]]], title_text: str, header: str | None = None) -> bytes:
-    """문단·목록·표·상자로 된 문서를 A4 PDF로 그린다. header가 있으면 모든 쪽 위에 찍는다."""
+def fixed_timestamp(day: date) -> pdfdoc.TimeStamp:
+    """PDF 생성·수정 시각을 그날 0시(UTC)로 고정한다."""
+    stamp = pdfdoc.TimeStamp(1)
+    stamp.t = calendar.timegm(day.timetuple())
+    stamp.lt = time.gmtime(stamp.t)
+    stamp.YMDhms = tuple(stamp.lt)[:6]
+    return stamp
+
+
+def draw(sections_: list[tuple[str, list[Block]]], title_text: str, header: str | None = None,
+         fixed_date: date | None = None) -> bytes:
+    """문단·목록·표·상자로 된 문서를 A4 PDF로 그린다. header가 있으면 모든 쪽 위에 찍는다.
+
+    fixed_date가 있으면 invariant 모드로 그리고 파일 시각을 그날로 고정해, 같은 내용이면 같은 바이트가 나온다.
+    """
     register_fonts()
     body = ParagraphStyle('body', fontName=BODY_FONT, fontSize=9.5, leading=14)
     head = ParagraphStyle('head', fontName=HEAD_FONT, fontSize=12, leading=18, spaceBefore=8, spaceAfter=4)
@@ -159,6 +175,8 @@ def draw(sections_: list[tuple[str, list[Block]]], title_text: str, header: str 
         story.append(Spacer(1, 3 * mm))
 
     def stamp(canvas, doc):
+        if fixed_date:
+            canvas._doc._timeStamp = fixed_timestamp(fixed_date)
         if header:
             canvas.saveState()
             canvas.setFont(HEAD_FONT, 9)
@@ -168,7 +186,7 @@ def draw(sections_: list[tuple[str, list[Block]]], title_text: str, header: str 
 
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm, topMargin=16 * mm,
-                            bottomMargin=16 * mm, title=title_text)
+                            bottomMargin=16 * mm, title=title_text, invariant=1 if fixed_date else None)
     doc.build(story, onFirstPage=stamp, onLaterPages=stamp)
     return buffer.getvalue()
 

@@ -14,9 +14,8 @@ from .writer import NegotiationWriter, Writing, apply_writing
 
 class OfferPackage(BaseModel):
     proposal: Proposal
-    document: OfferDocument | None
+    document: OfferDocument | None        # content_hash는 제안서 PDF·DOCX 두 첨부로 계산해 채운다
     writing: Writing | None
-    content_hash: str | None
 
     def check(self) -> dict:
         o = self.proposal.offer
@@ -39,26 +38,27 @@ async def build_package(req: OfferProposalRequest, caller: ToolCaller | None = N
     caller = caller or McpToolCaller()
     proposal = await OfferProposer(caller).propose(req)
     if proposal.offer is None:
-        return OfferPackage(proposal=proposal, document=None, writing=None, content_hash=None)
+        return OfferPackage(proposal=proposal, document=None, writing=None)
     document = build_document(proposal, buyer)
     writing = await writer.write(proposal, document) if writer else None
     if writing:
         document = apply_writing(document, writing)
-    return OfferPackage(proposal=proposal, document=document, writing=writing, content_hash=document.content_hash())
+    return OfferPackage(proposal=proposal, document=document.hashed(supplier.attachments(document)), writing=writing)
 
 
 def package_files(pkg: OfferPackage) -> dict[str, bytes]:
     """협력사 제안서 PDF·DOCX와 내부 브리핑 PDF. 협상안이 없으면 브리핑만."""
     files = {briefing_filename(pkg.proposal): render_briefing_pdf(pkg.proposal, pkg.writing)}
     if pkg.document:
-        stem = pkg.document.file_stem()
-        files[f'{stem}.pdf'] = supplier.render_pdf(pkg.document)
-        files[f'{stem}.docx'] = supplier.render_docx(pkg.document)
+        files |= {name: data for name, _, data in supplier.attachments(pkg.document)}
     return files
 
 
 async def recheck(document: OfferDocument, caller: ToolCaller | None = None) -> tuple[OfferDocument, dict]:
-    """고친 제안서 조건으로 check_offer를 다시 부른다. 위반이면 OfferViolation. 계약금액은 check_offer 값으로 맞춘다."""
+    """고친 제안서 조건으로 check_offer를 다시 부른다. 위반이면 OfferViolation.
+
+    계약금액과 verdict_code는 check_offer 값으로 맞추고, 받은 content_hash는 지운다(첨부를 정한 뒤 다시 계산한다).
+    """
     caller = caller or McpToolCaller()
     args = {'supplier': document.supplier_id, 'rfq_id': document.rfq_id, 'unit_price': document.unit_price,
             'payment_days': document.payment_days, 'price_linkage': document.price_linkage,
@@ -70,9 +70,10 @@ async def recheck(document: OfferDocument, caller: ToolCaller | None = None) -> 
     result = await caller('business-mcp', 'check_offer', args)
     if result.get('violations'):
         raise OfferViolation([{k: v.get(k) for k in ('code', 'message', 'law_refs')} for v in result['violations']])
-    amount = (result.get('offer') or {}).get('contract_amount')
-    if amount is not None and amount != document.contract_amount:
-        document = document.model_copy(update={'contract_amount': amount})
+    update = {'verdict_code': result.get('verdict_code'), 'content_hash': None}
+    if (amount := (result.get('offer') or {}).get('contract_amount')) is not None:
+        update['contract_amount'] = amount
+    document = document.model_copy(update=update)
     check = {'verdict_code': result.get('verdict_code'),
              'warnings': [{'code': w['code'], 'message': w['message']} for w in result.get('warnings') or []]}
     return document, check
