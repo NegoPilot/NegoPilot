@@ -16,11 +16,12 @@ export const MATERIALS: Record<Process, string[]> = {
   CNC가공: ['AL6061', 'S45C'],
 }
 
-export const REGIONS = ['경남', '울산', '경북', '대구', '부산', '충남', '경기', '인천', '광주', '서울']
+/** 관리자 협력사 API가 받는 17개 시도 약칭 (AdminSupplierValidator) */
+export const REGIONS = ['서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종', '경기', '강원', '충북', '충남', '전북', '전남', '경북', '경남', '제주']
 
 export const AUDIT_GRADES = ['A', 'B', 'C', 'D'] as const
 
-/** 시드 협력사 SUP-0001 ~ SUP-0150. 새 ID 제안에 쓴다 */
+/** 시드 협력사 SUP-0001 ~ SUP-0150 */
 export const SEED_SUPPLIER_MAX = 150
 
 export interface StoredLaw {

@@ -4,6 +4,7 @@ import asyncio
 import json
 from pathlib import Path
 import socket
+from types import SimpleNamespace
 from uuid import uuid4
 
 import httpx2 as httpx
@@ -12,6 +13,7 @@ import pytest
 from negopilot_shared import DecompositionResult
 from negopilot_agent import ollama
 from negopilot_agent.api.app import create_app
+from negopilot_agent.api import generation_api
 from negopilot_agent.api.generation_stubs import GenerationStubToolCaller
 from negopilot_agent.api.settings import ApiSettings
 from negopilot_agent.decomposition import DecomposerSettings
@@ -74,7 +76,7 @@ async def test_malformed_envelopes_raise_safe_transport_error(payload):
     assert SECRET not in str(failure.value)
 
 
-def install_transport(monkeypatch, *, failure=None, failed_phase="decomposition"):
+def install_transport(monkeypatch, *, failure=None, failed_phase="decomposition", expire_request=None):
     calls, clients = [], []
     async def handle(request):
         data = json.loads(request.content)
@@ -84,7 +86,9 @@ def install_transport(monkeypatch, *, failure=None, failed_phase="decomposition"
             if failure == "timeout":
                 raise httpx.ReadTimeout(SECRET, request=request)
             if failure == "cancel":
-                await asyncio.sleep(10)
+                assert expire_request is not None
+                expire_request()
+                await asyncio.Future()  # Cancelled by the real request timeout on the next event-loop turn.
             if failure == "network":
                 raise httpx.ConnectError(SECRET, request=request)
             if failure == "http":
@@ -144,8 +148,30 @@ async def test_http_graph_selects_native_backend_and_closes_owned_clients(monkey
     ("redirect", 503, "UPSTREAM_UNAVAILABLE"), ("malformed", 503, "UPSTREAM_UNAVAILABLE"),
 ])
 async def test_transport_failure_calls_each_phase_once_without_stub_fallback(monkeypatch, phase, failure, status, code, caplog):
-    calls, clients = install_transport(monkeypatch, failure=failure, failed_phase=phase)
-    response = await execute(timeout=0.05 if failure == "cancel" else 30)
+    request_timeouts = []
+
+    def controlled_timeout(seconds):
+        assert seconds == 30
+        # Do not race graph startup against a short wall-clock deadline. The target
+        # transport arms this real timeout only after the intended phase is entered.
+        timeout = asyncio.timeout(None)
+        request_timeouts.append(timeout)
+        return timeout
+
+    def expire_request():
+        assert len(request_timeouts) == 1
+        request_timeouts[0].reschedule(asyncio.get_running_loop().time())
+
+    if failure == "cancel":
+        # Replace only the route module's asyncio reference. Cleanup and the graph
+        # retain the real module and their normal timeout behaviour.
+        monkeypatch.setattr(generation_api, "asyncio", SimpleNamespace(timeout=controlled_timeout))
+    calls, clients = install_transport(monkeypatch, failure=failure, failed_phase=phase,
+                                       expire_request=expire_request if failure == "cancel" else None)
+    async with asyncio.timeout(30):  # Watchdog only; it is not the injected request failure.
+        response = await execute()
+    if failure == "cancel":
+        assert len(request_timeouts) == 1 and request_timeouts[0].expired()
     assert response.status_code == status, response.text
     assert response.json()["error"]["code"] == code
     assert len(calls) == (2 if phase == "generation" else 1)

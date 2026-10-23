@@ -313,6 +313,7 @@ def list_laws(as_of: str | None = None) -> list[dict]:
         v = version_in_force(law, day)
         out.append({"law_key": key, "law_name": v["law_name"], "law_type": v["law_type"],
                     "ministry": v["ministry"], "in_force_effective_date": v["effective_date"],
+                    "in_force_promulgation_no": v["promulgation_no"], "in_force_promulgation_date": v["promulgation_date"],
                     "article_count": len(v["articles"]), "source_url": v["source_url"],
                     "upcoming": upcoming_versions(law, day)})
     return out

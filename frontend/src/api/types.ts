@@ -1,9 +1,9 @@
 // Spring 공개 API의 응답 형식. 계약이 바뀌면 이 파일을 같은 PR에서 고친다.
-// - 협력사 조회: docs/contracts/supplier-lookup.md (v0.3, live)
+// - 협력사 조회: docs/contracts/supplier-lookup.md (v0.4, live)
 // - 생성 답변 대화: docs/contracts/agent-generation.md (v0.3)
 
 export interface Envelope<T> {
-  schema_version: '0.3'
+  schema_version: '0.4'
   mode: 'live'
   data: T
 }
@@ -37,19 +37,44 @@ export interface SupplierSummary {
   iatf16949: boolean
   iso14001: boolean
   matched_capabilities: Capability[]
+  founded_year: number | null
+  employees: number | null
+  quality: SupplierQuality
+  existing_contract: ExistingContract | null
+  max_monthly_capacity: number | null
+  latest_quote: Quote | null
+  updated_at: string | null
   provenance: Provenance
 }
 
-export interface SupplierList {
-  items: SupplierSummary[]
+export interface PageMetadata<S extends string> {
+  page: number
+  size: number
   returned_count: number
-  limit: number
+  total: number
+  total_pages: number
+  sort: S
+  direction: SortDirection
 }
+
+export interface SupplierList extends PageMetadata<SupplierSort> {
+  items: SupplierSummary[]
+}
+
+export type SortDirection = 'asc' | 'desc'
+export type SupplierSort = 'name' | 'region' | 'founded_year' | 'monthly_capacity' | 'defect_ppm'
+  | 'on_time_delivery_rate' | 'audit_grade' | 'years_dealing' | 'payment_days'
+  | 'raw_material_ratio' | 'latest_quote_date' | 'latest_quote_price'
 
 export interface Quality {
   defect_ppm: number | null
   // 0..100 백분율. 화면에서 100을 곱하지 않는다
   on_time_delivery_rate: number | null
+}
+
+export interface SupplierQuality extends Quality {
+  audit_grade: 'A' | 'B' | 'C' | 'D' | null
+  years_dealing: number | null
 }
 
 export interface Financial {
@@ -61,7 +86,17 @@ export interface Financial {
   source: string
 }
 
+export interface SupplierFinancial extends Financial {
+  fs_div: string | null
+  net_income_krw: number | null
+  total_assets_krw: number | null
+  total_liabilities_krw: number | null
+  total_equity_krw: number | null
+}
+
 export interface Quote {
+  quote_id: number
+  source: 'MOCK' | 'MANUAL'
   process: string
   material: string
   unit_price_krw: number
@@ -71,6 +106,8 @@ export interface Quote {
 export interface ExistingContract {
   payment_days: number
   price_linkage: boolean
+  raw_material_ratio: number | null
+  auto_renewal: boolean | null
 }
 
 export interface SupplierDetail {
@@ -80,8 +117,16 @@ export interface SupplierDetail {
   iatf16949: boolean
   iso14001: boolean
   capabilities: Capability[]
-  quality: Quality
-  financials: Financial[]
+  founded_year: number | null
+  employees: number | null
+  corp_code: string | null
+  stock_code: string | null
+  induty_code: string | null
+  biz_no_masked: string | null
+  created_at: string | null
+  updated_at: string | null
+  quality: SupplierQuality
+  financials: SupplierFinancial[]
   recent_quotes: Quote[]
   existing_contract: ExistingContract | null
   provenance: Provenance
@@ -89,14 +134,34 @@ export interface SupplierDetail {
 
 /** 검색 조건. 빈 선택값은 보내지 않는다 */
 export interface SupplierSearchParams {
-  process: string
+  q?: string
+  process?: string
   material?: string
   region?: string
   iatf_required?: boolean
   /** 1..10,000,000. 월 생산능력이 이 값 이상인 공정·소재만 matched_capabilities에 남는다 */
   min_monthly_capacity?: number
   iso14001_required?: boolean
-  limit?: number
+  page: number
+  size: number
+  sort: SupplierSort
+  direction: SortDirection
+}
+
+export type QuoteSort = 'quoted_at' | 'unit_price_krw'
+
+export interface QuoteSearchParams {
+  process?: string
+  material?: string
+  page: number
+  size: number
+  sort: QuoteSort
+  direction: SortDirection
+}
+
+export interface SupplierQuoteList extends PageMetadata<QuoteSort> {
+  supplier_id: string
+  items: Quote[]
 }
 
 // ── 생성 답변 대화 (docs/contracts/agent-generation.md v0.3) ──

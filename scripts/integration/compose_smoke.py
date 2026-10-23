@@ -169,21 +169,27 @@ def admin_login(base_url: str) -> Client:
 
 def live_lookup(client: Client) -> str:
     envelope = client.request("GET", CATALOG)
-    require((envelope["schema_version"], envelope["mode"]) == ("0.3", "live"), "Catalog must read live business data")
+    require((envelope["schema_version"], envelope["mode"]) == ("0.4", "live"), "Catalog must read live business data")
     processes = envelope["data"]["processes"]
     require(bool(processes) and bool(processes[0]["materials"]), "Seed catalog is empty")
-    process = processes[0]
-    filters = urlencode({"process": process["process"], "material": process["materials"][0], "limit": 3})
-    search = client.request("GET", "/api/suppliers?" + filters)
-    require((search["schema_version"], search["mode"]) == ("0.3", "live"), "Search must read live business data")
-    items = search["data"]["items"]
+    search = client.request("GET", "/api/suppliers?size=3")
+    require((search["schema_version"], search["mode"]) == ("0.4", "live"), "Search must read live business data")
+    data = search["data"]
+    items = data["items"]
     ids = [item["supplier_id"] for item in items]
-    require(bool(ids) and ids == sorted(set(ids)) and len(ids) <= 3, "Seed supplier search is empty or unordered")
-    require(search["data"]["returned_count"] == len(ids), "Supplier count differs")
+    require(bool(ids) and len(ids) == len(set(ids)) and len(ids) <= 3, "Seed supplier search is empty or duplicated")
+    require(data["returned_count"] == len(ids) and data["total"] >= len(ids), "Supplier count differs")
+    require(data["page"] == 0 and data["size"] == 3 and data["sort"] == "name", "Supplier paging defaults differ")
+    second = client.request("GET", "/api/suppliers?page=1&size=3")["data"]
+    require(not set(ids) & {item["supplier_id"] for item in second["items"]}, "Supplier pages overlap")
+    found = client.request("GET", "/api/suppliers?" + urlencode({"q": ids[0].lower()}))["data"]
+    require(any(item["supplier_id"] == ids[0] for item in found["items"]), "Supplier ID search failed")
     detail = client.request("GET", "/api/suppliers/" + ids[0])
-    require((detail["schema_version"], detail["mode"]) == ("0.3", "live"), "Detail must read live business data")
+    require((detail["schema_version"], detail["mode"]) == ("0.4", "live"), "Detail must read live business data")
     require(detail["data"]["supplier_id"] == ids[0], "Supplier detail ID differs")
     require(detail["data"]["provenance"]["profile"] in {"DART", "MOCK", "MANUAL"}, "Supplier source is not live")
+    quotes = client.request("GET", "/api/suppliers/" + ids[0] + "/quotes")["data"]
+    require(quotes["supplier_id"] == ids[0] and quotes["total"] >= len(quotes["items"]), "Quote paging differs")
     return ids[0]
 
 
