@@ -52,6 +52,11 @@ final class AdminSupplierController {
         UserIdentity actor = currentUser.requireAdmin(); UUID id = begin(request, true);
         return service.quality(validator.supplierId(supplierId, id), validator.qualityRequest(validator.parse(raw, id), id), actor.userId(), id);
     }
+    @PostMapping(value = "/{supplierId}/quotes", consumes = MediaType.APPLICATION_JSON_VALUE)
+    ResponseEntity<Map<String, Object>> quotes(@PathVariable String supplierId, @RequestBody(required = false) String raw, HttpServletRequest request) {
+        UserIdentity actor = currentUser.requireAdmin(); UUID id = begin(request, true);
+        return ResponseEntity.status(201).body(service.quotes(validator.supplierId(supplierId, id), validator.quotesRequest(validator.parse(raw, id), id), actor.userId(), id));
+    }
     @PatchMapping(value = "/{supplierId}/status", consumes = MediaType.APPLICATION_JSON_VALUE)
     Map<String, Object> status(@PathVariable String supplierId, @RequestBody(required = false) String raw, HttpServletRequest request) {
         UserIdentity actor = currentUser.requireAdmin(); UUID id = begin(request, true);
