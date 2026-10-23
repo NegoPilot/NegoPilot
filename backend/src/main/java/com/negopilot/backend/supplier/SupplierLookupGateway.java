@@ -25,6 +25,11 @@ final class SupplierLookupGateway {
                 body -> validator.validateSearch(body, filters));
     }
 
+    JsonNode quotes(String supplierId, JsonNode filters, UUID requestId) {
+        return client.search(InternalPaths.SUPPLIERS + "/" + supplierId + "/quotes", filters, requestId,
+                body -> validator.validateQuotes(body, supplierId, filters));
+    }
+
     JsonNode detail(String supplierId, UUID requestId) {
         return client.detail(InternalPaths.SUPPLIERS + "/", supplierId, requestId,
                 body -> validator.validateDetail(body, supplierId));

@@ -8,12 +8,15 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URLEncoder;
+import java.net.URLDecoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -45,6 +48,7 @@ class SupplierLookupLiveHttpTest {
     private static final HttpServer UPSTREAM;
     private static final ExecutorService EXECUTOR = Executors.newCachedThreadPool();
     private static final HttpClient CLIENT = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
+    private static final List<Map<String, String>> QUERIES = new CopyOnWriteArrayList<>();
     private static final List<String> PATHS = new CopyOnWriteArrayList<>();
     private static final AtomicReference<Consumer<ObjectNode>> CORRUPT = new AtomicReference<>();
     private static final AtomicReference<Integer> STATUS = new AtomicReference<>();
@@ -74,6 +78,7 @@ class SupplierLookupLiveHttpTest {
     @BeforeEach
     void reset() {
         PATHS.clear();
+        QUERIES.clear();
         CORRUPT.set(body -> {});
         STATUS.set(200);
     }
@@ -105,7 +110,7 @@ class SupplierLookupLiveHttpTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"stub-mode", "stub-provenance", "unsorted", "wrong-region", "wrong-process",
-            "over-limit-count"})
+            "over-limit-count", "wrong-page", "wrong-total", "wrong-sort", "duplicate-id"})
     void rejectsLiveSearchThatDoesNotMatchContractOrFilters(String kind) throws Exception {
         CORRUPT.set(body -> {
             ArrayNode items = (ArrayNode) body.at("/data/items");
@@ -115,6 +120,10 @@ class SupplierLookupLiveHttpTest {
                 case "unsorted" -> items.add(items.remove(0));
                 case "wrong-region" -> ((ObjectNode) items.get(0)).put("region", "울산");
                 case "wrong-process" -> ((ObjectNode) items.get(0).at("/matched_capabilities/0")).put("process", "프레스");
+                case "wrong-page" -> ((ObjectNode) body.get("data")).put("page", 1);
+                case "wrong-total" -> ((ObjectNode) body.get("data")).put("total", 21);
+                case "wrong-sort" -> ((ObjectNode) body.get("data")).put("sort", "region");
+                case "duplicate-id" -> ((ObjectNode) items.get(1)).put("supplier_id", items.get(0).get("supplier_id").stringValue());
                 default -> ((ObjectNode) body.get("data")).put("returned_count", 3);
             }
         });
@@ -127,7 +136,7 @@ class SupplierLookupLiveHttpTest {
         var response = get("/api/suppliers?process=" + encode("다이캐스팅") + "&iso14001_required=true");
         assertError(response, 502, "UPSTREAM_INVALID_RESPONSE", false);
         CORRUPT.set(body -> ((ArrayNode) body.at("/data/items")).remove(1));
-        CORRUPT.set(CORRUPT.get().andThen(body -> ((ObjectNode) body.get("data")).put("returned_count", 1)));
+        CORRUPT.set(CORRUPT.get().andThen(body -> ((ObjectNode) body.get("data")).put("returned_count", 1).put("total", 1)));
         var filtered = get("/api/suppliers?process=" + encode("다이캐스팅") + "&iso14001_required=true");
         assertThat(filtered.statusCode()).as(filtered.body()).isEqualTo(200);
     }
@@ -157,7 +166,7 @@ class SupplierLookupLiveHttpTest {
         CORRUPT.set(body -> {
             ObjectNode data = (ObjectNode) body.get("data");
             data.put("supplier_id", "SUP-10000");
-            data.putObject("quality").putNull("defect_ppm").putNull("on_time_delivery_rate");
+            data.putObject("quality").putNull("defect_ppm").putNull("on_time_delivery_rate").putNull("audit_grade").putNull("years_dealing");
             data.putArray("financials");
             data.putArray("recent_quotes");
             data.putNull("existing_contract");
@@ -183,8 +192,58 @@ class SupplierLookupLiveHttpTest {
         assertError(get("/api/business/catalog"), 502, "UPSTREAM_INVALID_RESPONSE", false);
     }
 
+    @Test
+    void forwardsAllSuppliersMaterialOnlyQueryAndLegacySizeWithoutRequiringProcess() throws Exception {
+        assertThat(get("/api/suppliers").statusCode()).isEqualTo(200);
+        assertThat(QUERIES.get(0)).containsEntry("page", "0").containsEntry("size", "20")
+                .containsEntry("sort", "name").containsEntry("direction", "asc").doesNotContainKey("process");
+        assertThat(get("/api/suppliers?material=ADC12&limit=20").statusCode()).isEqualTo(502);
+        // A380 in the upstream fixture must still be rejected when material alone is requested.
+        assertThat(QUERIES.get(1)).containsEntry("material", "ADC12").containsEntry("size", "20").doesNotContainKeys("process", "limit");
+        CORRUPT.set(body -> {
+            var items = (ArrayNode) body.at("/data/items");
+            ((ObjectNode) items.get(0)).put("name", "A%_정밀");
+            ((ObjectNode) items.get(1)).put("name", "B%_정밀");
+        });
+        assertThat(get("/api/suppliers?q=" + encode(" %_ ")).statusCode()).isEqualTo(200);
+        assertThat(QUERIES.get(2)).containsEntry("q", "%_");
+    }
+
+    @Test
+    void forwardsRequestedPageSortAndIndependentMaterialFilter() throws Exception {
+        CORRUPT.set(body -> {
+            var data = (ObjectNode) body.get("data");
+            var items = (ArrayNode) data.get("items");
+            items.remove(1);
+            ((ArrayNode) items.get(0).get("matched_capabilities")).remove(0);
+            data.put("page", 1).put("size", 1).put("returned_count", 1).put("total_pages", 2).put("sort", "region").put("direction", "desc");
+        });
+        assertThat(get("/api/suppliers?material=ADC12&page=1&size=1&sort=region&direction=desc").statusCode()).isEqualTo(200);
+        assertThat(QUERIES.get(0)).containsEntry("page", "1").containsEntry("size", "1")
+                .containsEntry("material", "ADC12").containsEntry("sort", "region").containsEntry("direction", "desc");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"page=-1", "size=101", "limit=20&page=0", "limit=20&size=20", "sort=unknown",
+            "sort=latest_quote_price", "q=a&q=b"})
+    void rejectsAmbiguousOrInvalidPageRequestsBeforePython(String query) throws Exception {
+        assertError(get("/api/suppliers?" + query), 400, "VALIDATION_ERROR", false);
+        assertThat(PATHS).isEmpty();
+    }
+
+    @Test
+    void quoteEndpointForwardsTargetAndFiltersAndRejectsOtherSupplier() throws Exception {
+        var response = get("/api/suppliers/SUP-0001/quotes?material=SPCC");
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        assertThat(PATHS).containsExactly("/internal/suppliers/SUP-0001/quotes");
+        assertThat(QUERIES.get(0)).containsEntry("material", "SPCC").containsEntry("sort", "quoted_at")
+                .containsEntry("direction", "desc").containsEntry("page", "0").containsEntry("size", "20");
+        CORRUPT.set(body -> ((ObjectNode) body.get("data")).put("supplier_id", "SUP-0002"));
+        assertError(get("/api/suppliers/SUP-0001/quotes"), 502, "UPSTREAM_INVALID_RESPONSE", false);
+    }
+
     private static ObjectNode envelope() {
-        return JSON.createObjectNode().put("schema_version", "0.3").put("mode", "live");
+        return JSON.createObjectNode().put("schema_version", "0.4").put("mode", "live");
     }
 
     private static ObjectNode catalog() {
@@ -205,40 +264,68 @@ class SupplierLookupLiveHttpTest {
 
     private static ObjectNode search() {
         ObjectNode body = envelope();
-        ObjectNode data = body.putObject("data").put("returned_count", 2).put("limit", 20);
+        ObjectNode data = body.putObject("data").put("returned_count", 2).put("page", 0).put("size", 20)
+                .put("total", 2).put("total_pages", 1).put("sort", "name").put("direction", "asc");
         ArrayNode items = data.putArray("items");
-        ObjectNode first = items.addObject().put("supplier_id", "SUP-0001").put("name", "공시기업").put("region", "경남")
+        ObjectNode first = items.addObject().put("supplier_id", "SUP-0001").put("name", "가공시기업").put("region", "경남")
                 .put("iatf16949", true).put("iso14001", true);
         ArrayNode firstCapabilities = first.putArray("matched_capabilities");
         capability(firstCapabilities, "A380", 8000);
         capability(firstCapabilities, "ADC12", 20000);
         provenance(first, "DART");
-        ObjectNode second = items.addObject().put("supplier_id", "SUP-0040").put("name", "가상기업").put("region", "경남")
+        expandedSummary(first, 20000);
+        ObjectNode second = items.addObject().put("supplier_id", "SUP-0040").put("name", "나가상기업").put("region", "경남")
                 .put("iatf16949", false).put("iso14001", false);
         capability(second.putArray("matched_capabilities"), "ADC12", 5000);
         provenance(second, "MOCK");
+        expandedSummary(second, 5000);
         return body;
     }
 
     private static ObjectNode detail() {
         ObjectNode body = envelope();
-        ObjectNode data = body.putObject("data").put("supplier_id", "SUP-0001").put("name", "공시기업")
+        ObjectNode data = body.putObject("data").put("supplier_id", "SUP-0001").put("name", "가공시기업")
                 .put("region", "경남").put("iatf16949", true).put("iso14001", true);
         capability(data.putArray("capabilities"), "ADC12", 20000);
-        data.putObject("quality").put("defect_ppm", 120).put("on_time_delivery_rate", 95.7);
-        data.putArray("financials").addObject().put("year", 2024).put("revenue_krw", 500_000_000_000L)
-                .put("operating_profit_krw", -2_000_000_000L).putNull("debt_ratio").put("source", "DART");
-        data.putArray("recent_quotes").addObject().put("process", "다이캐스팅").put("material", "ADC12")
-                .put("unit_price_krw", 4200).put("quoted_at", "2026-03-02");
-        data.putObject("existing_contract").put("payment_days", 60).put("price_linkage", false);
+        data.putObject("quality").put("defect_ppm", 120).put("on_time_delivery_rate", 95.7).put("audit_grade", "A").put("years_dealing", 3);
+        data.putArray("financials").add(SupplierLookupResponseValidatorTest.financial(2024, "DART"));
+        data.putArray("recent_quotes").addObject().put("quote_id", 1).put("process", "다이캐스팅").put("material", "ADC12")
+                .put("unit_price_krw", 4200).put("quoted_at", "2026-03-02").put("source", "MOCK");
+        data.putObject("existing_contract").put("payment_days", 60).put("price_linkage", false).put("raw_material_ratio", 0.4).put("auto_renewal", false);
+        data.putNull("founded_year").putNull("employees").putNull("corp_code").putNull("stock_code")
+                .putNull("induty_code").putNull("biz_no_masked").putNull("created_at").putNull("updated_at");
         provenance(data, "DART");
         return body;
+    }
+
+    private static void expandedSummary(ObjectNode item, int capacity) {
+        item.putNull("founded_year").putNull("employees").putNull("updated_at").putNull("latest_quote")
+                .putNull("existing_contract").put("max_monthly_capacity", capacity);
+        item.putObject("quality").putNull("defect_ppm").putNull("on_time_delivery_rate").putNull("audit_grade").putNull("years_dealing");
+    }
+
+    private static ObjectNode quotes() {
+        ObjectNode body = envelope();
+        var data = body.putObject("data").put("supplier_id", "SUP-0001").put("page", 0).put("size", 20)
+                .put("total", 2).put("total_pages", 1).put("returned_count", 2).put("sort", "quoted_at").put("direction", "desc");
+        data.putArray("items").add(SupplierLookupResponseValidatorTest.quote(2)).add(SupplierLookupResponseValidatorTest.quote(1));
+        return body;
+    }
+
+    private static Map<String, String> query(URI uri) {
+        Map<String, String> result = new HashMap<>();
+        if (uri.getRawQuery() != null) for (String pair : uri.getRawQuery().split("&")) {
+            String[] parts = pair.split("=", 2);
+            result.put(URLDecoder.decode(parts[0], StandardCharsets.UTF_8), URLDecoder.decode(parts[1], StandardCharsets.UTF_8));
+        }
+        return result;
     }
 
     private static void serve(HttpExchange exchange) throws IOException {
         try (exchange) {
             String path = exchange.getRequestURI().getPath();
             PATHS.add(path);
+            QUERIES.add(query(exchange.getRequestURI()));
             ObjectNode body;
             if (STATUS.get() != 200) {
                 body = JSON.createObjectNode().putNull("request_id");
@@ -248,6 +335,7 @@ class SupplierLookupLiveHttpTest {
                 body = switch (path) {
                     case "/internal/business/catalog" -> catalog();
                     case "/internal/suppliers" -> search();
+                    case "/internal/suppliers/SUP-0001/quotes" -> quotes();
                     default -> detail();
                 };
                 CORRUPT.get().accept(body);

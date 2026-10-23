@@ -180,6 +180,8 @@ jobs:
         run: docker compose up --build -d --wait --wait-timeout 180
       - name: Verify default user, signup approval, MCP lookup and isolated follow-up chats
         run: python3 scripts/integration/compose_smoke.py --state /tmp/negopilot-compose-state.json
+      - name: Verify all supplier pages, optional filters, name search and global sorting
+        run: python3 scripts/integration/supplier_directory_smoke.py --base-url http://127.0.0.1:5173
       - name: Recreate containers while retaining volumes
         run: |
           docker compose down

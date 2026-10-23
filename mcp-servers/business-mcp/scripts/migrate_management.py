@@ -1,4 +1,4 @@
-"""Apply the non-destructive supplier-management migrations (V1 management, V2 contacts, V3 quote source) without starting Spring.
+"""Apply the non-destructive supplier-management migrations (V1 management, V2 contacts, V3 quote sources) without starting Spring.
 
 Requires an explicit DATABASE_URL and the existing eight business tables.
 The SQL is shared with Spring Flyway and is safe to run before or after Flyway.

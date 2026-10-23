@@ -13,36 +13,52 @@ from .business_supplier_service import BusinessSupplierService, BusinessUnavaila
 from .models import ErrorResponse
 from .paths import INTERNAL_ROOT
 from .settings import ApiSettings
-from .supplier_chat_models import SUPPLIER_ID_PATTERN, StrictModel, SupplierSearch
+from .supplier_chat_models import SUPPLIER_ID_PATTERN, StrictModel
 from .supplier_chat_service import SupplierNotFound
 from .supplier_lookup_models import (
     LiveCatalogResponse, LiveSupplierDetailResponse, LiveSupplierId, LiveSupplierSearchResponse,
+    LiveSupplierSearch, LiveQuoteSearch, LiveQuoteListResponse,
 )
 
 
 def invalid_supplier_detail_path(path: str, prefix: str = INTERNAL_ROOT + "/suppliers/") -> bool:
-    return path.startswith(prefix) and re.fullmatch(SUPPLIER_ID_PATTERN, path[len(prefix):]) is None
+    if not path.startswith(prefix):
+        return False
+    suffix = path[len(prefix):]
+    if suffix.endswith("/quotes"):
+        suffix = suffix[:-len("/quotes")]
+    return re.fullmatch(SUPPLIER_ID_PATTERN, suffix) is None
 
 
-def parse_search(request: Request) -> SupplierSearch:
+def parse_search(request: Request, *, quotes: bool = False) -> LiveSupplierSearch | LiveQuoteSearch:
     pairs = request.query_params.multi_items()
     values: dict[str, Any] = dict(pairs)
     if len(pairs) != len(values):
         raise ValueError("Duplicate query parameters")
-    if set(values) - {"process", "material", "region", "iatf_required", "iso14001_required",
-                      "min_monthly_capacity", "limit"}:
+    model = LiveQuoteSearch if quotes else LiveSupplierSearch
+    if "limit" in values:
+        if quotes or "page" in values or "size" in values:
+            raise ValueError("limit cannot be combined with pagination")
+        values["size"] = values.pop("limit")
+    if set(values) - set(model.model_fields):
         raise ValueError("Unknown query parameter")
     for field in ("iatf_required", "iso14001_required"):
         if field in values:
             if values[field] not in {"true", "false"}:
                 raise ValueError("Boolean query parameter must be true or false")
             values[field] = values[field] == "true"
-    for field in ("min_monthly_capacity", "limit"):
+    for field in ("min_monthly_capacity", "size", "page"):
         if field in values:
             if not re.fullmatch(r"[0-9]+", values[field]):
                 raise ValueError(f"{field} must be an integer")
             values[field] = int(values[field])
-    return SupplierSearch.model_validate(values)
+    return model.model_validate(values)
+
+
+def validate_page(result, filters) -> None:
+    for field in ("page", "size", "sort", "direction"):
+        if getattr(result, field) != getattr(filters, field):
+            raise ValueError("Response page does not match request")
 
 
 def add_supplier_lookup_routes(
@@ -84,7 +100,7 @@ def add_supplier_lookup_routes(
             return error_response(400, None, "VALIDATION_ERROR", "Invalid request.")
 
         async def operation() -> LiveCatalogResponse:
-            return LiveCatalogResponse(schema_version="0.3", mode="live", data=await get_service().catalog())
+            return LiveCatalogResponse(schema_version="0.4", mode="live", data=await get_service().catalog())
 
         return await run(operation, LiveCatalogResponse)
 
@@ -97,13 +113,29 @@ def add_supplier_lookup_routes(
 
         async def operation() -> LiveSupplierSearchResponse:
             result = LiveSupplierSearchResponse(
-                schema_version="0.3", mode="live", data=await get_service().search(filters)
+                schema_version="0.4", mode="live", data=await get_service().search(filters)
             )
-            if result.data.limit != filters.limit:
-                raise ValueError("Response limit does not match request")
+            validate_page(result.data, filters)
             return result
 
         return await run(operation, LiveSupplierSearchResponse)
+
+    @router.get("/suppliers/{supplier_id}/quotes", response_model=LiveQuoteListResponse)
+    async def quotes(supplier_id: LiveSupplierId, request: Request) -> JSONResponse:
+        try:
+            filters = parse_search(request, quotes=True)
+        except (ValueError, ValidationError):
+            return error_response(400, None, "VALIDATION_ERROR", "Invalid request.")
+
+        async def operation() -> LiveQuoteListResponse:
+            result = LiveQuoteListResponse(
+                schema_version="0.4", mode="live", data=await get_service().quotes(supplier_id, filters))
+            if result.data.supplier_id != supplier_id:
+                raise ValueError("Response supplier does not match request")
+            validate_page(result.data, filters)
+            return result
+
+        return await run(operation, LiveQuoteListResponse)
 
     @router.get("/suppliers/{supplier_id}", response_model=LiveSupplierDetailResponse)
     async def detail(supplier_id: LiveSupplierId, request: Request) -> JSONResponse:
@@ -112,7 +144,7 @@ def add_supplier_lookup_routes(
 
         async def operation() -> LiveSupplierDetailResponse:
             result = LiveSupplierDetailResponse(
-                schema_version="0.3", mode="live", data=await get_service().detail(supplier_id)
+                schema_version="0.4", mode="live", data=await get_service().detail(supplier_id)
             )
             if result.data.supplier_id != supplier_id:
                 raise ValueError("Response supplier does not match request")
