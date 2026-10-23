@@ -57,6 +57,7 @@ final class BusinessDataStore implements AutoCloseable {
                     .table("business_schema_history").baselineOnMigrate(true).baselineVersion("0")
                     .cleanDisabled(true).load().migrate();
             jdbc.execute("SELECT status,version,profile_origin_source,certification_source,capability_source,quality_source FROM suppliers LIMIT 0");
+            jdbc.execute("SELECT source FROM quotes LIMIT 0");
         } catch (RuntimeException failure) {
             pool.close();
             throw new IllegalStateException("Business database initialization failed. Check its existing tables and migration history. No automatic seed is run.");

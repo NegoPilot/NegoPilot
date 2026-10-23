@@ -15,7 +15,7 @@ from negopilot_agent.offer_proposal.service import build_package, package_files
 from negopilot_agent.offer_proposal.writer import NegotiationWriter, check_draft, payloads
 from tests.test_offer_proposal import FakeCaller, bench, propose, request
 
-BUYER = BuyerSettings(company='가상자동차부품', department='구매1팀', contact_name='홍길동', phone='02-000-0000',
+BUYER = BuyerSettings(company='SKALA 자동차', department='구매1팀', contact_name='홍길동', phone='02-000-0000',
                       email='buyer@example.com')
 
 
@@ -117,7 +117,7 @@ def test_supplier_documents_contain_no_internal_position():
     doc = doc.model_copy(update={'cover_letter': writing.cover_letter})
     for text in supplier_texts(doc):
         assert [w for w in FORBIDDEN if w in text] == []
-        for expected in ('단가 및 거래조건 제안서', '3,895원', '목적물 수령일부터 45일 이내 현금 지급', '가상자동차부품',
+        for expected in ('단가 및 거래조건 제안서', '3,895원', '목적물 수령일부터 45일 이내 현금 지급', 'SKALA 자동차',
                          '구매1팀', '홍길동', '연동 대상 원재료', '표준 하도급대금 연동계약서', '2026-10-30', '서명'):
             assert expected in text.replace('\n', ' ').replace('ㆍ', '·'), expected
 
@@ -267,3 +267,91 @@ def test_batch_keeps_going_after_a_failing_row():
     summary, files = asyncio.run(excel.run_batch(rows, produce))
     assert [s['status'] for s in summary] == ['offer', 'error'] and list(files) == ['002_a.pdf']
     assert '[SUPPLIER_NOT_FOUND]' in summary[1]['error']
+
+
+# ---------- 같은 뜻의 경고는 하나만 ----------
+
+def test_ratio_warning_is_not_duplicated_when_check_offer_already_flags_it():
+    def check(args):
+        return {'verdict_code': 'CHECK_NEEDED', 'violations': [], 'law_refs': [],
+                'warnings': [{'code': 'RAW_MATERIAL_RATIO_UNKNOWN', 'severity': 'warning', 'message': '원재료 비중을 몰라'}]}
+    proposal = propose(FakeCaller(bench(supplier__raw_material_ratio=None, supplier__price_linkage=False), check))
+    codes = [w['code'] for w in proposal.offer.warnings]
+    assert codes == ['RAW_MATERIAL_RATIO_UNKNOWN']                      # 우리 RAW_MATERIAL_RATIO_REQUIRED는 붙이지 않는다
+    assert [x.field for x in proposal.input_needed] == ['raw_material_ratio']   # 입력 필요는 그대로
+    assert proposal.offer.linkage_status == 'needs_input'
+
+
+# ---------- 발신 정보는 로그인 회원에서 ----------
+
+MEMBER = {'name': '김가연', 'department': '구매전략팀', 'job_title': '매니저', 'email': 'gayeon@example.com'}
+
+
+def member_document(monkeypatch, **sender_over):
+    monkeypatch.setenv('NEGOPILOT_BUYER_COMPANY', 'SKALA 자동차')
+    monkeypatch.delenv('NEGOPILOT_BUYER_PHONE', raising=False)
+    pkg = asyncio.run(build_package(request(sender=MEMBER | sender_over), FakeCaller(bench(market__median=4300.0))))
+    return pkg.document
+
+
+def test_member_sender_fills_proposal_without_placeholders(monkeypatch):
+    doc = member_document(monkeypatch)
+    assert doc.sender.model_dump() == {'company': 'SKALA 자동차', 'department': '구매전략팀', 'contact_name': '김가연',
+                                       'job_title': '매니저', 'email': 'gayeon@example.com'}   # 전화 없음은 아예 뺀다
+    for text in supplier_texts(doc):
+        flat = text.replace('\n', ' ')
+        assert '김가연 매니저' in flat and '구매전략팀' in flat and 'gayeon@example.com' in flat
+        assert '[' not in flat and '전화' not in flat                     # 자리 표시도, 빈 전화 줄도 없다
+
+
+def test_phone_comes_from_request_then_env(monkeypatch):
+    assert member_document(monkeypatch, phone='02-123-4567').sender.phone == '02-123-4567'
+    monkeypatch.setenv('NEGOPILOT_BUYER_PHONE', '02-999-0000')
+    pkg = asyncio.run(build_package(request(sender=MEMBER), FakeCaller(bench())))
+    assert pkg.document.sender.phone == '02-999-0000'
+    assert '전화 02-999-0000' in supplier_texts(pkg.document)[0]
+
+
+def test_sender_is_part_of_the_content_hash(monkeypatch):
+    doc = member_document(monkeypatch)
+    other = doc.model_copy(update={'sender': doc.sender.model_copy(update={'email': 'someone@example.com'})})
+    assert other.hashed(supplier.attachments(other)).content_hash != doc.content_hash
+
+
+def test_missing_sender_falls_back_to_env_without_phone_placeholder(monkeypatch):
+    for key in ('NEGOPILOT_BUYER_PHONE', 'NEGOPILOT_BUYER_EMAIL'):
+        monkeypatch.delenv(key, raising=False)
+    buyer = BuyerSettings.from_env()
+    assert buyer.phone is None and buyer.email == '[이메일]'
+    assert buyer.contact() == '[담당자] ([이메일])'
+
+
+@pytest.mark.parametrize('field,value', [('email', 'not-an-email'), ('name', ''), ('extra', 'x'), ('department', 1)])
+def test_sender_rejects_bad_values(field, value):
+    with pytest.raises(ValueError):
+        request(sender=MEMBER | {field: value})
+
+
+def test_company_defaults_to_skala(monkeypatch):
+    monkeypatch.delenv('NEGOPILOT_BUYER_COMPANY', raising=False)
+    assert BuyerSettings.from_env().company == 'SKALA 자동차'
+    sender = asyncio.run(build_package(request(sender=MEMBER), FakeCaller(bench()))).document.sender
+    assert sender.company == 'SKALA 자동차' and sender.contact_name == '김가연'
+
+
+def test_sender_passes_mail_mcp_placeholder_guard(monkeypatch):
+    """mail-mcp(#247) check_document와 같은 규칙: 발신 정보에 빈 값·자리표시가 있으면 보내지 않는다."""
+    import re
+    placeholder = re.compile(r"^\s*\[[^\]]*\]\s*$")
+
+    def blank(sender: dict) -> list[str]:
+        return [k for k, v in sender.items() if not v or placeholder.match(str(v))]
+
+    doc = member_document(monkeypatch).model_dump(mode='json')
+    assert blank(doc['sender']) == [] and 'phone' not in doc['sender']
+    assert OfferDocument.model_validate(doc).sender.phone is None         # 빠진 전화는 다시 읽어도 None
+    no_title = member_document(monkeypatch, job_title='').model_dump(mode='json')['sender']
+    assert 'job_title' not in no_title and blank(no_title) == []
+    monkeypatch.delenv('NEGOPILOT_BUYER_CONTACT_NAME', raising=False)
+    fallback = BuyerSettings.from_env().model_dump()
+    assert 'contact_name' in blank(fallback)                               # 설정도 회원도 없으면 발송이 막힌다

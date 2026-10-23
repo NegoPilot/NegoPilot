@@ -13,7 +13,7 @@ import tools.jackson.databind.JsonNode;
 @Component
 public final class GenerationResponseValidator {
     public void validate(JsonNode response, UUID expectedRequestId, JsonNode expectedContext) {
-        object(response, "schema_version", "request_id", "mode", "execution_status", "generation_status",
+        objectWithOptional(response, "legal_review", "schema_version", "request_id", "mode", "execution_status", "generation_status",
                 "context", "decomposition", "routing", "answer", "error");
         literal(response.get("schema_version"), "0.3");
         oneOf(response.get("mode"), Set.of("live", "stub"));

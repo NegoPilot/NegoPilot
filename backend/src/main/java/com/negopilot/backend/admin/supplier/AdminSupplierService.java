@@ -91,6 +91,12 @@ public final class AdminSupplierService {
         });
     }
 
+    Map<String, Object> quotes(String id, ObjectNode body, UUID actor, UUID requestId) {
+        // Quotes are a history: append rows and never replace existing ones.
+        return mutate(id, body.get("version").longValue(), actor, requestId, "QUOTES", () ->
+                repository.appendQuotes(id, body.get("quotes")));
+    }
+
     Map<String, Object> status(String id, ObjectNode body, UUID actor, UUID requestId) {
         return mutate(id, body.get("version").longValue(), actor, requestId, "STATUS", () ->
                 repository.updateStatus(id, body.get("status").stringValue()));

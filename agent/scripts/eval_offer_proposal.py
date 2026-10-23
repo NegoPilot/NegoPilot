@@ -144,7 +144,9 @@ def ratio_ok(bench: dict, req: dict, out: dict) -> bool | None:
         return None
     if req.get('price_linkage') or bench['supplier']['price_linkage']:
         return out['offer']['linkage_status'] == 'included'
-    return (out['offer']['linkage_status'] == 'needs_input'
+    ratio_warnings = [w for w in out['offer']['warnings']
+                      if w['code'] in ('RAW_MATERIAL_RATIO_UNKNOWN', 'RAW_MATERIAL_RATIO_REQUIRED')]
+    return (out['offer']['linkage_status'] == 'needs_input' and len(ratio_warnings) == 1   # 같은 뜻의 경고는 하나만
             and [x['field'] for x in out['input_needed']] == ['raw_material_ratio'])
 
 

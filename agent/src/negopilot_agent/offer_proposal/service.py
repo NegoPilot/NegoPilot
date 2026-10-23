@@ -39,7 +39,7 @@ async def build_package(req: OfferProposalRequest, caller: ToolCaller | None = N
     proposal = await OfferProposer(caller).propose(req)
     if proposal.offer is None:
         return OfferPackage(proposal=proposal, document=None, writing=None)
-    document = build_document(proposal, buyer)
+    document = build_document(proposal, buyer, sender=req.sender)
     writing = await writer.write(proposal, document) if writer else None
     if writing:
         document = apply_writing(document, writing)

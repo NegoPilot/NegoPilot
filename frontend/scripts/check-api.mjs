@@ -172,7 +172,15 @@ try {
 console.log('API regression checks passed: DB history, raw response, optional suggested questions without a count cap, flat MCP fields, units, field provenance, FAILED, CSRF, cookies, 204, timeout and cancellation.')
 
 // Review form numeric inputs can be strings or Vue-coerced numbers. Blanks stay unknown.
+const legalWorkflow = await moduleFrom('../src/api/legal-workflow.ts', [
+  ["import { ApiError } from './client'", "class ApiError extends Error {}"],
+])
+assert.equal(legalWorkflow.parseLegalReview(undefined), undefined)
+assert.throws(() => legalWorkflow.parseLegalReview({ review_id: 'id' }))
+const signedReview = {review_id:'review',version:'p0.1',input_hash:'hash',review_token:'signed.snapshot',assessment:{findings:[],missing_fields:[]}}
+assert.equal(legalWorkflow.parseLegalReview(signedReview), signedReview)
 const review = await moduleFrom('../src/api/review.ts', [
+  ["import { parseLegalReview } from './legal-workflow'", "const parseLegalReview = v => v"],
   ["import { request } from './client'", "const request = () => { throw new Error('No network in unit checks') }"],
   ["import { parseReviewResponse } from './conversation-contract'", "const parseReviewResponse = v => v"],
 ])
