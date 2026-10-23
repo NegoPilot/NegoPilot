@@ -1,0 +1,35 @@
+{
+  "note": "원가 상승 단가 재협상 개방형 질문은 조정 협의와 연동 약정 law_check 두 개로 나눈다 (#220)",
+  "query": "원자재값이 많이 올랐는데 협력사랑 단가 다시 정하려면 뭘 챙겨야 해?",
+  "expected": {
+    "schema_version": "0.1",
+    "status": "ok",
+    "original_query": "원자재값이 많이 올랐는데 협력사랑 단가 다시 정하려면 뭘 챙겨야 해?",
+    "sub_queries": [
+      {
+        "id": "q1",
+        "question": "공급원가 변동에 따른 원사업자와 수급사업자의 하도급대금 조정 협의 의무와 절차",
+        "original_text": "원자재값이 많이 올랐는데 협력사랑 단가 다시 정하려면 뭘 챙겨야 해?",
+        "intent": "law_check",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {},
+        "inputs": [],
+        "depends_on": []
+      },
+      {
+        "id": "q2",
+        "question": "주요 원재료 하도급대금 연동 약정을 서면에 적어야 하는 원사업자의 의무와 예외",
+        "original_text": "원자재값이 많이 올랐는데 협력사랑 단가 다시 정하려면 뭘 챙겨야 해?",
+        "intent": "law_check",
+        "grounding": "required",
+        "confidence": 0.9,
+        "entities": {},
+        "inputs": [],
+        "depends_on": []
+      }
+    ],
+    "clarification": null,
+    "assumptions": []
+  }
+}
