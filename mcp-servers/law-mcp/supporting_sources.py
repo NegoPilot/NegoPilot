@@ -1,4 +1,4 @@
-"""Pinned official supporting sources, independent of the six-law refresh lifecycle."""
+"""Pinned official supporting sources, loaded separately from the six-law index."""
 import hashlib
 import json
 from pathlib import Path
