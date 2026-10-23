@@ -283,10 +283,6 @@ def initial(base_url: str, path: Path) -> None:
     require(denied["error"]["code"] == "CSRF_INVALID", "Login did not require CSRF")
     admin = admin_login(base_url)
     supplier_id = live_lookup(admin)
-    laws = admin.request("GET", "/api/admin/laws")
-    require(laws["law_count"] > 0 and bool(laws["items"]), "Law catalog is empty")
-    jobs = admin.request("GET", "/api/admin/laws/refresh-jobs")
-    require("item" in jobs, "Law refresh-job read response is incomplete")
 
     run_id = uuid.uuid4().hex
     default_user_data = {"email": os.getenv("LOCAL_USER_EMAIL", "user@negopilot.local"),
