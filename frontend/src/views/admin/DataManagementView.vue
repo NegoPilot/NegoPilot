@@ -2,23 +2,21 @@
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 
-import { SEED_SUPPLIER_MAX, STORED_LAWS } from '@/data/dataCatalog'
+import { SEED_SUPPLIER_MAX } from '@/data/dataCatalog'
 import { downloadJson, useDataRequests } from '@/stores/dataRequests'
 
 const { state, remove } = useDataRequests()
 
-const versionCount = STORED_LAWS.reduce((n, l) => n + l.versions.length, 0)
 const kpis = computed(() => [
   { label: '협력사', value: `${SEED_SUPPLIER_MAX}곳`, sub: 'business-mcp 시드 (DART + 가상)' },
-  { label: '법령', value: `${STORED_LAWS.length}개`, sub: `저장된 판 ${versionCount}개` },
   { label: '등록 요청', value: `${state.items.length}건`, sub: '이 화면에서 만든 요청' },
 ])
-const KIND_LABEL = { supplier: '협력사', law: '법령' } as const
+const KIND_LABEL = { supplier: '협력사' } as const
 </script>
 
 <template>
   <main class="page-body">
-    <p class="intro">협상 Agent가 조회하는 협력사 DB와 법령 원문을 추가합니다.</p>
+    <p class="intro">협상 Agent가 조회하는 협력사 DB에 데이터를 추가합니다.</p>
 
     <div class="kpis">
       <div v-for="k in kpis" :key="k.label" class="panel kpi-card">
@@ -33,11 +31,6 @@ const KIND_LABEL = { supplier: '협력사', law: '법령' } as const
         <strong>협력사 등록 →</strong>
         <span>기본 정보, 공정별 생산능력, 품질·납기, 거래 조건, 견적, 재무</span>
         <span class="muted">business-mcp · PostgreSQL</span>
-      </RouterLink>
-      <RouterLink :to="{ name: 'admin-law-new' }" class="panel action">
-        <strong>법령 등록 →</strong>
-        <span>legalize-kr에서 새 법령 받기, 개정본 원문 올리기</span>
-        <span class="muted">law-mcp · 원문 파일 색인</span>
       </RouterLink>
     </div>
 
@@ -71,7 +64,7 @@ const KIND_LABEL = { supplier: '협력사', law: '법령' } as const
       <p v-else class="muted">아직 등록 요청이 없습니다.</p>
     </section>
 
-    <p class="footnote">등록 요청은 새로고침하면 사라집니다. 협력사 수와 법령 목록은 저장소의 시드·원문 기준입니다.</p>
+    <p class="footnote">등록 요청은 새로고침하면 사라집니다. 협력사 수는 저장소의 시드 기준입니다.</p>
   </main>
 </template>
 

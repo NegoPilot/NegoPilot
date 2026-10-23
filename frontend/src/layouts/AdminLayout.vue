@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 
 import { describeError } from '@/utils/errors'
@@ -8,6 +8,21 @@ import { session, signOut } from '@/stores/session'
 // 관리자 화면: 업무 화면과 다른 사이드바를 쓴다. 사이드바는 묶음 3개, 묶음 안 화면은 상단 탭으로 오간다
 const route = useRoute()
 const router = useRouter()
+
+// 상단바와 사이드바는 화면에 고정한다. 상단바 높이를 CSS 변수로 알려 주면
+// 따라오는 패널(등록 요약)과 오류 칸으로 이동할 때 상단바에 가리지 않는다
+const header = ref<HTMLElement | null>(null)
+let headerObserver: ResizeObserver | null = null
+onMounted(() => {
+  headerObserver = new ResizeObserver(([entry]) => {
+    if (entry) document.documentElement.style.setProperty('--admin-header-height', `${entry.borderBoxSize[0]?.blockSize ?? 0}px`)
+  })
+  if (header.value) headerObserver.observe(header.value)
+})
+onUnmounted(() => {
+  headerObserver?.disconnect()
+  document.documentElement.style.removeProperty('--admin-header-height')
+})
 
 const logoutError = ref<string | null>(null)
 async function logout() {
@@ -75,7 +90,7 @@ const connected = computed(() =>
     </nav>
 
     <div class="content">
-      <header class="admin-header">
+      <header ref="header" class="admin-header">
         <div class="page-header">
           <h1>{{ group.label }}</h1>
           <span class="right">
@@ -116,6 +131,11 @@ const connected = computed(() =>
   min-height: 100vh;
 }
 .sidebar {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  overflow-y: auto;
   flex: 0 0 196px;
   background: var(--sidebar);
   border-right: 1px solid var(--border);
@@ -160,6 +180,9 @@ const connected = computed(() =>
   font-weight: 600;
 }
 .admin-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
@@ -201,6 +224,9 @@ const connected = computed(() =>
 }
 @media (max-width: 760px) {
   .sidebar {
+    position: static;
+    height: auto;
+    overflow-y: visible;
     flex: 1 1 100%;
     flex-direction: row;
     flex-wrap: wrap;

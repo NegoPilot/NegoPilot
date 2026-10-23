@@ -133,12 +133,6 @@ export const router = createRouter({
       meta: { title: '협력사 상세', layout: 'admin' },
     },
     {
-      path: '/admin/data/laws/new',
-      name: 'admin-law-new',
-      component: () => import('@/views/admin/LawRegisterView.vue'),
-      meta: { title: '법령 등록', layout: 'admin' },
-    },
-    {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
       component: () => import('@/views/NotFoundView.vue'),

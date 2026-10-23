@@ -59,7 +59,7 @@ const rankingWarning = computed(() => isQualityBlank(props.form.quality) || !pro
 <style scoped>
 .summary {
   position: sticky;
-  top: 16px;
+  top: calc(var(--admin-header-height, 0px) + 16px);
   display: flex;
   flex-direction: column;
   gap: 10px;
