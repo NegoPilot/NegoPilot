@@ -267,7 +267,7 @@ class Router:
     async def _referenced_articles(self, calls: list[ToolCall]) -> list[ToolCall]:
         """결과에 붙은 law_refs({law, article_no})를 get_article로 미리 조회한다.
 
-        rank_suppliers: ranked[*].flags[*].law_refs, check_offer: law_refs.
+        rank_suppliers: ranked[*].flags[*].law_refs, get_supplier·check_offer: law_refs.
         check_offer에 계약 시점(as_of)을 넘겼으면 같은 날 시행판의 조문을 가져온다 (check_offer v2).
         같은 조문이 항별로 여러 번 나와도 조문 전문은 한 번만 조회한다. 항은 Generation이 근거를 고를 때 쓴다.
         조회 실패는 하위 질문을 실패로 만들지 않고 그 ToolCall의 error로만 남긴다.

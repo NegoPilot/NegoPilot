@@ -355,11 +355,25 @@ def test_get_supplier_retains_its_flat_overview_and_detail_shape(monkeypatch):
     calls = mock_query(monkeypatch, [candidate()], [overview], capabilities, financials, quotes)
 
     assert server.get_supplier("1") == {
-        **overview, "capabilities": capabilities, "financials": financials, "recent_quotes": quotes,
+        **overview, "flags": [], "law_refs": [],
+        "capabilities": capabilities, "financials": financials, "recent_quotes": quotes,
     }
     assert len(calls) == 5
     assert calls[0][1] == ("SUP-0001", server.SUPPLIER_CANDIDATES_SHOWN)   # find_suppliers와 같은 ID 조회
     assert all(params == ("SUP-0001",) for _, params in calls[1:])
+
+
+def test_get_supplier_flags_existing_contract_terms(monkeypatch):
+    """기존 계약 조건을 rank_suppliers와 같은 규칙으로 점검하고 조문을 law_refs로 모은다 (#180)."""
+    overview = {"supplier_id": "SUP-0001", "name": "한빛정밀", "payment_days": 90, "years_dealing": 3,
+                "price_linkage": False, "raw_material_ratio": 0.4, "source": "MOCK"}
+    mock_query(monkeypatch, [candidate()], [overview], [], [], [])
+
+    r = server.get_supplier("1")
+    assert [f["code"] for f in r["flags"]] == ["PAYMENT_DAYS_OVER_60", "LINKAGE_TERMS_MISSING"]
+    refs = {(ref["law"], ref["article_no"]) for f in r["flags"] for ref in f["law_refs"]}
+    assert {(ref["law"], ref["article_no"]) for ref in r["law_refs"]} == refs
+    assert len(r["law_refs"]) == len(refs)
 
 
 @pytest.mark.parametrize(("supplier", "responses", "error"), [
