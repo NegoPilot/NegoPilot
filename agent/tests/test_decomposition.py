@@ -321,8 +321,8 @@ async def test_user_given_as_of_is_kept():
 
 @pytest.mark.parametrize("as_of", [date.today().isoformat(), "2025-01-01"])
 async def test_as_of_on_disallowed_intent_is_dropped_without_retry(as_of):
-    """offer_check는 as_of를 받지 않는다. 날짜와 상관없이 지우고 재시도하지 않는다."""
-    data = fixture("05")
+    """supplier_detail은 as_of를 받지 않는다. 날짜와 상관없이 지운다."""
+    data = fixture("02")
     with_as_of = json.loads(json.dumps(data["expected"]))
     with_as_of["sub_queries"][0]["entities"]["as_of"] = as_of
     fake = FakeClaude(message_json(json.dumps(with_as_of, ensure_ascii=False)))
