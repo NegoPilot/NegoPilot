@@ -92,6 +92,7 @@ class LiveFinancials(Financials):
 
 class LiveQuote(RecentQuote):
     quote_id: int = Field(ge=1)
+    source: Literal["MOCK", "MANUAL"]
 
 
 class LiveProfile(StrictModel):

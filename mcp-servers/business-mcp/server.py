@@ -416,7 +416,10 @@ def get_supplier(supplier: str) -> dict:
     law_refs는 flags의 조문을 겹치지 않게 모은 것이다. law-mcp get_article로 넘겨 조문을 인용한다.
     """
     sid = resolve_supplier_id(supplier)
-    records = query("SELECT o.*, s.created_at, s.updated_at FROM supplier_overview o "
+    records = query("SELECT o.*, s.created_at, s.updated_at, "
+                    "ARRAY(SELECT DISTINCT qt.source FROM quotes qt "
+                    "WHERE qt.supplier_id = s.supplier_id ORDER BY qt.source) AS quote_sources "
+                    "FROM supplier_overview o "
                     "JOIN suppliers s USING (supplier_id) WHERE o.supplier_id = %s AND o.status = 'ACTIVE'", (sid,))
     if not records:
         raise ToolError("[SUPPLIER_NOT_FOUND] 활성 협력사가 없다")
@@ -435,7 +438,7 @@ def get_supplier(supplier: str) -> dict:
         "financials": query("SELECT bsns_year, fs_div, source, revenue, operating_income, net_income, "
                             "total_assets, total_liabilities, total_equity FROM financials "
                             "WHERE supplier_id = %s ORDER BY bsns_year", (sid,)),
-        "recent_quotes": query("SELECT quote_id, process, material, unit_price, quoted_at FROM quotes "
+        "recent_quotes": query("SELECT quote_id, process, material, unit_price, quoted_at, source FROM quotes "
                                "WHERE supplier_id = %s ORDER BY quoted_at DESC, quote_id DESC LIMIT 5", (sid,)),
     }
 

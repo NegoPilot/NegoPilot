@@ -290,7 +290,7 @@ class SupplierLookupLiveHttpTest {
         data.putObject("quality").put("defect_ppm", 120).put("on_time_delivery_rate", 95.7).put("audit_grade", "A").put("years_dealing", 3);
         data.putArray("financials").add(SupplierLookupResponseValidatorTest.financial(2024, "DART"));
         data.putArray("recent_quotes").addObject().put("quote_id", 1).put("process", "다이캐스팅").put("material", "ADC12")
-                .put("unit_price_krw", 4200).put("quoted_at", "2026-03-02");
+                .put("unit_price_krw", 4200).put("quoted_at", "2026-03-02").put("source", "MOCK");
         data.putObject("existing_contract").put("payment_days", 60).put("price_linkage", false).put("raw_material_ratio", 0.4).put("auto_renewal", false);
         data.putNull("founded_year").putNull("employees").putNull("corp_code").putNull("stock_code")
                 .putNull("induty_code").putNull("biz_no_masked").putNull("created_at").putNull("updated_at");

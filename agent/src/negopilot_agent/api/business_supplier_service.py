@@ -64,13 +64,14 @@ def _aggregate_sources(sources: set[str], allowed: set[str]) -> str:
 
 
 def _provenance(raw: dict[str, Any], financial_sources: set[str], *,
-                has_contract: bool, has_quotes: bool) -> dict[str, str]:
+                has_contract: bool, quote_sources: set[str]) -> dict[str, str]:
     # 기본 정보와 재무의 출처는 독립적이다. 없는 품질 자료의 기본 출처는 집계하지 않는다.
     operations = {raw["certification_source"], raw["capability_source"]}
     if raw["defect_ppm"] is not None or raw["on_time_rate"] is not None:
         operations.add(raw["quality_source"])
-    if has_contract or has_quotes:
-        operations.add("MOCK")  # 계약과 견적은 현재 수정할 수 없는 합성 자료다.
+    operations.update(quote_sources)
+    if has_contract:
+        operations.add("MOCK")  # 기존 계약은 합성 자료이며 견적은 DB의 출처를 따른다.
     return {
         "profile": raw["source"],
         "financials": _aggregate_sources(financial_sources, {"DART", "MOCK"}),
@@ -103,22 +104,22 @@ def _contract(raw: dict[str, Any]) -> dict[str, Any] | None:
 
 def _quote(row: dict[str, Any]) -> dict[str, Any]:
     return {"quote_id": row["quote_id"], "process": row["process"], "material": row["material"],
-            "unit_price_krw": row["unit_price"], "quoted_at": row["quoted_at"]}
+            "unit_price_krw": row["unit_price"], "quoted_at": row["quoted_at"], "source": row["source"]}
 
 
-def _profile(raw: dict[str, Any], financial_sources: set[str], *, has_quotes: bool) -> dict[str, Any]:
+def _profile(raw: dict[str, Any], financial_sources: set[str]) -> dict[str, Any]:
     return {
         **{key: raw[key] for key in ("supplier_id", "name", "region", "iatf16949", "iso14001",
                                    "founded_year", "employees", "updated_at")},
         "quality": _quality(raw), "existing_contract": _contract(raw),
         "provenance": _provenance(raw, financial_sources,
-                                  has_contract=raw["payment_days"] is not None, has_quotes=has_quotes),
+                                  has_contract=raw["payment_days"] is not None, quote_sources=set(raw["quote_sources"])),
     }
 
 
 def _detail(raw: dict[str, Any]) -> LiveSupplierDetail:
     return LiveSupplierDetail.model_validate({
-        **_profile(raw, {row["source"] for row in raw["financials"]}, has_quotes=bool(raw["recent_quotes"])),
+        **_profile(raw, {row["source"] for row in raw["financials"]}),
         **{key: raw[key] or None for key in ("corp_code", "stock_code", "induty_code", "biz_no_masked", "created_at")},
         "capabilities": [_capability(row) for row in raw["capabilities"]],
         "financials": [{
@@ -161,7 +162,7 @@ class BusinessSupplierService:
         raw = await self._fetch(lambda business: business.call_tool(
             "list_suppliers_page", filters.model_dump(exclude_none=True)))
         items = [{
-            **_profile(row, set(row["financial_sources"]), has_quotes=row["has_quotes"]),
+            **_profile(row, set(row["financial_sources"])),
             "matched_capabilities": [_capability(cap) for cap in row["matched_capabilities"]],
             "max_monthly_capacity": row["max_monthly_capacity"],
             "latest_quote": None if row["latest_quote"] is None else _quote(row["latest_quote"]),

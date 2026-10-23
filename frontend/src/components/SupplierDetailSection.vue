@@ -180,6 +180,7 @@ function timestamp(value: string | null) { return value ? new Date(value).toLoca
           <h3>거래 정보</h3>
           <dl>
             <dt>최근 견적</dt><dd>{{ latestQuote ? formatKrw(latestQuote.unit_price_krw) : NO_DATA }}</dd>
+            <dt>견적 출처</dt><dd>{{ latestQuote ? provenanceLabel(latestQuote.source) : NO_DATA }}</dd>
             <dt>월 공급능력</dt><dd>{{ mainCapability ? `${formatInteger(mainCapability.monthly_capacity)}개` : NO_DATA }}</dd>
             <dt>공정</dt><dd>{{ mainCapability?.process ?? NO_DATA }}</dd>
             <dt>적용 소재</dt><dd>{{ mainCapability?.material ?? NO_DATA }}</dd>
@@ -252,7 +253,7 @@ function timestamp(value: string | null) { return value ? new Date(value).toLoca
         </div>
         <div class="info-box wide-box quotes-box" :aria-busy="quoteLoading">
           <h3>전체 견적 이력</h3>
-          <p class="footnote">운영 정보 출처: {{ provenanceLabel(supplier.provenance.operations) }}. 단가 비교는 동일 공정과 소재를 지정한 경우에만 지원합니다.</p>
+          <p class="footnote">견적마다 저장된 출처를 표시합니다. 단가 비교는 동일 공정과 소재를 지정한 경우에만 지원합니다.</p>
           <form class="quote-controls" @submit.prevent="changeQuoteFilter">
             <label for="quote-process">견적 공정
               <input id="quote-process" v-model="quoteProcessInput" type="text" list="quote-process-options" :maxlength="TEXT_MAX" placeholder="전체 공정" autocomplete="off" />
@@ -276,8 +277,8 @@ function timestamp(value: string | null) { return value ? new Date(value).toLoca
           <template v-else-if="quotes">
             <div v-if="quotes.items.length" class="table-wrap">
               <table>
-                <thead><tr><th>견적 ID</th><th>견적일</th><th>공정</th><th>소재</th><th>단가</th></tr></thead>
-                <tbody><tr v-for="q in quotes.items" :key="q.quote_id"><td>{{ q.quote_id }}</td><td>{{ q.quoted_at }}</td><td>{{ q.process }}</td><td>{{ q.material }}</td><td class="num">{{ formatKrw(q.unit_price_krw) }}</td></tr></tbody>
+                <thead><tr><th>견적 ID</th><th>견적일</th><th>공정</th><th>소재</th><th>단가</th><th>출처</th></tr></thead>
+                <tbody><tr v-for="q in quotes.items" :key="q.quote_id"><td>{{ q.quote_id }}</td><td>{{ q.quoted_at }}</td><td>{{ q.process }}</td><td>{{ q.material }}</td><td class="num">{{ formatKrw(q.unit_price_krw) }}</td><td>{{ provenanceLabel(q.source) }}</td></tr></tbody>
               </table>
             </div>
             <p v-else class="muted">조건에 맞는 견적 이력이 없습니다.</p>

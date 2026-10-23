@@ -87,8 +87,9 @@ try {
 console.log('Supplier lookup checks passed: default all, independent filters, URL restoration, pagination, scoped price sorting, missing/zero values and paginated API requests.')
 
 // Execute the real workspace setup with a memory router and renderer. No browser or server is started.
-const { parse, compileScript } = await import('@vue/compiler-sfc')
-const { createRenderer, reactive, nextTick } = await import('vue')
+const { parse, compileScript, compileTemplate } = await import('@vue/compiler-sfc')
+const { createRenderer, createSSRApp, reactive, nextTick } = await import('vue')
+const { renderToString } = await import('vue/server-renderer')
 const route = reactive({ query: {} })
 const componentCalls = { list: [], detail: [], catalog: 0 }
 const context = {
@@ -184,15 +185,15 @@ console.log('Supplier workspace component checks passed: initial load, no N+1 re
 
 // Historic quote filters must remain usable after a supplier's current capabilities change.
 const quoteCalls = []
-const historicQuote = { quote_id: 1, process: '과거 공정', material: '과거 소재', unit_price_krw: 100, quoted_at: '2025-01-01' }
+const historicQuote = { quote_id: 1, source: 'MOCK', process: '과거 공정', material: '과거 소재', unit_price_krw: 100, quoted_at: '2025-01-01' }
 const quoteProps = reactive({ supplier: {
-  supplier_id: 'SUP-0001', capabilities: [{ process: '현재 공정', material: '현재 소재', monthly_capacity: 1000 }],
+  supplier_id: 'SUP-0001', name: '출처 확인 협력사', region: '서울', quality: { defect_ppm: 0, on_time_delivery_rate: 100 }, capabilities: [{ process: '현재 공정', material: '현재 소재', monthly_capacity: 1000 }],
   recent_quotes: [{ ...historicQuote, process: '최근 공정', material: '최근 소재' }],
-  provenance: { profile: 'DART', operations: 'MOCK', financials: 'DART' },
+  provenance: { profile: 'DART', operations: 'MIXED', financials: 'DART' },
 } })
 globalThis.__supplierQuoteCheck = async (id, params) => {
   quoteCalls.push({ id, ...structuredClone(params) })
-  return { supplier_id: id, ...params, items: [historicQuote], returned_count: 1, total: 1, total_pages: 1 }
+  return { supplier_id: id, ...params, items: [historicQuote, { ...historicQuote, quote_id: 2, source: 'MANUAL' }], returned_count: 2, total: 2, total_pages: 1 }
 }
 const detailSource = await readFile(new URL('../src/components/SupplierDetailSection.vue', import.meta.url), 'utf8')
 let quoteSetup = compileScript(parse(detailSource).descriptor, { id: 'supplier-quote-check' }).content
@@ -217,6 +218,18 @@ try {
   await settle()
   assert.equal(quoteCalls.length, 1)
   assert.ok(quoteState.quoteProcessOptions.value.includes('과거 공정'), 'Loaded historic quote values also become suggestions')
+  const template = compileTemplate({ source: parse(detailSource).descriptor.template.content, filename: 'SupplierDetailSection.vue', id: 'quote-source-check', ssr: true, ssrCssVars: [] })
+  assert.deepEqual(template.errors, [])
+  const templateJs = template.code.replaceAll('"vue/server-renderer"', JSON.stringify(import.meta.resolve('vue/server-renderer')))
+    .replaceAll('"vue"', JSON.stringify(import.meta.resolve('vue')))
+  const { ssrRender } = await import(`data:text/javascript;base64,${Buffer.from(templateJs).toString('base64')}`)
+  const html = await renderToString(createSSRApp({ ssrRender, components: { NumberedPagination: { render: () => null }, ErrorNotice: { render: () => null } },
+    setup: () => ({ ...quoteState, supplier: quoteProps.supplier }),
+  }))
+  const rows = [...html.matchAll(/<tr>([\s\S]*?)<\/tr>/g)].map(match => match[1])
+  assert.match(rows.find(row => row.startsWith('<td>1</td>')), /MOCK 가상 데이터/, 'Seed quote retains its individual source')
+  assert.match(rows.find(row => row.startsWith('<td>2</td>')), /관리자 입력/, 'Administrator quote must not inherit the aggregate MIXED/MOCK label')
+
   quoteState.quoteProcessInput.value = '  더 오래된 공정  '
   quoteState.quoteMaterialInput.value = '  더 오래된 소재  '
   await settle()

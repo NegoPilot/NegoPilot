@@ -109,7 +109,8 @@ def list_suppliers(query: Callable, *, q=None, process=None, material=None, regi
                    ARRAY(SELECT DISTINCT f.source FROM financials f
                          WHERE f.supplier_id = s.supplier_id ORDER BY f.source) AS financial_sources,
                    ct.supplier_id IS NOT NULL AS has_contract,
-                   EXISTS(SELECT 1 FROM quotes qt WHERE qt.supplier_id = s.supplier_id) AS has_quotes
+                   ARRAY(SELECT DISTINCT qt.source FROM quotes qt
+                         WHERE qt.supplier_id = s.supplier_id ORDER BY qt.source) AS quote_sources
             FROM suppliers s
             LEFT JOIN quality ql USING (supplier_id)
             LEFT JOIN contracts ct USING (supplier_id)
@@ -121,7 +122,7 @@ def list_suppliers(query: Callable, *, q=None, process=None, material=None, regi
             ) caps ON TRUE
             LEFT JOIN LATERAL (
                 SELECT jsonb_build_object('quote_id', qt.quote_id, 'process', qt.process,
-                         'material', qt.material, 'unit_price', qt.unit_price, 'quoted_at', qt.quoted_at) AS quote,
+                         'material', qt.material, 'unit_price', qt.unit_price, 'quoted_at', qt.quoted_at, 'source', qt.source) AS quote,
                        qt.quoted_at, qt.unit_price
                 FROM quotes qt WHERE qt.supplier_id = s.supplier_id{quote_where}
                 ORDER BY qt.quoted_at DESC, qt.quote_id DESC LIMIT 1
@@ -150,7 +151,7 @@ def list_quotes(query: Callable, *, supplier_id, process=None, material=None,
         WITH active AS MATERIALIZED (
             SELECT supplier_id FROM suppliers WHERE supplier_id = %s AND status = 'ACTIVE'
         ), filtered AS MATERIALIZED (
-            SELECT qt.quote_id, qt.process, qt.material, qt.unit_price, qt.quoted_at
+            SELECT qt.quote_id, qt.process, qt.material, qt.unit_price, qt.quoted_at, qt.source
             FROM quotes qt JOIN active USING (supplier_id) WHERE TRUE{where}
         ), paged AS (
             SELECT *, row_number() OVER (ORDER BY {order}, quote_id DESC) AS ordinal

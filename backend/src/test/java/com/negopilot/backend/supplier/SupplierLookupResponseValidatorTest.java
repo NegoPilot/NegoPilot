@@ -158,13 +158,51 @@ class SupplierLookupResponseValidatorTest {
         assertThatThrownBy(() -> validator.validateQuotes(response, "SUP-10000", filters)).isInstanceOf(IllegalArgumentException.class);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"MOCK", "MANUAL"})
+    void acceptsQuoteSourcesInSummaryDetailAndQuotePages(String source) {
+        ObjectNode summary = search();
+        ((ObjectNode) summary.at("/data/items/0")).set("latest_quote", quote(1).put("source", source));
+        assertThatCode(() -> validator.validateSearch(summary, requests.search(Map.of()))).doesNotThrowAnyException();
+        ObjectNode detail = detail();
+        ((ArrayNode) detail.at("/data/recent_quotes")).add(quote(1).put("source", source));
+        assertThatCode(() -> validator.validateDetail(detail, "SUP-10000")).doesNotThrowAnyException();
+        ObjectNode page = quotePage(quote(1).put("source", source));
+        assertThatCode(() -> validator.validateQuotes(page, "SUP-10000", requests.quotes(Map.of()))).doesNotThrowAnyException();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"DART", "UNKNOWN", "", "MISSING", "NULL"})
+    void rejectsUnsupportedOrMissingQuoteSourcesEverywhere(String source) {
+        ObjectNode quote = quote(1).put("source", source);
+        if (source.equals("MISSING")) quote.remove("source");
+        if (source.equals("NULL")) quote.putNull("source");
+        ObjectNode summary = search();
+        ((ObjectNode) summary.at("/data/items/0")).set("latest_quote", quote);
+        assertInvalidSearch(summary, Map.of());
+        ObjectNode detail = detail();
+        ((ArrayNode) detail.at("/data/recent_quotes")).add(quote);
+        assertThatThrownBy(() -> validator.validateDetail(detail, "SUP-10000")).isInstanceOf(IllegalArgumentException.class);
+        ObjectNode page = quotePage(quote);
+        assertThatThrownBy(() -> validator.validateQuotes(page, "SUP-10000", requests.quotes(Map.of())))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    private static ObjectNode quotePage(ObjectNode quote) {
+        ObjectNode response = JSON.createObjectNode().put("schema_version", "0.4").put("mode", "live");
+        response.putObject("data").put("supplier_id", "SUP-10000").put("page", 0).put("size", 20)
+                .put("total", 1).put("total_pages", 1).put("returned_count", 1).put("sort", "quoted_at")
+                .put("direction", "desc").putArray("items").add(quote);
+        return response;
+    }
+
     private void assertInvalidSearch(ObjectNode response, Map<String, String[]> filters) {
         assertThatThrownBy(() -> validator.validateSearch(response, requests.search(filters))).isInstanceOf(IllegalArgumentException.class);
     }
 
     static ObjectNode quote(int id) {
         return JSON.createObjectNode().put("quote_id", id).put("process", "프레스").put("material", "SPCC")
-                .put("unit_price_krw", 1200).put("quoted_at", "2026-10-20");
+                .put("unit_price_krw", 1200).put("quoted_at", "2026-10-20").put("source", "MOCK");
     }
 
     static ObjectNode financial(int year, String source) {

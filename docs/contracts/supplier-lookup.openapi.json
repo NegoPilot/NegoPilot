@@ -1751,6 +1751,14 @@
             "minimum": 1,
             "title": "Quote Id",
             "type": "integer"
+          },
+          "source": {
+            "enum": [
+              "MOCK",
+              "MANUAL"
+            ],
+            "title": "Source",
+            "type": "string"
           }
         },
         "required": [
@@ -1758,7 +1766,8 @@
           "material",
           "unit_price_krw",
           "quoted_at",
-          "quote_id"
+          "quote_id",
+          "source"
         ],
         "title": "LiveQuote",
         "type": "object"

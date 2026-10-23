@@ -96,6 +96,7 @@ export interface SupplierFinancial extends Financial {
 
 export interface Quote {
   quote_id: number
+  source: 'MOCK' | 'MANUAL'
   process: string
   material: string
   unit_price_krw: number

@@ -195,7 +195,8 @@ final class SupplierLookupResponseValidator {
     }
 
     private static void quote(JsonNode node) {
-        object(node, "quote_id", "process", "material", "unit_price_krw", "quoted_at");
+        object(node, "quote_id", "process", "material", "unit_price_krw", "quoted_at", "source");
+        require(Set.of("MOCK", "MANUAL").contains(text(node.get("source"), 10)));
         integer(node.get("quote_id"), 1, Long.MAX_VALUE);
         text(node.get("process"), 100);
         text(node.get("material"), 100);

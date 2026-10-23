@@ -207,7 +207,7 @@ function ratio(value: number | null | undefined) { return formatPercent(value ==
                       <td class="num">{{ s.existing_contract?.payment_days == null ? NO_DATA : `${s.existing_contract.payment_days}일` }}</td>
                       <td class="num">{{ ratio(s.existing_contract?.raw_material_ratio) }}</td>
                       <td class="num">{{ s.latest_quote?.quoted_at ?? NO_DATA }}</td>
-                      <td class="num">{{ formatKrw(s.latest_quote?.unit_price_krw) }}<div v-if="s.latest_quote" class="muted">{{ s.latest_quote.process }} / {{ s.latest_quote.material }}</div></td>
+                      <td class="num">{{ formatKrw(s.latest_quote?.unit_price_krw) }}<div v-if="s.latest_quote" class="muted">{{ s.latest_quote.process }} / {{ s.latest_quote.material }}</div><div v-if="s.latest_quote" class="muted">{{ provenanceLabel(s.latest_quote.source) }}</div></td>
                     </template>
                     <td class="sources"><div>기업: {{ provenanceLabel(s.provenance.profile) }}</div><div>운영: {{ provenanceLabel(s.provenance.operations) }}</div></td>
                   </tr>

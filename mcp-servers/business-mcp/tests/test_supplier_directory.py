@@ -163,3 +163,25 @@ def test_invalid_tool_parameters(directory, params):
 def test_quote_price_requires_both_filters(directory):
     with pytest.raises(ToolError, match="requires process and material"):
         server.list_supplier_quotes(directory[0], sort="unit_price_krw")
+
+
+def test_quote_sources_include_older_history_and_individual_manual_rows(directory):
+    sid = directory[150]
+    try:
+        with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+            conn.execute("INSERT INTO quotes(supplier_id,process,material,unit_price,quoted_at,source) "
+                         "VALUES (%s,'프레스','M-A',100,'2024-01-01','MOCK')", (sid,))
+            for price in range(101, 107):
+                conn.execute("INSERT INTO quotes(supplier_id,process,material,unit_price,quoted_at,source) "
+                             "VALUES (%s,'프레스','M-A',%s,'2027-01-01','MANUAL')", (sid, price))
+        detail = server.get_supplier(sid)
+        item = browse(q=sid)["items"][0]
+        history = server.list_supplier_quotes(sid)
+        assert detail["quote_sources"] == item["quote_sources"] == ["MANUAL", "MOCK"]
+        assert len(detail["recent_quotes"]) == 5
+        assert {quote["source"] for quote in detail["recent_quotes"]} == {"MANUAL"}
+        assert item["latest_quote"]["source"] == "MANUAL"
+        assert history["total"] == 7 and {quote["source"] for quote in history["items"]} == {"MOCK", "MANUAL"}
+    finally:
+        with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+            conn.execute("DELETE FROM quotes WHERE supplier_id=%s", (sid,))

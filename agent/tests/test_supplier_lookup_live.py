@@ -40,7 +40,8 @@ DETAIL = {
          "total_liabilities": 150_000_000_000, "total_equity": 100_000_000_000},
     ],
     "created_at": "2026-01-01T00:00:00+00:00", "updated_at": "2026-01-02T00:00:00+00:00",
-    "recent_quotes": [{"quote_id": 7, "process": "다이캐스팅", "material": "ADC12", "unit_price": 4200, "quoted_at": "2026-03-02"}],
+    "quote_sources": ["MOCK"],
+    "recent_quotes": [{"quote_id": 7, "source": "MOCK", "process": "다이캐스팅", "material": "ADC12", "unit_price": 4200, "quoted_at": "2026-03-02"}],
 }
 
 def summary(detail=None):
@@ -49,7 +50,7 @@ def summary(detail=None):
         "matched_capabilities": raw["capabilities"],
         "max_monthly_capacity": max((r["monthly_capacity"] for r in raw["capabilities"]), default=None),
         "financial_sources": [r["source"] for r in raw["financials"]],
-        "has_contract": raw["payment_days"] is not None, "has_quotes": bool(raw["recent_quotes"]),
+        "has_contract": raw["payment_days"] is not None,
         "latest_quote": raw["recent_quotes"][0] if raw["recent_quotes"] else None,
     }
 
@@ -206,7 +207,7 @@ async def test_detail_exposes_database_fields_with_units_and_independent_sources
 
 @pytest.mark.parametrize("supplier_id", ["SUP-10000", "SUP-123456789012345678"])
 async def test_supplier_without_capability_quality_or_contract_is_visible(supplier_id):
-    detail = DETAIL | {"supplier_id": supplier_id, "source": "MANUAL", "financials": [], "recent_quotes": [],
+    detail = DETAIL | {"supplier_id": supplier_id, "source": "MANUAL", "financials": [], "recent_quotes": [], "quote_sources": [],
                        "capabilities": [], "payment_days": None, "price_linkage": None,
                        "defect_ppm": None, "on_time_rate": None, "audit_grade": None, "years_dealing": None,
                        "certification_source": "MANUAL", "capability_source": "MANUAL", "quality_source": "MOCK"}
@@ -334,3 +335,36 @@ def test_published_contract_matches_sources_and_ids():
         actual = model.model_json_schema()["properties"]["supplier_id"]
         assert {key: schemas[name]["properties"]["supplier_id"][key] for key in ("pattern", "minLength", "maxLength")} == {
             key: actual[key] for key in ("pattern", "minLength", "maxLength")}
+
+
+@pytest.mark.parametrize(("sources", "has_contract", "expected"), [
+    (["MANUAL"], False, "MANUAL"),
+    (["MOCK", "MANUAL"], False, "MIXED"),
+    (["MANUAL"], True, "MIXED"),
+])
+async def test_operations_provenance_uses_full_quote_history_not_only_recent_five(sources, has_contract, expected):
+    detail = deepcopy(DETAIL)
+    detail.update(source="MANUAL", certification_source="MANUAL", capability_source="MANUAL",
+                  quality_source="MANUAL", quote_sources=sources)
+    detail["recent_quotes"][0]["source"] = "MANUAL"
+    if not has_contract:
+        detail["payment_days"] = None
+    app = live_app(FakeBusiness(detail=detail))
+    full = live_data(await get(app, SEARCH + "/SUP-0001"))
+    item = live_data(await get(app, SEARCH))["items"][0]
+    quotes = live_data(await get(app, SEARCH + "/SUP-0001/quotes"))
+    assert full["provenance"]["operations"] == item["provenance"]["operations"] == expected
+    assert full["recent_quotes"][0]["source"] == item["latest_quote"]["source"] == "MANUAL"
+    assert quotes["items"][0]["source"] == "MANUAL"
+
+
+@pytest.mark.parametrize("source", [None, "DART", "UNKNOWN"])
+async def test_live_quote_source_is_required_and_validated(source):
+    detail = deepcopy(DETAIL)
+    if source is None:
+        del detail["recent_quotes"][0]["source"]
+    else:
+        detail["recent_quotes"][0]["source"] = source
+    app = live_app(FakeBusiness(detail=detail))
+    for path in (SEARCH, SEARCH + "/SUP-0001", SEARCH + "/SUP-0001/quotes"):
+        assert (await get(app, path)).status_code == 500
