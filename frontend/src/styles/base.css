@@ -342,6 +342,11 @@ input[aria-invalid='true'] {
   color: var(--text-3);
 }
 
+:root {
+  /* 고정 상단바(관리자 화면) 아래로 스크롤 위치를 맞춘다. 상단바가 없으면 0 */
+  scroll-padding-top: var(--admin-header-height, 0px);
+}
+
 :focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 1px;
