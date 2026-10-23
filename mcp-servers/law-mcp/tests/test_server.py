@@ -185,3 +185,22 @@ def test_supporting_source_effective_date_changes_search_cache(monkeypatch):
     assert not any('document' in u for u in before[0])
     assert any('document' in u for u in after[0])
     assert server.search_units(('subcontract_act',), '2026-10-22', False) is after
+
+
+def test_supporting_sources_do_not_push_statutes_out_of_top_k():
+    """보조 자료 청크는 길어서 한 색인에 섞으면 조문 top_k를 차지했다 (#235). 조문을 먼저 채우고 보조 자료는 뒤에 붙인다."""
+    server._search_cache.clear()
+    hits = run(call("search_regulation", {"query": "주요 원재료 비중이 큰 부품이면 납품대금 연동 내용을 하도급 계약서에 반드시 적어야 하나요?",
+                                          "as_of": "2026-10-23"}))
+    statutes = [h for h in hits if not h.get("document_id")]
+    supporting = [h for h in hits if h.get("document_id")]
+    assert len([h for h in statutes if h["type"] == "조문"]) == 5
+    assert any((h["law_key"], h["article_no"]) == ("subcontract_act", "제3조") for h in statutes)
+    assert 0 < len(supporting) <= server.MIN_SUPPORTING
+    assert hits[-len(supporting):] == supporting          # 보조 자료는 조문·정의 뒤에만 온다
+
+
+def test_supporting_count_grows_with_top_k():
+    server._search_cache.clear()
+    hits = run(call("search_regulation", {"query": "하도급대금 연동 표준 연동계약서", "as_of": "2026-10-23", "top_k": 10}))
+    assert sum(1 for h in hits if h.get("document_id")) <= 5
