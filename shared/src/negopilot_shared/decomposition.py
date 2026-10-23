@@ -32,6 +32,23 @@ def select_example(value: str) -> str:
     return f'예: 상위 {n}개면 "top({n})"처럼 괄호 안에 숫자를 쓴다.'
 
 
+class CompanySizeFacts(BaseModel):
+    model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
+    ksic_code: str | None = None
+    average_revenue_eok: float | None = Field(default=None, ge=0, description="평균매출액, 억원 단위. 1100억원은 1100; 원으로 환산하지 않음.")
+    assets_eok: float | None = Field(default=None, ge=0, description="자산총액, 억원 단위. 2000억원은 2000; 원으로 환산하지 않음.")
+    independence_met: bool | None = None
+    has_related_enterprises: bool | None = None
+    related_aggregate_revenue_eok: float | None = Field(default=None, ge=0, description="검증된 관계기업 합산 평균매출액, 억원 단위.")
+    related_calculation_verified: bool = False
+    # Seat exceptions: C30/C31 parent groups and C31202/C31322 subclasses.
+    seat_manufacturing: bool | None = None
+    transition_reviewed: bool = False
+    # Must be based on a valid certificate/legal review; never inferred from turnover.
+    deemed_sme: bool | None = None
+    evidence_reference: str | None = None
+
+
 class Entities(BaseModel):
     """엔티티 사전. 이름은 MCP 도구 인자명과 같다. 사전에 없는 키는 받지 않는다."""
 
@@ -55,6 +72,8 @@ class Entities(BaseModel):
     contract_days: int | None = Field(None, gt=0)
     linkage_waived_by_agreement: bool | None = None
     buyer_is_small_business: bool | None = None
+    supplier_size: CompanySizeFacts | None = None
+    buyer_size: CompanySizeFacts | None = None
     # law-mcp
     law: Literal[LAW_KEYS] | None = None  # type: ignore[valid-type]
     article_no: str | None = Field(None, pattern=r"^제\d+조(의\d+)?$")

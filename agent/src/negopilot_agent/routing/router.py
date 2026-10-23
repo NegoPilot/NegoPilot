@@ -32,8 +32,8 @@ TOOL_PARAMS: dict[str, dict[str, str]] = {
     "get_supplier": {"supplier": "supplier"},
     "rank_suppliers": {"rfq_id": "rfq_id", "top_n": "top_n"},
     "check_offer": {k: k for k in ("supplier", "rfq_id", "unit_price", "payment_days", "price_linkage",
-                                   "raw_material_ratio", "energy_ratio", "contract_days",
-                                   "linkage_waived_by_agreement", "buyer_is_small_business", "as_of")},
+                                   "raw_material_ratio", "energy_ratio", "contract_days", "linkage_waived_by_agreement",
+                                   "buyer_is_small_business", "supplier_size", "buyer_size", "as_of")},
     "get_article": {"law": "law", "article_no": "article_no", "as_of": "as_of"},
 }
 

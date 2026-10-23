@@ -504,14 +504,16 @@ Ollama 호출에는 OpenAI 또는 Anthropic 키를 전달하지 않습니다. �
 ## 전체 그래프 품질·토큰·시간 평가
 
 `eval_generation.py`는 저장된 Routing으로 생성만 평가합니다. `eval_pipeline.py`는
-Generation 개발 11개/검증 12개의 질문과 정답을 재사용하지만, 실제 분해부터 MCP 조회와
+Generation 개발 11개/검증 15개/법령 개발(dev_law) 3개의 질문과 정답을 재사용하지만, 실제 분해부터 MCP 조회와
 생성까지 새로 실행하고 최종 답변을 채점합니다. DB·MCP 서버와 모델 키가 필요하며
 모델 및 채점 호출 비용이 발생합니다. 검증 세트는 점수 확인에만 사용합니다.
 
 ```bash
 # agent 폴더에서 실행. 서버 준비는 위 실행 안내 참고
 uv run python scripts/eval_pipeline.py --set dev --limit 3 --repeat 3
-uv run python scripts/eval_pipeline.py --set validation --repeat 3
+uv run python scripts/eval_pipeline.py --set validation --repeat 6 --report eval_reports/pipeline_validation.md
+# 이전 결과와 전후 비교 (같은 세트·모델로 잰 결과끼리)
+uv run python scripts/eval_pipeline.py --set validation --repeat 6 --compare eval_results/pipeline-<이전>.json
 # 추가 채점 비용 없이 답변 종류·필수 근거·토큰·시간만 기록
 uv run python scripts/eval_pipeline.py --set dev --limit 3 --no-judge
 ```
@@ -519,7 +521,7 @@ uv run python scripts/eval_pipeline.py --set dev --limit 3 --no-judge
 결과는 `eval_results/pipeline-*.json`에 질문마다 저장됩니다. `rows`에는 실제 분해·Routing·
 전체 답변(인용·검증 포함), 필수 근거 포함, 재생성·가림, 토큰과 시간 기록이 있습니다.
 `summary.agent`와 `summary.judge`는 토큰·호출 수·시간을 분리합니다. Agent 시간에는
-채점 시간을 포함하지 않으며, 금액 비용은 산출하지 않습니다. 실패 호출의 기록도 보존합니다.
+채점 시간을 포함하지 않으며, 질문당 비용(`cost_usd`)은 Agent 호출만 셉니다. 실패 호출의 기록도 보존합니다.
 
 요약에는 다음 지표도 있습니다 (#116).
 
@@ -532,6 +534,19 @@ uv run python scripts/eval_pipeline.py --set dev --limit 3 --no-judge
 ```bash
 uv run python scripts/eval_pipeline.py --set validation --cross-judge gpt-5.4-mini
 ```
+
+끝에 Markdown 보고서를 출력합니다 (`--report`로 파일 저장, #218).
+
+| 부분 | 내용 |
+| --- | --- |
+| 요약 | 정답 포인트 커버, 답변 종류·intent 일치, 근거 표시, 근거 없는 주장, 재생성·가림, 오류, 시간, 비용 |
+| 회차별 (`--repeat` 2 이상) | 정답 포인트 커버·답변 종류·intent 일치·근거 표시의 회차별 값과 표준편차·평균의 표준오차 (`summary.spread`) |
+| 이전 결과와 비교 (`--compare`) | 지표별 차이. 두 결과의 표준오차를 합친 폭의 2배 이내면 "흔들림 범위", 넘으면 "개선"/"하락". 세트나 모델이 다르면 경고 |
+| 문항별 | 문항마다 회차를 모은 종류·intent 일치, 포인트, 재생성, 도구·실행 오류. 매번 틀리는 문항을 찾는 데 씀 |
+
+main 기준선은 `eval_reports/baselines/pipeline_<세트>.json`에 있습니다(답변 원문을 뺀 요약, 보고서는 `eval_reports/2026-10-23_pipeline-baseline.md`). PR에서는 `--compare eval_reports/baselines/pipeline_validation.json`처럼 비교합니다.
+전후 비교는 6회 이상 반복한 결과끼리 합니다. 회차가 1개면 흔들림 폭을 몰라 "흔들림 모름"으로 표시합니다.
+분해·Routing을 고친 PR은 `eval_generation.py`(녹화 입력)로는 효과가 안 잡히므로 이 평가로 확인합니다.
 
 `point_coverage`는 모든 정답 포인트를 채점한 경우에만 값이 나옵니다. 채점 생략/오류가
 있으면 null이며, `scored_points`와 `expected_points`로 평가 범위를 확인합니다.

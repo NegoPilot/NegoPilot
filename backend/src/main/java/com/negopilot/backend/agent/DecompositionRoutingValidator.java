@@ -53,8 +53,13 @@ final class DecompositionRoutingValidator {
             require(Double.isFinite(confidence.doubleValue())
                     && confidence.doubleValue() >= 0 && confidence.doubleValue() <= 1);
             require(subQuery.get("entities").isObject());
-            for (JsonNode entity : subQuery.get("entities")) {
-                require(entity.isNull() || entity.isString() || entity.isBoolean() || entity.isNumber());
+            for (String field : subQuery.get("entities").propertyNames()) {
+                JsonNode entity = subQuery.get("entities").get(field);
+                if ((field.equals("supplier_size") || field.equals("buyer_size")) && !entity.isNull()) {
+                    validateCompanySize(entity);
+                } else {
+                    require(entity.isNull() || entity.isString() || entity.isBoolean() || entity.isNumber());
+                }
             }
             JsonNode dependencies = subQuery.get("depends_on");
             strings(dependencies);
@@ -71,6 +76,27 @@ final class DecompositionRoutingValidator {
                 require(text(input.get("select")).matches("top1|all|top\\([1-9][0-9]*\\)|by_name\\(\"[^\"]+\"\\)"));
             }
             seen.add(id);
+        }
+    }
+
+    private static void validateCompanySize(JsonNode size) {
+        require(size.isObject());
+        Set<String> texts = Set.of("ksic_code", "evidence_reference");
+        Set<String> numbers = Set.of("average_revenue_eok", "assets_eok", "related_aggregate_revenue_eok");
+        Set<String> booleans = Set.of("independence_met", "has_related_enterprises", "related_calculation_verified",
+                "seat_manufacturing", "transition_reviewed", "deemed_sme");
+        for (String field : size.propertyNames()) {
+            JsonNode value = size.get(field);
+            require(texts.contains(field) || numbers.contains(field) || booleans.contains(field));
+            if (value.isNull()) {
+                require(!field.equals("related_calculation_verified") && !field.equals("transition_reviewed"));
+            } else if (texts.contains(field)) {
+                require(value.isString());
+            } else if (numbers.contains(field)) {
+                require(value.isNumber() && Double.isFinite(value.doubleValue()) && value.doubleValue() >= 0);
+            } else {
+                require(value.isBoolean());
+            }
         }
     }
 

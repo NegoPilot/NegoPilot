@@ -23,7 +23,15 @@ public final class GenerationGateway {
     }
 
     public JsonNode execute(UUID requestId, ObjectNode body) {
-        return transport.exchange(HttpMethod.POST, transport.uri(InternalPaths.QUERY_EXECUTIONS),
+        return executeAt(requestId, body, InternalPaths.QUERY_EXECUTIONS);
+    }
+
+    public JsonNode review(UUID requestId, ObjectNode body) {
+        return executeAt(requestId, body, InternalPaths.LEGAL_REVIEWS);
+    }
+
+    private JsonNode executeAt(UUID requestId, ObjectNode body, String path) {
+        return transport.exchange(HttpMethod.POST, transport.uri(path),
                 body, requestId, Set.of(200, 400, 500, 503, 504), (status, result) -> {
                     if (status == 200) {
                         try {

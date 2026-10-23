@@ -32,6 +32,7 @@ from negopilot_agent.generation.answer import Answer, Evidence, GenerationDraft
 from negopilot_agent.generation.backends import Backend, GenerationAnthropicBackend, GenerationOpenAIBackend, GenerationOllamaBackend
 from negopilot_agent.generation.evidence import build_evidence
 from negopilot_agent.generation.prompt import SYSTEM_PROMPT, build_user_message
+from negopilot_agent.generation.size_answer import render_size_answer
 
 log = logging.getLogger(__name__)
 
@@ -277,6 +278,9 @@ class AnswerGenerator:
         return await self._write(decomposition, evidence, p)
 
     async def _write(self, decomposition: DecompositionResult, evidence: list[Evidence], p: Plan) -> Answer:
+        deterministic = render_size_answer(evidence, p.notices, decomposition.original_query)
+        if deterministic is not None:
+            return deterministic
         # 질문이나 가정이 법적 결론을 정해 주면, 모델이 그 지시를 따랐는지 아래에서 한 번 더 본다 (#222)
         override = guard.overrides(decomposition.original_query) or any(map(guard.sets_conclusion, decomposition.assumptions))
         user = build_user_message(decomposition, evidence, p.notices, override)

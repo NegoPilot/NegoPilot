@@ -292,10 +292,16 @@ def build_system_prompt(compact: bool = False, reason: bool = False) -> str:
    품질·재무 같은 관점으로 나누지 말고 대상으로 나눈다. 관점은 question에 적는다.
 6. entities에는 해당 intent가 허용한 엔티티 이름만 쓴다.
    law는 사용자가 법령 이름(하도급법, 상생협력법 같은 약칭 포함)을 말했을 때만 넣는다. 말하지 않았으면 비워서 모든 법령을 검색하게 한다.
+   supplier_size와 buyer_size는 사용자가 명시한 기업 규모 검토 정보만 객체로 전달한다. 금액 단위는 억 원이다.
+   최근 1년 매출을 average_revenue_eok로 바꾸지 말고, 독립성·관계기업·유예 검토 여부와 근거를 지어내지 않는다.
    price_change_pct는 넣지 않는다. 증감률(5% 인하, 3% 인상)은 question에 남긴다.
    "넣지 않는다"는 그 엔티티에 값을 채우지 않는다는 뜻이다. 쓰지 않는 엔티티를 빈 값이나 추측한 값으로 채우지 않는다.
    엔티티 값은 질문에 나온 문자열 그대로 쓴다. 따옴표, 괄호, 쉼표 같은 기호를 값에 붙이지 않는다.
-   rfq_id는 RFQ-YYYY-NNN, article_no는 "제N조" 또는 "제N조의M", 날짜는 YYYY-MM-DD, 금액은 원 단위 정수다.
+   rfq_id는 RFQ-YYYY-NNN, article_no는 "제N조" 또는 "제N조의M", 날짜는 YYYY-MM-DD다.
+   unit_price는 원 단위 정수다. supplier_size/buyer_size의 *_eok 필드는 반드시 억원 단위 실수다.
+   예: 평균매출액 1100억원 → average_revenue_eok=1100, 자산 2000억원 → assets_eok=2000,
+   평균매출액 120.01억원 → average_revenue_eok=120.01. 이 필드들에 100000000을 곱하지 않는다.
+   related_calculation_verified는 관계기업 합산 계산을 검증했다고 명시한 경우에만 true다. 관계기업 없음은 검증 완료가 아니다.
    비중(raw_material_ratio, energy_ratio)은 0~1 소수다. 예: 원재료 비중 40% → 0.4, 에너지 비용 비중 12% → 0.12.
    현재 질문과 해당 작업의 대화 이력에 없는 값을 지어내서 채우지 않는다. 특히 top_n 같은 숫자는 사용자가 제시했을 때만 넣는다. 예시의 값을 따라 하지 않는다.
    "1등", "1위", "제일 나은 곳"은 개수가 아니다. 뒤 질문의 inputs에서 select top1로 받고, 순위 하위 질문에는 top_n을 넣지 않는다.

@@ -102,7 +102,7 @@ for group in result.parallel_groups():              # [["q1", "q2"], ["q3"]] →
 | `supplier_search` | business-mcp | `search_suppliers` | process, material, region, iatf_required, min_monthly_capacity, top_n |
 | `supplier_detail` | business-mcp | 기업명은 `find_suppliers` → 유일 후보의 `get_supplier`. 명시 ID는 `get_supplier` | supplier |
 | `supplier_ranking` | business-mcp | `rank_suppliers` | rfq_id, top_n |
-| `offer_check` | business-mcp | `check_offer` | supplier, rfq_id, unit_price, payment_days, price_linkage, raw_material_ratio, energy_ratio, contract_days, linkage_waived_by_agreement, buyer_is_small_business, as_of |
+| `offer_check` | business-mcp | `check_offer` | supplier, rfq_id, unit_price, payment_days, price_linkage, raw_material_ratio, energy_ratio, contract_days, linkage_waived_by_agreement, buyer_is_small_business, supplier_size, buyer_size, as_of |
 | `law_check` | law-mcp | `search_regulation` → `get_article` | law, as_of, price_change_pct |
 | `law_article` | law-mcp | `get_article` | law, article_no, as_of |
 | `draft_email` | mail-mcp | (예정) | supplier, rfq_id |
@@ -212,3 +212,8 @@ for group in result.parallel_groups():              # [["q1", "q2"], ["q3"]] →
 2. `shared/` 테스트가 통과해야 한다: `cd shared && uv run python -m pytest -q`
 3. 분해·Routing·Generation 담당 **전원 승인** 후 머지한다.
 4. 필드를 지우거나 의미를 바꾸면 `schema_version`을 올린다.
+
+기업 규모 입력 `supplier_size`, `buyer_size`는 `CompanySizeFacts` 객체이며 business-mcp
+`CompanySizeInput`과 필드 계약을 공유한다. KSIC, 법정 평균매출액(억 원), 자산, 독립성,
+관계기업 합산 검토, 유예 검토와 근거를 명시적으로 전달한다. 누락된 값은 추정하지 않는다.
+`as_of`는 check_offer의 기업 규모 판정 기준일에도 전달한다.

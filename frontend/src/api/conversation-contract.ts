@@ -35,9 +35,14 @@ function suggestedQuestions(value: unknown) {
 }
 
 export function parseGenerationResponse(value: unknown, conversationId?: string): GenerationResponse {
-  object(value); check(value.schema_version === '0.3')
-  uuid(value.conversation_id); uuid(value.response_id); uuid(value.request_id)
+  parseReviewResponse(value)
+  object(value); uuid(value.conversation_id); uuid(value.response_id)
   check(!conversationId || value.conversation_id === conversationId)
+  return value as unknown as GenerationResponse
+}
+
+export function parseReviewResponse(value: unknown): Omit<GenerationResponse, 'conversation_id' | 'response_id'> {
+  object(value); check(value.schema_version === '0.3'); uuid(value.request_id)
   check(value.mode === 'live' || value.mode === 'stub')
   check(['COMPLETED', 'NEEDS_INPUT', 'FAILED'].includes(String(value.execution_status)))
   check(value.generation_status === (value.execution_status === 'FAILED' ? 'FAILED' : 'COMPLETED'))

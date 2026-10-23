@@ -288,3 +288,21 @@ async def test_route_node_in_graph():
 async def test_output_round_trips_contract(path):
     result = await Router(FakeCaller()).route(fixture(path.stem))
     assert RouteResult.model_validate(result.model_dump(mode="json")) == result
+
+
+def test_company_size_facts_and_as_of_reach_check_offer():
+    facts = {"ksic_code": "C30399", "average_revenue_eok": 1100,
+             "evidence_reference": "user-supplied test evidence"}
+    decomposition = DecompositionResult.model_validate({"status": "ok", "original_query": "협상안 검사",
+        "sub_queries": [{"id": "q1", "question": "협상안 검사", "original_text": "협상안 검사",
+                         "intent": "offer_check", "grounding": "required", "confidence": 1,
+                         "entities": {"supplier": "SUP-0001", "rfq_id": "RFQ-2026-001", "unit_price": 4000,
+                                      "payment_days": 60, "price_linkage": True, "supplier_size": facts,
+                                      "buyer_size": facts, "as_of": "2026-10-23"}}]})
+    fake = FakeCaller()
+    result = asyncio.run(Router(fake).route(decomposition))
+    call = next(c for c in result.outcomes[0].calls if c.tool == "check_offer")
+    assert call.args["supplier_size"]["average_revenue_eok"] == 1100
+    assert call.args["buyer_size"]["evidence_reference"] == facts["evidence_reference"]
+    assert call.args["supplier_size"].get("independence_met") is None
+    assert call.args["as_of"] == "2026-10-23"
