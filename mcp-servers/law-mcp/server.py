@@ -290,6 +290,48 @@ SEARCH_CACHE_SIZE = 32
 _search_cache: OrderedDict[tuple, tuple[list[dict], Bm25]] = OrderedDict()
 
 
+# 정의 조항: '이 법에서 "주요 원재료"란 …을 말한다'. 시행령의 '대통령령으로 정하는 …'은 정의가 아니라 위임이라 뺀다
+DEFINED_TERM = re.compile(r'"([^"]{2,30})"(?:이)?란')
+DEFINITION_ARTICLE = "제2조"
+MAX_DEFINITIONS = 2
+# 원사업자·중소기업처럼 그 법령의 많은 항에 나오는 용어는 정의를 붙여도 도움이 안 되고 결과만 늘린다.
+# 비율은 그 법령의 항 수 기준이라 법령 필터와 관계없이 같은 용어가 붙는다
+COMMON_TERM_SHARE = 0.05
+
+
+def definition_text(text: str, term: str) -> str:
+    """정의 항에서 그 용어를 정의한 부분만 꺼낸다.
+
+    상생협력법 제2조처럼 한 항에 호(1. 2. …)로 여러 용어를 정의하면 그 호와 딸린 목만 남긴다.
+    한 항에 용어 하나면 항 전체를 쓴다.
+    """
+    if len(DEFINED_TERM.findall(text)) <= 1:
+        return text
+    lines = text.splitlines()
+    start = next(i for i, line in enumerate(lines) if f'"{term}"' in line)
+    indent = len(lines[start]) - len(lines[start].lstrip())
+    end = start + 1
+    while end < len(lines) and lines[end].strip() and len(lines[end]) - len(lines[end].lstrip()) > indent:
+        end += 1
+    return "\n".join(line.strip() for line in lines[start:end])
+
+
+def definition_units(units: list[dict]) -> dict[tuple[str, str], tuple[int, str]]:
+    """(law_key, 용어) → (그 용어를 정의한 항의 색인 위치, 정의 부분). 흔한 용어는 뺀다."""
+    out = {}
+    law_size = {k: sum(1 for v in units if v["law_key"] == k) for k in {u["law_key"] for u in units}}
+    for i, u in enumerate(units):
+        if u["article"] is None or u["article"]["no"] != DEFINITION_ARTICLE or u["law_key"].endswith("_decree"):
+            continue
+        for term in DEFINED_TERM.findall(u["text"]):
+            if term.startswith("대통령령"):
+                continue
+            df = sum(1 for v in units if v["law_key"] == u["law_key"] and term in v["text"])
+            if df <= COMMON_TERM_SHARE * law_size[u["law_key"]]:
+                out.setdefault((u["law_key"], term), (i, definition_text(u["text"], term)))
+    return out
+
+
 def search_units(law_keys: tuple[str, ...], as_of: str, include_addenda: bool):
     """항 단위 검색 문서 목록과 BM25 인덱스. 같은 조건이면 재사용한다.
 
@@ -316,7 +358,7 @@ def search_units(law_keys: tuple[str, ...], as_of: str, include_addenda: bool):
                 units.append({"law_key": key, "version": v, "article": None,
                               "addendum": ad["title"], "text": ad["text"],
                               "tokens": tokenize(ad["title"] + " " + ad["text"])})
-    result = (units, Bm25([u["tokens"] for u in units]))
+    result = (units, Bm25([u["tokens"] for u in units]), definition_units(units))
     _search_cache[cache_key] = result
     while len(_search_cache) > SEARCH_CACHE_SIZE:
         _search_cache.popitem(last=False)
@@ -391,20 +433,29 @@ def search_regulation(query: str, laws: list[str] | None = None, as_of: str | No
     laws: 검색할 법령(law_key 또는 별칭). 생략하면 전체
     as_of: 기준일(YYYY-MM-DD). 생략하면 오늘 시행 중인 판
     include_addenda: 부칙(시행일·경과조치)까지 검색할지
+    결과 조문에 정의된 용어(예: 주요 원재료)가 나오면 그 용어의 정의 항(제2조)을 top_k 뒤에 최대 2개 덧붙인다.
+    덧붙인 항은 type이 "정의"다. 의무 조문만으로는 "10% 이상" 같은 기준이 빠지기 때문이다 (#167).
     """
     if not query.strip():
         raise ToolError("query 가 비어 있다")
     day = parse_as_of(as_of)
     keys = tuple(sorted({resolve_law(l)["law_key"] for l in laws})) if laws else tuple(LAWS)
     top_k = max(1, min(top_k, 20))
-    units, bm25 = search_units(keys, day, include_addenda)
+    units, bm25, definitions = search_units(keys, day, include_addenda)
     scores = bm25.scores(tokenize(expand_query(query)))
     ranked = sorted(range(len(units)), key=lambda i: scores[i], reverse=True)
 
+    hits = [i for i in ranked[:top_k] if scores[i] > 0]
+    # 검색된 조문에 나오는 정의 용어의 정의 항. 같은 법령의 정의만 붙이고, 이미 결과에 있으면 다시 넣지 않는다
+    extra: dict[int, str] = {}
+    for i in hits:
+        for (law_key, term), (d, text) in definitions.items():
+            if (law_key == units[i]["law_key"] and term in units[i]["text"] and d not in hits and d not in extra
+                    and len(extra) < MAX_DEFINITIONS):
+                extra[d] = text
+
     results = []
-    for i in ranked[:top_k]:
-        if scores[i] <= 0:
-            break
+    for i in hits + list(extra):
         u, v = units[i], units[i]["version"]
         if u["article"] is None:
             results.append({"law_key": u["law_key"], "law_name": v["law_name"],
@@ -414,8 +465,8 @@ def search_regulation(query: str, laws: list[str] | None = None, as_of: str | No
         else:
             a = u["article"]
             results.append({"law_key": u["law_key"], "law_name": v["law_name"],
-                            "type": "조문", "article_no": a["no"], "title": a["title"],
-                            "paragraph": u["paragraph"], "text": u["text"][:1500],
+                            "type": "조문" if i in hits else "정의", "article_no": a["no"], "title": a["title"],
+                            "paragraph": u["paragraph"], "text": extra.get(i, u["text"])[:1500],
                             "citation": citation(v, a, u["paragraph"]),
                             "effective_date": v["effective_date"], "source_url": v["source_url"],
                             "score": round(scores[i], 2)})

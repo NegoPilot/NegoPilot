@@ -94,7 +94,7 @@ for sq in decomposition.sub_queries:
 | `get_supplier` | `{supplier_id, name, source(DART/MOCK), ..., capabilities, financials, recent_quotes, flags, law_refs}` | 업체 ID, `source` |
 | `rank_suppliers` | `{rfq, ranked: [{supplier_id, name, total_score, notes, flags}], excluded: [{supplier_id, name, reason}], ...}` | 업체 ID, 제외 사유 |
 | `check_offer` | `{verdict, supplier, rfq, offer, violations, warnings, info, law_refs}` (각 항목 `{code, severity, message, law_refs}`). v2 입력·출력·오류는 [협상안 검사 계약](check-offer.md) | `verdict`, 항목 `message`, `referenced_articles`의 `citation` |
-| `search_regulation` | `[{law_name, article_no, paragraph, title, text, citation, effective_date, source_url, score}]` | **`citation` 그대로** |
+| `search_regulation` | `[{law_name, type(조문/정의/부칙), article_no, paragraph, title, text, citation, effective_date, source_url, score}]`. `type=정의`는 결과 조문에 나온 정의 용어의 정의 항(제2조)으로, top_k 뒤에 최대 2개 붙는다 | **`citation` 그대로** |
 | `get_article` | `{law_name, article_no, title, paragraphs, citation, effective_date, source_url, upcoming_changes}` | 설명 참고, `citation` |
 
 ## 직접 질문의 결과 처리
