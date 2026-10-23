@@ -77,3 +77,21 @@ def test_standalone_migration_preserves_manual_edits_and_existing_audit(supplier
         assert conn.execute("SELECT status,version,certification_source FROM suppliers WHERE supplier_id=%s", (supplier,)).fetchone() == ("INACTIVE", 9, "MANUAL")
         assert conn.execute("SELECT count(*) FROM supplier_change_events WHERE supplier_id=%s", (supplier,)).fetchone()[0] == 1
         conn.execute("DELETE FROM supplier_change_events WHERE supplier_id=%s", (supplier,))
+
+
+def test_quote_sources_cover_all_quotes_and_same_date_quotes_prefer_latest_id(supplier):
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        for price in (2, 3, 4, 5, 6):
+            conn.execute("INSERT INTO quotes(supplier_id,process,material,unit_price,quoted_at,source) "
+                         "VALUES ('SUP-10001','프레스','TEST_MATERIAL',%s,'2026-02-01','MANUAL')", (price,))
+    # 2026-01-01의 MOCK 견적은 최근 5건 밖이어도 출처에 포함된다 (#249)
+    detail = server.get_supplier(supplier)
+    assert [q["unit_price"] for q in detail["recent_quotes"]] == [6, 5, 4, 3, 2]
+    assert detail["quote_sources"] == ["MANUAL", "MOCK"]
+    assert server.search_suppliers(material="TEST_MATERIAL")[0]["quote_sources"] == ["MANUAL", "MOCK"]
+    assert server.latest_quote(supplier, "프레스", "TEST_MATERIAL") == 6
+    assert server.rank_suppliers("RFQ-ADMIN-TEST")["ranked"][0]["last_price"] == 6
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        conn.execute("DELETE FROM quotes WHERE supplier_id=%s AND source='MOCK'", (supplier,))
+    assert server.get_supplier(supplier)["quote_sources"] == ["MANUAL"]
+    assert server.search_suppliers(material="TEST_MATERIAL")[0]["quote_sources"] == ["MANUAL"]

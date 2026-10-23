@@ -35,7 +35,7 @@ def seeded_schema():
         seed.main()
         migrations = Path(__file__).resolve().parents[3] / "backend/src/main/resources/db/business"
         with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
-            for name in ("V1__supplier_management.sql", "V2__supplier_contacts.sql"):
+            for name in ("V1__supplier_management.sql", "V2__supplier_contacts.sql", "V3__quote_source.sql"):
                 conn.execute((migrations / name).read_text(encoding="utf-8"))
         yield
     finally:

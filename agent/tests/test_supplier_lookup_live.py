@@ -33,7 +33,7 @@ def row(supplier_id, material, capacity, *, region="경남", source="MOCK", proc
             "debt_ratio": 1.2, "process": process, "material": material, "monthly_capacity": capacity,
             "defect_ppm": 150, "on_time_rate": 0.95, "audit_grade": "B", "years_dealing": 0,
             "certification_source": "MOCK", "capability_source": "MOCK", "quality_source": "MOCK",
-            "financial_sources": [source], "has_contract": True, "has_quotes": True}
+            "financial_sources": [source], "has_contract": True, "has_quotes": True, "quote_sources": ["MOCK"]}
 
 
 SEARCH_ROWS = {
@@ -59,6 +59,7 @@ DETAIL = {
          "total_liabilities": 150_000_000_000, "total_equity": 100_000_000_000},
     ],
     "recent_quotes": [{"process": "다이캐스팅", "material": "ADC12", "unit_price": 4200, "quoted_at": "2026-03-02"}],
+    "quote_sources": ["MOCK"],
 }
 
 
@@ -230,7 +231,7 @@ async def test_invalid_live_id_is_rejected_before_mcp(supplier_id):
 @pytest.mark.parametrize("supplier_id", ["SUP-10000", "SUP-123456789012345678"])
 async def test_manual_supplier_without_quality_financials_or_contract_uses_real_sources(supplier_id):
     detail = DETAIL | {
-        "supplier_id": supplier_id, "source": "MANUAL", "financials": [], "recent_quotes": [],
+        "supplier_id": supplier_id, "source": "MANUAL", "financials": [], "recent_quotes": [], "quote_sources": [],
         "payment_days": None, "price_linkage": None, "defect_ppm": None, "on_time_rate": None,
         "certification_source": "MANUAL", "capability_source": "MANUAL", "quality_source": "MOCK",
     }
@@ -254,21 +255,42 @@ async def test_financial_and_operations_provenance_do_not_follow_profile_source(
     assert [entry["source"] for entry in data["financials"]] == ["MOCK", "DART"]
 
 
-@pytest.mark.parametrize(("has_contract", "has_quotes"), [(True, False), (False, True)])
-async def test_retained_mock_contract_or_quotes_prevent_manual_only_operations(has_contract, has_quotes):
-    detail = DETAIL | {"certification_source": "MANUAL", "capability_source": "MANUAL",
-                       "quality_source": "MANUAL"}
+@pytest.mark.parametrize(("operation_source", "has_contract", "quote_sources", "operations"), [
+    ("MANUAL", True, [], "MIXED"),                  # 계약은 견적 출처와 관계없이 MOCK이다
+    ("MANUAL", True, ["MANUAL"], "MIXED"),
+    ("MANUAL", False, ["MOCK"], "MIXED"),
+    ("MANUAL", False, ["MANUAL", "MOCK"], "MIXED"),  # 최근 5건 밖의 MOCK 견적도 센다
+    ("MANUAL", False, ["MANUAL"], "MANUAL"),
+    ("MOCK", False, ["MOCK"], "MOCK"),
+])
+async def test_operations_provenance_uses_contract_and_actual_quote_sources(operation_source, has_contract,
+                                                                            quote_sources, operations):
+    detail = DETAIL | {"certification_source": operation_source, "capability_source": operation_source,
+                       "quality_source": operation_source, "quote_sources": quote_sources}
     if not has_contract:
         detail["payment_days"] = None
-    if not has_quotes:
-        detail["recent_quotes"] = []
+    # 상세는 recent_quotes가 아니라 모든 견적의 quote_sources로 집계한다 (#249)
     data = live_data(await get(live_app(FakeBusiness(detail=detail)), SEARCH + "/SUP-0001"))
-    assert data["provenance"]["operations"] == "MIXED"
+    assert data["provenance"]["operations"] == operations
+    search_row = row("SUP-0001", "ADC12", 5000) | {
+        "certification_source": operation_source, "capability_source": operation_source,
+        "quality_source": operation_source, "has_contract": has_contract,
+        "has_quotes": bool(quote_sources), "quote_sources": quote_sources,
+    }
+    items = live_data(await get(live_app(FakeBusiness(search_rows={"ADC12": [search_row]})), SEARCH,
+                                {"process": "다이캐스팅"}))["items"]
+    assert items[0]["provenance"]["operations"] == operations
+
+
+async def test_unknown_quote_source_is_rejected():
+    detail = DETAIL | {"quote_sources": ["DART"]}
+    response = await get(live_app(FakeBusiness(detail=detail)), SEARCH + "/SUP-0001")
+    assert response.status_code == 500
 
 
 async def test_search_aggregates_actual_sources_and_includes_manual_supplier_without_quality():
     manual = row("SUP-10000", "ADC12", 5000, source="MANUAL") | {
-        "financial_sources": [], "has_contract": False, "has_quotes": False,
+        "financial_sources": [], "has_contract": False, "has_quotes": False, "quote_sources": [],
         "certification_source": "MANUAL", "capability_source": "MANUAL",
         "defect_ppm": None, "on_time_rate": None,
     }

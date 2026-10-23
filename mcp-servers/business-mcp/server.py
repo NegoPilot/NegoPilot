@@ -69,6 +69,7 @@ mcp = FastMCP("BusinessServer", instructions=(
     "과거 견적 단가, 연도별 재무(매출·영업이익·부채 등)를 다루고, RFQ에 맞는 협력사 순위를 코드로 계산한다. "
     "source가 'DART'인 기본 정보·재무는 공시 값이고 'MOCK'은 가상 값이다. 'MANUAL'은 관리자 입력이다. "
     "인증과 생산능력 및 품질의 출처는 각각 certification_source와 capability_source 및 quality_source로 확인한다. "
+    "견적 출처는 quote_sources로 확인한다(MOCK 가상, MANUAL 관리자 입력). "
     "쓸 수 있는 공정·소재·지역·RFQ 값은 business://catalog 에 있다. "
     "법 조문 내용과 해석은 다루지 않는다. notes에 하도급법·연동제 관련 내용이 나오면 law-mcp로 조문을 확인한다."
 ))
@@ -253,7 +254,7 @@ def get_rfq(rfq_id: str) -> dict:
 def latest_quote(supplier_id: str, process: str, material: str) -> int | None:
     """이 협력사가 같은 공정·소재로 낸 가장 최근 견적 단가(원). 없으면 None."""
     rows = query("SELECT unit_price FROM quotes WHERE supplier_id = %s AND process = %s AND material = %s "
-                 "ORDER BY quoted_at DESC LIMIT 1", (supplier_id, process, material))
+                 "ORDER BY quoted_at DESC, quote_id DESC LIMIT 1", (supplier_id, process, material))
     return rows[0]["unit_price"] if rows else None
 
 
@@ -325,7 +326,9 @@ def search_suppliers(process: str | None = None, material: str | None = None, re
                ARRAY(SELECT DISTINCT f.source FROM financials f
                      WHERE f.supplier_id = o.supplier_id ORDER BY f.source) AS financial_sources,
                EXISTS(SELECT 1 FROM contracts ct WHERE ct.supplier_id = o.supplier_id) AS has_contract,
-               EXISTS(SELECT 1 FROM quotes qt WHERE qt.supplier_id = o.supplier_id) AS has_quotes
+               EXISTS(SELECT 1 FROM quotes qt WHERE qt.supplier_id = o.supplier_id) AS has_quotes,
+               ARRAY(SELECT DISTINCT qt.source FROM quotes qt
+                     WHERE qt.supplier_id = o.supplier_id ORDER BY qt.source) AS quote_sources
         FROM capabilities c JOIN supplier_overview o USING (supplier_id)
     """
     conditions: list[str] = ["o.status = 'ACTIVE'"]
@@ -386,6 +389,7 @@ def get_supplier(supplier: str) -> dict:
               이름이 여러 곳에 맞으면 후보 목록을 오류로 알려 주니, 하나를 골라 supplier_id로 다시 부른다
     source는 기본 정보의 출처다. DART는 공시 값이고 MOCK은 가상 값이며 MANUAL은 관리자 입력이다.
     재무 출처는 financials의 각 source를 확인한다. 운영 자료의 출처는 각각 *_source로 반환한다.
+    견적 출처는 quote_sources로 확인한다(MOCK 가상, MANUAL 관리자 입력). recent_quotes가 아닌 모든 견적의 출처다.
     금액 단위는 원, revenue_eok는 억 원.
     flags는 기존 계약 조건의 법규 점검 결과다({code, severity, message, law_refs}, rank_suppliers와 같은 규칙).
     law_refs는 flags의 조문을 겹치지 않게 모은 것이다. law-mcp get_article로 넘겨 조문을 인용한다.
@@ -410,7 +414,9 @@ def get_supplier(supplier: str) -> dict:
                             "total_assets, total_liabilities, total_equity FROM financials "
                             "WHERE supplier_id = %s ORDER BY bsns_year", (sid,)),
         "recent_quotes": query("SELECT process, material, unit_price, quoted_at FROM quotes "
-                               "WHERE supplier_id = %s ORDER BY quoted_at DESC LIMIT 5", (sid,)),
+                               "WHERE supplier_id = %s ORDER BY quoted_at DESC, quote_id DESC LIMIT 5", (sid,)),
+        "quote_sources": [r["source"] for r in query("SELECT DISTINCT source FROM quotes "
+                                                       "WHERE supplier_id = %s ORDER BY source", (sid,))],
     }
 
 
@@ -438,7 +444,7 @@ def rank_suppliers(rfq_id: str, w_price: float = 0.5, w_quality: float = 0.3,
                o.certification_source, o.capability_source, o.quality_source,
                (SELECT unit_price FROM quotes q
                  WHERE q.supplier_id = o.supplier_id AND q.process = c.process AND q.material = c.material
-                 ORDER BY quoted_at DESC LIMIT 1) AS last_price
+                 ORDER BY quoted_at DESC, quote_id DESC LIMIT 1) AS last_price
         FROM capabilities c JOIN supplier_overview o USING (supplier_id)
         WHERE c.process = %s AND c.material = %s AND o.status = 'ACTIVE'
     """, (rfq["process"], rfq["material"]))
