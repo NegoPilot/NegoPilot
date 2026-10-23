@@ -41,7 +41,7 @@ const GROUPS = [
 ] as const
 
 const group = computed(() => GROUPS.find((g) => g.tabs.some((t) => t.name === route.name)) ?? GROUPS[0])
-const connected = computed(() => ['admin', 'admin-members', 'admin-approvals'].includes(String(route.name)))
+const connected = computed(() => ['admin', 'admin-members', 'admin-approvals', 'admin-supplier-new'].includes(String(route.name)))
 </script>
 
 <template>
