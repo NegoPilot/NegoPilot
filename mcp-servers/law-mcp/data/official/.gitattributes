@@ -1,0 +1,2 @@
+# Preserve official downloads byte-for-byte so source SHA-256 survives checkout.
+raw/** -text -diff

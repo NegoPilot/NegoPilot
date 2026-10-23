@@ -117,10 +117,15 @@ def from_search_regulation(hits: list[dict]) -> list[Draft]:
     out = []
     for h in hits[:MAX_LIST_ITEMS]:
         out.append({"source": "law", "kind": "regulation_hit", "label": h.get("citation", ""),
-                    "text": clip(f"{h.get('citation')}\n{h.get('text', '')}"), "source_url": h.get("source_url"),
+                    "text": clip(f"{h.get('citation')}\n"
+                                 + (f"자료 유형: {h.get('type')}; {h.get('version_note', '')}; "
+                                    f"추출 상태: {h.get('text_completeness', '')}\n" if h.get('document_id') else "")
+                                 + h.get('text', '')), "source_url": h.get("source_url"),
                     "meta": {"law_key": h.get("law_key"), "article_no": h.get("article_no"),
                              "paragraph": h.get("paragraph"), "effective_date": h.get("effective_date"),
-                             "score": h.get("score")}})
+                             "score": h.get("score"), "document_id": h.get("document_id"),
+                             "document_type": h.get("type"), "published_date": h.get("published_date"),
+                             "text_completeness": h.get("text_completeness")}})
     return out
 
 
@@ -133,6 +138,11 @@ def from_check_offer(r: dict) -> list[Draft]:
             "text": compact({"verdict": r.get("verdict"), **({"basis": r["basis"]} if r.get("basis") else {}),
                              "supplier": supplier, "rfq": rfq, "offer": r.get("offer")}),
             "meta": {"verdict": r.get("verdict")}}]
+    for role, assessment in r.get("company_size", {}).items():
+        out.append({"source": "business", "kind": "company_size", "label": f"기업 규모 검토: {role}",
+                    "text": compact(assessment), "source_url": assessment.get("source_url"),
+                    "meta": {"role": role, "status": assessment.get("status"),
+                             "applicability": r.get("applicability")}})
     for severity, items in (("위반 소지", r.get("violations", [])), ("확인 필요", r.get("warnings", [])),
                             ("참고", r.get("info", []))):
         for f in items:

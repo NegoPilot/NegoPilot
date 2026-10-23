@@ -19,6 +19,29 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class DecompositionRoutingValidatorTest {
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
+    @Test
+    void acceptsCompanySizeObjectsAndRejectsInvalidNestedFacts() {
+        ObjectNode response = completed();
+        ObjectNode entities = (ObjectNode) subQuery(response).get("entities");
+        ObjectNode size = MAPPER.createObjectNode().put("ksic_code", "C30399")
+                .put("average_revenue_eok", 1100).put("assets_eok", 2000)
+                .put("independence_met", true).put("has_related_enterprises", false)
+                .put("transition_reviewed", true).put("deemed_sme", false)
+                .put("evidence_reference", "SYNTHETIC-QA");
+        entities.set("supplier_size", size);
+        entities.set("buyer_size", size.deepCopy().put("average_revenue_eok", 120));
+        assertDoesNotThrow(() -> validate(response));
+        size.put("average_revenue_eok", -1);
+        assertInvalid(response);
+        size.put("average_revenue_eok", 1100).put("independence_met", "yes");
+        assertInvalid(response);
+        size.put("independence_met", true).put("unexpected", true);
+        assertInvalid(response);
+        size.remove("unexpected");
+        entities.set("supplier", size);
+        assertInvalid(response);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"ok", "general_knowledge", "out_of_scope", "unsupported", "skipped", "empty"})
     void acceptsCompletedDetailedRoutingStatuses(String status) {

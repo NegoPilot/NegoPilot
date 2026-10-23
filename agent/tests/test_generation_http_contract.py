@@ -711,3 +711,19 @@ async def test_request_timeout_cancels_generation_inside_the_real_graph(monkeypa
     assert_error(await post(harness.app, body), body, 504, "UPSTREAM_TIMEOUT", True)
     assert started == [True] and cancelled == [True]
     assert len(harness.graph_calls) == 1 and harness.answers == []
+
+
+async def test_offer_check_preserves_explicit_historical_date_through_http(monkeypatch):
+    dec, routing = load_recorded("05_offer_check")
+    dec.sub_queries[0].entities.as_of = "2025-01-01"
+    for outcome in routing["outcomes"]:
+        for call in outcome["calls"] + outcome["referenced_articles"]:
+            if call["tool"] in {"check_offer", "get_article"}:
+                call["args"]["as_of"] = "2025-01-01"
+    caller = ReplayCaller(routing)
+    harness = Harness(monkeypatch, dec, caller)
+    body = payload(dec.original_query)
+    data = assert_wire(await post(harness.app, body))
+    harness.assert_completed_graph(data, body)
+    assert data["decomposition"]["sub_queries"][0]["entities"]["as_of"] == "2025-01-01"
+    assert caller.remaining == []

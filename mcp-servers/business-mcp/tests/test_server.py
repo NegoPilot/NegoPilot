@@ -130,15 +130,22 @@ def offer(**kw):
     return run(call("check_offer", args))
 
 
+def verified_buyer():
+    return {"ksic_code": "C30399", "average_revenue_eok": 121, "assets_eok": 2000,
+            "independence_met": True, "has_related_enterprises": False, "transition_reviewed": True,
+            "deemed_sme": False, "evidence_reference": "SYNTHETIC-QA"}
+
+
 def codes(result, key):
     return [f["code"] for f in result[key]]
 
 
 def test_clean_offer_has_no_violation():
     out = offer()
-    assert out["verdict"] == "문제 없음"
-    assert out["verdict_code"] == "OK"
-    assert out["violations"] == [] and out["warnings"] == []
+    assert out["verdict"] == "확인 필요"
+    assert out["violations"] == []
+    assert "SME_STATUS_UNKNOWN" in codes(out, "warnings")
+    assert out["verdict_code"] == "CHECK_NEEDED"
     assert out["offer"]["contract_amount"] == 120000 * 3800
 
 
@@ -149,7 +156,7 @@ def test_payment_over_60_days_is_a_violation_with_law_ref():
 
 
 def test_missing_linkage_for_major_material_is_a_violation():
-    out = offer(price_linkage=False)
+    out = offer(price_linkage=False, buyer_size=verified_buyer())
     assert "LINKAGE_TERMS_MISSING" in codes(out, "violations")
     assert {"law": "subcontract_act", "article_no": "제3조", "paragraph": "②"} in out["law_refs"]
     assert out["verdict_code"] == "VIOLATION"
@@ -194,7 +201,7 @@ def test_v2_fields_and_basis():
 
 
 def test_missing_energy_linkage_is_a_violation():
-    out = offer(price_linkage=False, raw_material_ratio=0.05, energy_ratio=0.12, as_of="2026-10-22")
+    out = offer(price_linkage=False, raw_material_ratio=0.05, energy_ratio=0.12, as_of="2026-10-22", buyer_size=verified_buyer())
     assert codes(out, "violations") == ["ENERGY_LINKAGE_TERMS_MISSING"]
     assert {"law": "subcontract_act", "article_no": "제2조", "paragraph": "⑰"} in out["law_refs"]
     assert out["offer"]["energy_ratio"] == 0.12
@@ -212,7 +219,7 @@ def test_energy_linkage_exempt_and_waived():
 def test_unknown_energy_ratio_is_info_only():
     out = offer(price_linkage=False, raw_material_ratio=0.05, as_of="2026-10-22")
     assert "ENERGY_RATIO_UNKNOWN" in codes(out, "info")
-    assert out["verdict_code"] == "OK"
+    assert out["verdict_code"] == "CHECK_NEEDED"
 
 
 def test_energy_rule_does_not_apply_before_it_took_effect():
@@ -249,3 +256,10 @@ def test_rank_suppliers_flags_have_law_refs():
     for c in out["ranked"]:
         if c["payment_days"] and c["payment_days"] > 60:
             assert "PAYMENT_DAYS_OVER_60" in [f["code"] for f in c["flags"]]
+
+
+def test_unknown_buyer_suppresses_both_linkage_violations():
+    out = offer(price_linkage=False, raw_material_ratio=.4, energy_ratio=.12, as_of='2026-10-22')
+    assert not {'LINKAGE_TERMS_MISSING', 'ENERGY_LINKAGE_TERMS_MISSING'} & set(codes(out, 'violations'))
+    assert 'BUYER_SIZE_UNKNOWN' in codes(out, 'warnings')
+    assert out['company_size']['buyer']['is_small_business'] is None

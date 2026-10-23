@@ -105,3 +105,28 @@ eval/eval_retrieval.py                      검색 방식 비교 평가 (eval/re
 - 법령 판은 frontmatter의 **대표 시행일자**로 고릅니다. 일부 조항만 따로 늦게 시행되는 경우(부칙의 개별 시행일)는 반영하지 않으니, 필요하면 `include_addenda=true`로 부칙을 함께 확인하세요.
 - 법령 원문은 저작권법상 보호받지 않는 저작물이라 그대로 저장해도 됩니다. 공정위 지침이나 가이드북을 추가할 때는 공공누리 유형을 확인하세요.
 - 이 서버는 법령을 **찾아서 인용**합니다. 협상안이 법을 어기는지 판정하는 규칙 검사(`check_offer`)는 business-mcp 쪽에 결정적 규칙으로 따로 구현합니다.
+
+## 공식 P0 보조자료
+
+`data/official/catalog.json`은 별표 1·2·3, 제조위탁 범위 고시, 연동 운영지침,
+지연이율·어음할인율 고시, 단가 결정·감액 심사지침, 경영상 정보 요구 금지 고시,
+2026년 표준 연동·미연동계약서(부속표 포함), 에너지비용 연동 가이드의 11개 묶음을 제공한다.
+`raw/`에는 공식 원문과 이미지 표, OCR 전사본을 SHA-256과 함께 보관한다.
+
+- `list_supporting_documents(as_of)` — 자료 유형·판본·공식 URL·원본 해시.
+- `get_supporting_document(document_id, as_of, offset, limit)` — 원문 페이지 조회.
+- `search_regulation` — 기존 법률과 보조자료 통합 검색. 보조자료는 `article_no=null`,
+  `document_id` 및 `type`으로 구분한다. 법률 조문처럼 `get_article`로 요청하지 않는다.
+- 서식·가이드의 `published_date`는 시행일이 아니다. OCR 표는 원본 확인이 필요하다.
+- 최신화 관리자 작업은 기존 6개 법률 본문만 갱신하며 이 검토된 보조자료 묶음을 삭제하지 않는다.
+  보조자료 변경은 별도 검토·배포해야 한다. 과거판이 없으면 미래판으로 대체하지 않는다.
+
+수집 재현: `python scripts/collect_official.py` (네트워크·Poppler `pdftotext` 필요).
+이미지 OCR은 macOS Swift/Vision을 사용하며 런타임 서버에는 필요하지 않다.
+고정 공식 판본을 수집하므로 실행만으로 최신 개정판을 발견하는 것은 아니다.
+출처 ID/게시물 개정 여부를 확인하고 스크립트의 판본을 갱신한 뒤 원문 diff를 검토한다.
+원본은 내용 해시 이름으로 보존하고 모든 수집이 성공한 뒤 catalog를 교체한다.
+OCR은 검색용이고 숫자 판단 규칙을 자동 생성하지 않는다.
+
+기업 규모 숫자 규칙은 business-mcp의 `data/legal_size_rules.json`에서 관리한다.
+동 파일의 원문 해시와 여기 수집된 별표 PDF 해시가 일치하는지 테스트한다.

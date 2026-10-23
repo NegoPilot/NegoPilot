@@ -170,3 +170,30 @@ try {
   await assert.rejects(cancelled, error => error.code === 'REQUEST_CANCELLED')
 } finally { globalThis.fetch = originalFetch }
 console.log('API regression checks passed: DB history, raw response, optional suggested questions without a count cap, flat MCP fields, units, field provenance, FAILED, CSRF, cookies, 204, timeout and cancellation.')
+
+// Review form numeric inputs can be strings or Vue-coerced numbers. Blanks stay unknown.
+const review = await moduleFrom('../src/api/review.ts', [
+  ["import { request } from './client'", "const request = () => { throw new Error('No network in unit checks') }"],
+  ["import { parseReviewResponse } from './conversation-contract'", "const parseReviewResponse = v => v"],
+])
+assert.equal(review.numberOrNull(''), null)
+assert.equal(review.numberOrNull('  '), null)
+assert.equal(review.numberOrNull(0), 0)
+assert.equal(review.numberOrNull(120.01), 120.01)
+assert.equal(review.numberOrNull('120.01'), 120.01)
+const c = review.newCompany()
+c.average_revenue_eok = 120.01
+c.independence_met = ''
+c.has_related_enterprises = 'false'
+c.related_aggregate_revenue_eok = '9999'
+const input = review.companyInput(c)
+assert.equal(input.average_revenue_eok, 120.01)
+assert.equal(input.assets_eok, null)
+assert.equal(input.independence_met, null)
+assert.equal(input.has_related_enterprises, false)
+assert.equal(input.related_aggregate_revenue_eok, null)
+const standalone = structuredClone(response)
+delete standalone.conversation_id; delete standalone.response_id
+assert.equal(contract.parseReviewResponse(standalone), standalone)
+assert.throws(() => contract.parseGenerationResponse(standalone))
+console.log('Structured review form and response checks passed')

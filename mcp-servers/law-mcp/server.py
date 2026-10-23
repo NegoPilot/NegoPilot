@@ -41,7 +41,7 @@ ALIASES = {
 
 mcp = FastMCP("LawServer", instructions=(
     "하도급법, 대ㆍ중소기업 상생협력법(납품대금 연동제), 중소기업기본법과 각 시행령을 "
-    "조문 단위로 제공한다. 답변에는 반드시 citation 값을 그대로 인용한다. "
+    "조문 및 공식 별표·고시·지침·표준서식을 제공한다. 보조자료 전문은 get_supporting_document로 조회한다. 답변에는 반드시 citation 값을 그대로 인용한다. "
     "법령은 as_of 날짜에 시행 중인 판 기준이며, 시행 예정 개정이 있으면 upcoming 에 표시된다."
 ))
 
@@ -68,6 +68,8 @@ def dataset_read(fn):
 
 
 LAWS = load_laws()
+import supporting_sources
+SUPPORTING_SOURCES = supporting_sources.load_sources()
 DATASET_COLLECTED_AT = None
 DATASET_LOADED_AT = datetime.now(timezone.utc).isoformat()
 DATASET_ID = hashlib.sha256(json.dumps(LAWS, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
@@ -228,6 +230,10 @@ GLOSSARY = {
     # 기한 숫자를 덧붙이면 '지급 후' 같은 말에도 제13조로 몰려 다른 조문을 밀어낸다 (#168)
     "대금 지급": "하도급대금의 지급",
     "기술 자료": "기술자료 제공 요구",
+    "늦게 지급": "지연지급 지연이율",
+    "이자율": "지연이율",
+    "업종별 기준표": "주된 업종별 평균매출액등 규모 기준 별표",
+    "미연동 합의": "표준 미연동계약서",
     "도면": "기술자료",
     "노하우": "기술자료",
     "협찬": "경제적 이익",
@@ -319,14 +325,14 @@ def definition_text(text: str, term: str) -> str:
 def definition_units(units: list[dict]) -> dict[tuple[str, str], tuple[int, str]]:
     """(law_key, 용어) → (그 용어를 정의한 항의 색인 위치, 정의 부분). 흔한 용어는 뺀다."""
     out = {}
-    law_size = {k: sum(1 for v in units if v["law_key"] == k) for k in {u["law_key"] for u in units}}
+    law_size = {k: sum(1 for v in units if v.get("law_key") == k) for k in {u["law_key"] for u in units if "law_key" in u}}
     for i, u in enumerate(units):
-        if u["article"] is None or u["article"]["no"] != DEFINITION_ARTICLE or u["law_key"].endswith("_decree"):
+        if "document" in u or u["article"] is None or u["article"]["no"] != DEFINITION_ARTICLE or u["law_key"].endswith("_decree"):
             continue
         for term in DEFINED_TERM.findall(u["text"]):
             if term.startswith("대통령령"):
                 continue
-            df = sum(1 for v in units if v["law_key"] == u["law_key"] and term in v["text"])
+            df = sum(1 for v in units if v.get("law_key") == u["law_key"] and term in v["text"])
             if df <= COMMON_TERM_SHARE * law_size[u["law_key"]]:
                 out.setdefault((u["law_key"], term), (i, definition_text(u["text"], term)))
     return out
@@ -338,7 +344,10 @@ def search_units(law_keys: tuple[str, ...], as_of: str, include_addenda: bool):
     캐시 키는 기준일이 아니라 그날 시행 중인 판이다. 기준일이 달라도 시행판이 같으면 같은 색인을 쓴다.
     """
     versions = {key: version_in_force(LAWS[key], as_of) for key in law_keys}
-    cache_key = (law_keys, tuple(admin_version_id(v) for v in versions.values()), include_addenda)
+    active_docs = tuple(key for key, doc in SUPPORTING_SOURCES.items()
+                        if supporting_sources.available(doc, as_of)
+                        and set(doc["parent_laws"]).intersection(law_keys))
+    cache_key = (law_keys, tuple(admin_version_id(v) for v in versions.values()), include_addenda, active_docs)
     if cache_key in _search_cache:
         _search_cache.move_to_end(cache_key)
         return _search_cache[cache_key]
@@ -358,6 +367,9 @@ def search_units(law_keys: tuple[str, ...], as_of: str, include_addenda: bool):
                 units.append({"law_key": key, "version": v, "article": None,
                               "addendum": ad["title"], "text": ad["text"],
                               "tokens": tokenize(ad["title"] + " " + ad["text"])})
+    for unit in supporting_sources.search_units(SUPPORTING_SOURCES, law_keys, as_of):
+        unit['tokens'] = tokenize(unit['document']['title'] + ' ' + unit['text'])
+        units.append(unit)
     result = (units, Bm25([u["tokens"] for u in units]), definition_units(units))
     _search_cache[cache_key] = result
     while len(_search_cache) > SEARCH_CACHE_SIZE:
@@ -450,13 +462,25 @@ def search_regulation(query: str, laws: list[str] | None = None, as_of: str | No
     extra: dict[int, str] = {}
     for i in hits:
         for (law_key, term), (d, text) in definitions.items():
-            if (law_key == units[i]["law_key"] and term in units[i]["text"] and d not in hits and d not in extra
+            if (law_key in ([units[i]["law_key"]] if "law_key" in units[i] else units[i]["document"]["parent_laws"]) and term in units[i]["text"] and d not in hits and d not in extra
                     and len(extra) < MAX_DEFINITIONS):
                 extra[d] = text
 
     results = []
     for i in hits + list(extra):
-        u, v = units[i], units[i]["version"]
+        u = units[i]
+        if 'document' in u:
+            d = u['document']
+            results.append({'law_key': d['parent_laws'][0], 'law_name': d['title'],
+                'type': d['kind'], 'article_no': None, 'document_id': d['document_id'], 'title': d['title'],
+                'text': u['text'], 'text_offset': u['offset'],
+                'citation': f"「{d['title']}」 [판본 {d.get('effective_date') or d.get('published_date')}; 본문 위치 {u['offset']}]",
+                'effective_date': d.get('effective_date'), 'published_date': d.get('published_date'),
+                'source_url': d['source_url'], 'version_note': d.get('version_note'),
+                'text_completeness': d.get('text_completeness', 'see_original'),
+                'score': round(scores[i], 2)})
+            continue
+        v = u['version']
         if u["article"] is None:
             results.append({"law_key": u["law_key"], "law_name": v["law_name"],
                             "type": "부칙", "title": u["addendum"], "text": u["text"][:1500],
@@ -471,6 +495,33 @@ def search_regulation(query: str, laws: list[str] | None = None, as_of: str | No
                             "effective_date": v["effective_date"], "source_url": v["source_url"],
                             "score": round(scores[i], 2)})
     return results
+
+
+@mcp.tool(annotations={"readOnlyHint": True})
+def list_supporting_documents(as_of: str | None = None) -> list[dict]:
+    """공식 별표·고시·심사지침·서식·가이드 목록. 법률 본문과 별도 판본·출처를 제공한다."""
+    day = parse_as_of(as_of)
+    return [{**supporting_sources.metadata(d), 'available_as_of': supporting_sources.available(d, day)}
+            for d in SUPPORTING_SOURCES.values()]
+
+
+@mcp.tool(annotations={"readOnlyHint": True})
+def get_supporting_document(document_id: str, as_of: str | None = None,
+                            offset: int = 0, limit: int = 12000) -> dict:
+    """공식 보조자료 원문을 페이지 조회한다. OCR은 원본 확인 필요, 서식·가이드는 법률이 아님.
+    search_regulation의 document_id와 text_offset을 사용할 수 있다. 과거 미수집 판본으로 대체하지 않는다.
+    """
+    day = parse_as_of(as_of)
+    doc = SUPPORTING_SOURCES.get(document_id)
+    if doc is None: raise ToolError('알 수 없는 보조자료: ' + document_id)
+    if not supporting_sources.available(doc, day):
+        raise ToolError('해당 기준일에 제공 가능한 보조자료 판본이 없다')
+    if offset < 0 or not 1 <= limit <= 20000: raise ToolError('Invalid page')
+    text = doc['text']
+    return {**supporting_sources.metadata(doc), 'text': text[offset:offset+limit],
+            'offset': offset, 'total_characters': len(text),
+            'next_offset': offset+limit if offset+limit < len(text) else None,
+            'citation': f"「{doc['title']}」 [판본 {doc.get('effective_date') or doc.get('published_date')}]"}
 
 
 # ---------- Resources ----------

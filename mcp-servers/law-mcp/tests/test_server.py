@@ -67,7 +67,8 @@ def test_get_article_branch_number():
 def test_search_finds_uniform_price_cut_rule():
     hits = run(call("search_regulation", {"query": "일률적인 비율로 단가 인하", "top_k": 3}))
     assert hits[0]["law_key"] == "subcontract_act"
-    assert hits[0]["article_no"] == "제4조"
+    assert any(h.get("article_no") == "제4조" for h in hits)
+    assert any(h.get("document_id") == "price_reduction" for h in hits)
 
 
 def test_search_finds_indexation_exceptions():
@@ -109,10 +110,12 @@ def test_glossary_keeps_question_order_and_drops_duplicates():
     assert server.expand_query("관련 없는 질문") == "관련 없는 질문"
 
 
-def test_search_attaches_definition_of_terms_in_hits():
+def test_search_attaches_definition_of_terms_in_hits(monkeypatch):
     """연동 의무 조문만 찾으면 10% 기준이 빠진다. 결과에 나온 '주요 원재료'의 정의 항을 뒤에 붙인다 (#167)."""
+    monkeypatch.setattr(server, "SUPPORTING_SOURCES", {})
+    server._search_cache.clear()
     hits = run(call("search_regulation", {"query": "원재료 비중이 높은 부품이면 납품대금 연동 약정을 서면에 꼭 적어야 하나요?"}))
-    regular = [h for h in hits if h["type"] == "조문"]
+    regular = [h for h in hits if h["type"] != "정의"]
     definitions = [h for h in hits if h["type"] == "정의"]
     assert len(regular) == 5 and hits[:5] == regular          # 정의는 top_k 뒤에만 붙는다
     assert 0 < len(definitions) <= server.MAX_DEFINITIONS
@@ -170,3 +173,16 @@ def test_business_wording_is_mapped_to_legal_terms():
         "query": "1차 협력사가 2차 협력사에 전 품목 5% 단가 인하를 요구해도 되나",
         "laws": ["하도급법"], "top_k": 3}))
     assert any(h["article_no"] == "제4조" for h in hits)
+
+
+def test_supporting_source_effective_date_changes_search_cache(monkeypatch):
+    doc = {'document_id': 'synthetic', 'title': 'QA', 'parent_laws': ['subcontract_act'],
+           'effective_date': '2026-10-21', 'text': '주요 원재료'}
+    monkeypatch.setattr(server, 'SUPPORTING_SOURCES', {'synthetic': doc})
+    server._search_cache.clear()
+    before = server.search_units(('subcontract_act',), '2026-10-20', False)
+    after = server.search_units(('subcontract_act',), '2026-10-21', False)
+    assert before is not after
+    assert not any('document' in u for u in before[0])
+    assert any('document' in u for u in after[0])
+    assert server.search_units(('subcontract_act',), '2026-10-22', False) is after

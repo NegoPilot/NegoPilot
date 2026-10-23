@@ -46,4 +46,3 @@ class ErrorDetail(BaseModel):
 class ErrorResponse(BaseModel):
     request_id: UUID | None
     error: ErrorDetail
-

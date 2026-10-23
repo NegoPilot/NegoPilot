@@ -107,4 +107,3 @@ TEST_DATABASE_USER='test_user' \
 TEST_DATABASE_PASSWORD="$TEST_DB_PASSWORD" \
 mvn -f backend/pom.xml -B -ntp test
 ```
-

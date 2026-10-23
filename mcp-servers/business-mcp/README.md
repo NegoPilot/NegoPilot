@@ -193,3 +193,47 @@ GRANT SELECT ON public.suppliers, public.capabilities, public.quality,
 ```
 
 이 계정은 테이블 소유자나 superuser가 아니어야 합니다. 추가 그룹 권한도 확인합니다. supplier_change_events와 회원 DB에는 권한을 주지 않습니다. MCP 프로세스의 DATABASE_URL만 이 읽기 계정으로 설정합니다. 관리자 변경은 인증된 Spring 관리 API에서 실행하며 MCP에는 쓰기 도구를 추가하지 않습니다.
+
+## 공식 별표 기반 기업 규모 검토
+
+`SME_REVENUE_EOK=1000` 고정값과 단년도 매출에 의한 적용대상 추정을 제거했다.
+`assess_company_size(company, as_of)` 및 `check_offer(..., supplier_size=..., buyer_size=..., as_of=...)`
+에서 `company_size.py`의 동일한 규칙을 사용한다. 기준 원문과 SHA-256은
+`data/legal_size_rules.json`에 기록한다. 제조업 C10~C34를 지원하며 다른 업종은 보류한다.
+
+입력 예시(금액 단위: 억 원):
+
+```json
+{
+  "company": {
+    "ksic_code": "C30399",
+    "average_revenue_eok": 1100,
+    "assets_eok": 2000,
+    "independence_met": true,
+    "has_related_enterprises": false,
+    "transition_reviewed": true,
+    "deemed_sme": false,
+    "evidence_reference": "검토한 재무자료·기업확인서 식별자"
+  },
+  "as_of": "2026-10-23"
+}
+```
+
+- C30 기본 1,200억 원 / C30393 자동차용 신품 의자 1,500억 원. 소기업은 120억 원.
+  C30만 입력하면 의자 예외를 배제할 세부코드 또는 `seat_manufacturing=false`가 필요하다.
+- 자산총액 5,000억 원 **미만**, 독립성, 관계기업, 유예·경과조치 검토를 함께 요구한다.
+- 평균매출액은 법정 산정 방식으로 확인한 값. DB 최근 1년 매출을 자동 대입하지 않는다.
+- 관계기업이 있으면 별표 2로 검증한 `related_aggregate_revenue_eok`와
+  `related_calculation_verified=true`가 필요하다. 복잡한 지배구조 합산을 자동 추정하지 않는다.
+- `transition_reviewed`, `deemed_sme`, `evidence_reference`는 검토 근거의 진술이며
+  외부 기업확인서 진위를 자동 검증하는 기능은 아니다.
+- 부족한 정보는 `unknown`과 `missing`으로 반환한다. 기업 규모 충족만으로 하도급법 적용을 확정하지 않는다.
+- 구매자의 검증된 `is_small_business=true`만 연동 소기업 예외에 반영한다.
+  이전 `buyer_is_small_business` 단독 입력은 경고만 반환한다.
+- 현재 검증 범위는 2026-01-02~2026-10-23이다. 이 기간 밖의 규모 판정은 보류한다.
+  운영 시 공식 별표·경과조치 재검토 후 규칙의 검증일을 갱신해야 한다.
+- 공식 고시·지침·서식은 law-mcp 검색 근거로 추가했다. 모든 지침 사례를 자동 위법 판정
+  규칙으로 변환한 것은 아니며, 기존 단가 경고 비율은 내부 위험탐지 기준이다.
+
+검증: `PYTHONPATH=. uv run pytest offline_tests tests -q`.
+DB 통합 테스트는 별도 임시 스키마를 만들고 종료 시 삭제한다.

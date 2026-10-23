@@ -23,6 +23,7 @@ from negopilot_shared.decomposition import SELECT_RE
 
 from negopilot_agent.decomposition.backends import AnthropicBackend, Backend, OpenAIBackend, OllamaBackend
 from negopilot_agent.decomposition.prompt import build_system_prompt, build_user_message
+from negopilot_agent.decomposition.size_facts import preserve_size_facts, explicit_offer_result
 
 log = logging.getLogger(__name__)
 
@@ -84,6 +85,9 @@ class QueryDecomposer:
 
     async def decompose(self, query: str, history: list[dict] | None = None, *,
                         context: dict[str, list[str]] | None = None) -> DecompositionResult:
+        explicit = explicit_offer_result(query, history)
+        if explicit is not None:
+            return explicit
         today = date.today()
         user_message = (build_user_message(query, history, today) if context is None
                         else build_user_message(query, history, today, context=context))
@@ -113,8 +117,9 @@ class QueryDecomposer:
             # original_query는 사용자 원문이어야 한다. 모델이 다듬었으면 원문으로 되돌린다
             if result.original_query != query:
                 result = result.model_copy(update={"original_query": query})
-            return apply_named_law(drop_unused_dependencies(drop_invented_ids(result, query, history, context)))
-        return failed_result(query)
+            return apply_named_law(drop_unused_dependencies(preserve_size_facts(
+                drop_invented_ids(result, query, history, context), query, history)))
+        return preserve_size_facts(failed_result(query), query, history)
 
 
 def fill_original_query(text: str, query: str) -> str:

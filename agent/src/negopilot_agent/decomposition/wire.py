@@ -14,7 +14,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from negopilot_shared.decomposition import Clarification, Entities, InputRef
+from negopilot_shared.decomposition import Clarification, CompanySizeFacts, Entities, InputRef
 
 EntityKey = Literal[tuple(Entities.model_fields)]  # type: ignore[valid-type]
 
@@ -28,7 +28,7 @@ class EntityValue(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     key: EntityKey
-    value: str | int | float | bool
+    value: str | int | float | bool | CompanySizeFacts
 
 
 class WireSubQuery(BaseModel):

@@ -559,3 +559,17 @@ async def test_numbers_that_only_look_like_an_rfq_do_not_keep_an_invented_rfq():
     result = await fake.decomposer().decompose("SUP-0003에 연간 1200000개, 단가 12,000원, 결제 75일, 연동 없이 괜찮아?")
     assert result.sub_queries[0].entities.rfq_id is None
 
+
+
+def test_compact_wire_preserves_nested_company_size_and_energy():
+    from negopilot_agent.decomposition.wire import EntityValue, to_contract_json
+    facts = {'ksic_code': 'C30399', 'average_revenue_eok': 120.01,
+             'independence_met': None, 'evidence_reference': 'SYNTHETIC-QA'}
+    size = EntityValue(key='buyer_size', value=facts)
+    energy = EntityValue(key='energy_ratio', value=.12)
+    result = json.loads(to_contract_json(json.dumps({'sub_queries': [{'entities': [
+        size.model_dump(mode='json'), energy.model_dump(mode='json')]}]})))
+    entities = result['sub_queries'][0]['entities']
+    assert entities['buyer_size']['average_revenue_eok'] == 120.01
+    assert entities['buyer_size']['independence_met'] is None
+    assert entities['energy_ratio'] == .12
