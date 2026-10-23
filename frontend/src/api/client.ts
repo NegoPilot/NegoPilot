@@ -11,6 +11,8 @@ export const API_PATHS = {
   conversations: `${API_ROOT}/conversations`,
   businessCatalog: `${API_ROOT}/business/catalog`,
   suppliers: `${API_ROOT}/suppliers`,
+  negotiations: `${API_ROOT}/negotiations`,
+  negotiationMails: `${API_ROOT}/negotiation-mails`,
 } as const
 
 export class ApiError extends Error {
@@ -20,6 +22,7 @@ export class ApiError extends Error {
     message: string,
     readonly retryable: boolean,
     readonly requestId: string | null = null,
+    readonly details: Record<string, unknown> | null = null,
   ) {
     super(message)
     this.name = 'ApiError'
@@ -60,7 +63,8 @@ export async function request<T>(path: string, init: RequestInit = {}, timeoutMs
         if (body.error.code === 'UNAUTHENTICATED' && path !== `${API_PATHS.auth}/me` && typeof window !== 'undefined') {
           window.dispatchEvent(new Event('negopilot:unauthenticated'))
         }
-        throw new ApiError(response.status, body.error.code, body.error.message, body.error.retryable, body.request_id ?? null)
+        throw new ApiError(response.status, body.error.code, body.error.message, body.error.retryable, body.request_id ?? null,
+          errorDetails(body.error))
       }
       throw new ApiError(response.status, response.status >= 500 ? 'BACKEND_UNREACHABLE' : `HTTP_${response.status}`, 'Request failed.', response.status >= 500)
     }
@@ -76,4 +80,10 @@ export async function request<T>(path: string, init: RequestInit = {}, timeoutMs
     clearTimeout(timer)
     init.signal?.removeEventListener('abort', abort)
   }
+}
+
+// 오류 본문의 details(예: 발송 거절 사유 목록)를 넘긴다
+function errorDetails(error: object): Record<string, unknown> | null {
+  const details = (error as { details?: unknown }).details
+  return typeof details === 'object' && details !== null && !Array.isArray(details) ? details as Record<string, unknown> : null
 }
