@@ -1,6 +1,6 @@
-# 법규 검토 화면 API
+# 법규 검토 API
 
-`/review`는 로그인한 활성 회원이 기업 정보와 계약 조건을 입력해 검토하는 화면이다.
+로그인한 활성 회원이 기업 정보와 계약 조건을 보내 검토하는 API다. 단독 검토 화면(`/review`)은 #289에서 제거했다.
 `POST /api/legal-reviews` → Spring → `POST /internal/legal-reviews` → Agent Router → business/law MCP 순서로 실행한다.
 공개 API는 기존 세션·CSRF 정책을 적용하며 내부 API 키를 브라우저에 전달하지 않는다.
 
