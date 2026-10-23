@@ -11,4 +11,6 @@ public final class ApiPaths {
     public static final String CONVERSATIONS = ROOT + "/conversations";
     public static final String BUSINESS_CATALOG = ROOT + "/business/catalog";
     public static final String SUPPLIERS = ROOT + "/suppliers";
+    public static final String NEGOTIATIONS = ROOT + "/negotiations";
+    public static final String NEGOTIATION_EXPORTS = ROOT + "/negotiation-exports";
 }

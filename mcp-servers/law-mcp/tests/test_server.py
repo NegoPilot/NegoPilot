@@ -204,3 +204,12 @@ def test_supporting_count_grows_with_top_k():
     server._search_cache.clear()
     hits = run(call("search_regulation", {"query": "하도급대금 연동 표준 연동계약서", "as_of": "2026-10-23", "top_k": 10}))
     assert sum(1 for h in hits if h.get("document_id")) <= 5
+
+
+
+def test_list_laws_reports_in_force_promulgation():
+    """시행 중인 판의 공포번호·공포일. 거래 사실 검토의 판본 표기에 쓴다 (#261)."""
+    laws = {x["law_key"]: x for x in run(call("list_laws", {"as_of": "2026-10-23"}))}
+    act = laws["subcontract_act"]
+    assert (act["in_force_effective_date"], act["in_force_promulgation_no"]) == ("2026-10-02", "21857")
+    assert act["in_force_promulgation_date"]

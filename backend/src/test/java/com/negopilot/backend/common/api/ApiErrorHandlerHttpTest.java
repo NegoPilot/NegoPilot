@@ -197,6 +197,15 @@ class ApiErrorHandlerHttpTest {
         assertSafeEnvelope(result, REQUEST_ID);
     }
 
+    @Test
+    void optionalDetailsAreIncludedWithoutChangingExistingEnvelope() throws Exception {
+        mvc.perform(get(ROOT + "/conflict-details").with(principal("USER", "ACTIVE")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("REVISION_CONFLICT"))
+                .andExpect(jsonPath("$.error.details.requested_revision").value(1))
+                .andExpect(jsonPath("$.error.details.current_revision").value(2));
+    }
+
     @ParameterizedTest
     @ValueSource(ints = {429, 503, 499})
     void responseStatusExceptionKeepsStatusAndSafeEnvelope(int code) throws Exception {
@@ -310,6 +319,12 @@ class ApiErrorHandlerHttpTest {
 
         @GetMapping(ROOT + "/unexpected")
         void unexpected() { throw new IllegalStateException(PRIVATE_DETAIL); }
+
+        @GetMapping(ROOT + "/conflict-details")
+        void conflictDetails() {
+            throw ApiException.of(REQUEST_ID, 409, "REVISION_CONFLICT", "Revision changed", false,
+                    Map.of("requested_revision", 1, "current_revision", 2));
+        }
 
         @GetMapping(ROOT + "/http-exception/{status}")
         void httpException(@PathVariable int status) {

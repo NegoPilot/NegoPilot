@@ -142,3 +142,30 @@ async def test_empty_web_form_counts_as_not_entered():
     entered_one = offer(transaction=EMPTY_FORM | {"payment_basis": "receipt"})
     result = await ReviewedToolCaller(ReviewOffer(**entered_one), caller)('business-mcp', 'check_offer', entered_one)
     assert any(f['code'].startswith('TRANSACTION_') for f in result['warnings'] + result['info'])
+
+
+
+@pytest.mark.parametrize('laws, expected', [
+    ([{'law_key': 'subcontract_act', 'law_type': '법률', 'in_force_effective_date': '2026-10-02',
+       'in_force_promulgation_no': '21857', 'source_url': 'https://www.law.go.kr/법령/하도급거래공정화에관한법률'}],
+     '법률 제21857호, 시행 2026-10-02'),
+    (RuntimeError('law-mcp down'), '기준일 판본 확인 실패'),
+])
+async def test_review_asks_law_mcp_for_the_version_once(laws, expected):
+    """거래 사실 근거의 판본은 law-mcp list_laws(as_of)에서 받는다. 실패해도 검토는 계속한다 (#261)."""
+    calls = []
+    async def caller(server, tool, args):
+        calls.append((server, tool, args))
+        if tool == 'list_laws':
+            if isinstance(laws, Exception):
+                raise laws
+            return laws
+        return {'verdict': '문제 없음', 'verdict_code': 'OK', 'violations': [], 'warnings': [], 'info': []}
+    data = offer(transaction=complete_facts())
+    reviewed = ReviewedToolCaller(ReviewOffer(**data), caller)
+    result = await reviewed('business-mcp', 'check_offer', data)
+    refs = [f for f in result['warnings'] + result['info'] if f['code'] == 'TRANSACTION_PAYMENT_DEADLINE']
+    assert refs
+    assert (await reviewed.law_version() or {}).get('in_force_promulgation_no') == ('21857' if expected.startswith('법률') else None)
+    assert [c[:2] for c in calls].count(('law-mcp', 'list_laws')) == 1
+    assert next(a for s, t, a in calls if t == 'list_laws') == {'as_of': '2026-10-23'}

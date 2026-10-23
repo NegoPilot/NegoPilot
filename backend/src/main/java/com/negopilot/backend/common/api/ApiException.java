@@ -8,17 +8,29 @@ public final class ApiException extends RuntimeException {
     public final HttpStatus status;
     public final String code;
     public final boolean retryable;
+    public final Object details;
 
     private ApiException(UUID requestId, HttpStatus status, String code, String message, boolean retryable) {
+        this(requestId, status, code, message, retryable, null);
+    }
+
+    private ApiException(UUID requestId, HttpStatus status, String code, String message, boolean retryable,
+                         Object details) {
         super(message);
         this.requestId = requestId;
         this.status = status;
         this.code = code;
         this.retryable = retryable;
+        this.details = details;
     }
 
     public static ApiException of(UUID id, int status, String code, String message, boolean retryable) {
         return new ApiException(id, HttpStatus.valueOf(status), code, message, retryable);
+    }
+
+    public static ApiException of(UUID id, int status, String code, String message, boolean retryable,
+                                  Object details) {
+        return new ApiException(id, HttpStatus.valueOf(status), code, message, retryable, details);
     }
 
     public static ApiException validation(UUID id) {
