@@ -234,6 +234,26 @@ async def test_openai_backend_request_and_parse():
     assert schema["additionalProperties"] is False and set(schema["required"]) == set(schema["properties"])
 
 
+async def test_openai_reason_field_is_requested_and_dropped():
+    """실험 모드: 스키마가 intent 앞에 reason을 요구하고, 프롬프트에 규칙이 들어가며, 결과 계약에는 남지 않는다."""
+    data = fixture("08")
+    wire_out = json.loads(json.dumps(data["expected"], ensure_ascii=False))
+    for sq in wire_out["sub_queries"]:
+        sq["reason"] = "앞 결과를 받아 순위를 매긴다"
+    fake = FakeOpenAI(json.dumps(wire_out, ensure_ascii=False))
+    backend = OpenAIBackend(fake.client(), "gpt-4.1-mini", max_tokens=16000, reason=True)
+    decomposer = QueryDecomposer(settings=DecomposerSettings(backend="openai", model="gpt-4.1-mini"), backend=backend)
+    result = await decomposer.decompose(data["query"])
+
+    assert result == DecompositionResult.model_validate(data["expected"])
+    body = json.loads(fake.requests[0].content)
+    sub = body["response_format"]["json_schema"]["schema"]["$defs"]["WireSubQueryWithReason"]
+    keys = list(sub["properties"])
+    assert keys.index("reason") < keys.index("intent")
+    assert "reason에는" in body["messages"][0]["content"]
+    assert "reason에는" not in build_system_prompt(compact=True)   # 기본 프롬프트는 그대로
+
+
 async def test_openai_retry_truncation_and_refusal():
     data = fixture("01")
     fake = FakeOpenAI("{\"status\": \"ok\"}", json.dumps(data["expected"], ensure_ascii=False))

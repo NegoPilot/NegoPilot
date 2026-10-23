@@ -29,10 +29,13 @@ sys.path[:0] = [str(ROOT / "src"), str(ROOT.parent / "shared" / "src")]
 
 from negopilot_shared import DecompositionResult  # noqa: E402
 
+from negopilot_agent import timing  # noqa: E402
 from negopilot_agent.decomposition import DecomposerSettings, QueryDecomposer  # noqa: E402
 
 SETS = {"dev": ("decomposition", "decomposition_dev"), "validation": ("validation",)}
 KEYS = ["status", "count", "intents", "entities", "dependencies", "exact"]
+# 질문 하나당 LLM 사용량. 재시도도 호출 수와 토큰에 들어간다 (비용은 timing.PRICES_PER_MTOK 기준)
+USAGE = ["llm_calls", "input_tokens", "cached_tokens", "output_tokens", "cost_usd"]
 
 
 def fixtures(name: str) -> list[Path]:
@@ -105,8 +108,12 @@ async def main() -> None:
             print(f"\n[{run}/{args.repeat}회]")
         rows = await evaluate(decomposer, cases)
         summary = {k: round(sum(r[k] for r in rows) / len(rows), 3) for k in KEYS}
+        cost = usage_summary(rows)
         print("정확도  " + "  ".join(f"{k} {v:.0%}" for k, v in summary.items()))
-        runs.append({"run": run, "summary": summary, "rows": rows})
+        print(f"사용량  질문당 LLM {cost['llm_calls']}회 · 입력 {cost['input_tokens']:.0f}(캐시 {cost['cached_tokens']:.0f})"
+              f" · 출력 {cost['output_tokens']:.0f} 토큰 · ${cost['cost_usd']:.6f} · 시간 평균 {cost['seconds_mean']}s"
+              f" p50 {cost['seconds_p50']}s p90 {cost['seconds_p90']}s")
+        runs.append({"run": run, "summary": summary, "usage": cost, "rows": rows})
 
     mean = {k: round(sum(r["summary"][k] for r in runs) / len(runs), 3) for k in KEYS}
     if args.repeat > 1:
@@ -118,9 +125,25 @@ async def main() -> None:
     out_dir.mkdir(exist_ok=True)
     out = out_dir / f"{datetime.now():%Y%m%d-%H%M%S}.json"
     out.write_text(json.dumps({"backend": settings.backend, "model": settings.model, "effort": settings.effort,
-                               "set": args.fixture_set, "repeat": args.repeat, "summary": mean, "runs": runs},
+                               "set": args.fixture_set, "repeat": args.repeat, "summary": mean,
+                               "usage": usage_summary([row for r in runs for row in r["rows"]]), "runs": runs},
                               ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"저장: {out.relative_to(ROOT)}")
+
+
+def usage(t: timing.Timings) -> dict:
+    out = t.summary()
+    return {k: out[k] for k in USAGE}
+
+
+def usage_summary(rows: list[dict]) -> dict:
+    """질문당 평균 사용량과 응답 시간(평균·p50·p90)."""
+    n = len(rows)
+    seconds = sorted(r["seconds"] for r in rows)
+    out = {k: round(sum(r.get(k, 0) for r in rows) / n, 6 if k == "cost_usd" else 1) for k in USAGE}
+    out |= {"seconds_mean": round(sum(seconds) / n, 2), "seconds_p50": seconds[n // 2],
+            "seconds_p90": seconds[min(n - 1, int(n * 0.9))], "cost_usd_total": round(sum(r.get("cost_usd", 0) for r in rows), 6)}
+    return out
 
 
 async def evaluate(decomposer: QueryDecomposer, cases: list[Path]) -> list[dict]:
@@ -130,17 +153,18 @@ async def evaluate(decomposer: QueryDecomposer, cases: list[Path]) -> list[dict]
         expected = DecompositionResult.model_validate(data["expected"])
         started = time.perf_counter()
         try:
-            actual = await decomposer.decompose(data["query"])
+            with timing.collect() as t:
+                actual = await decomposer.decompose(data["query"])
         except Exception as err:  # 한 질문의 오류(시간 초과 등)로 평가 전체가 멈추지 않게 오답으로 기록한다
             elapsed = time.perf_counter() - started
             rows.append({"case": path.stem, "query": data["query"], "seconds": round(elapsed, 2),
-                         **{k: 0 for k in KEYS},
+                         **{k: 0 for k in KEYS}, **usage(t),
                          "error": f"{type(err).__name__}: {err}"[:300], "actual": None})
             print(f"! {path.stem:<38} {elapsed:5.1f}s  오류 {type(err).__name__}", flush=True)
             continue
         elapsed = time.perf_counter() - started
         s = score(expected, actual)
-        rows.append({"case": path.stem, "query": data["query"], "seconds": round(elapsed, 2), **s,
+        rows.append({"case": path.stem, "query": data["query"], "seconds": round(elapsed, 2), **s, **usage(t),
                      "actual": actual.model_dump(mode="json", by_alias=True)})
         mark = "✓" if s["exact"] else "✗"
         print(f"{mark} {path.stem:<38} {elapsed:5.1f}s  " + " ".join(f"{k}={v}" for k, v in s.items() if k != "exact"),
