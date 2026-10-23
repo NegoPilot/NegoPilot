@@ -189,4 +189,42 @@ final은 요청 revision이 head이며 협상안이 ACTIVE이고 기반 검토�
 | 502 / 503 / 504 | UPSTREAM_INVALID_RESPONSE / UPSTREAM_UNAVAILABLE / UPSTREAM_TIMEOUT |
 | 500 | INTERNAL_ERROR |
 
-1단계에서는 메일 발송과 내부 PDF 렌더를 제공하지 않는다. 문구 검사와 가격 범위 재검사 및 from-review 이식도 하지 않는다. Agent를 호출하는 동안 DB 행 잠금을 유지하지 않는다. 호출 전후에 버전을 확인하고 저장한다.
+내부 PDF 렌더는 제공하지 않는다. 문구 검사와 가격 범위 재검사 및 from-review 이식도 하지 않는다. Agent를 호출하는 동안 DB 행 잠금을 유지하지 않는다. 호출 전후에 버전을 확인하고 저장한다.
+
+## 7. 메일 미리보기와 발송
+
+외부 확정본(`final`) 내보내기 묶음을 협력사 담당자에게 보낸다. Spring은 Agent `/internal/offer-mails/*`를 거쳐 mail-mcp를 부른다. 내부 브리핑은 이 경로로 보내지 않는다(`INTERNAL_DOCUMENT` 400).
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| POST | `/api/negotiations/{id}/proposals/{pid}/mail-previews` | 미리보기 (201) |
+| GET | `/api/negotiations/{id}/proposals/{pid}/mails` | 이 협상안의 미리보기·발송 목록 |
+| GET | `/api/negotiation-mails/{mailId}` | 하나 조회 |
+| POST | `/api/negotiation-mails/{mailId}/send` | 발송. `Idempotency-Key` 필수 |
+| POST | `/api/negotiation-mails/{mailId}/reconcile` | 결과 불명확(`UNKNOWN`) 복구 |
+
+미리보기 요청: `bundle_id`(필수), `contact_id`(생략하면 기본 담당자), `message`(2,000자 이하), `acknowledgements` `{check_needed, unresolved_issue_ids}`.
+발송 요청: `content_hash` (미리보기에서 본 값).
+
+응답: `mail_id, status, to, from, reply_to, subject, body, message, attachments, content_hash, document_id, document_version, dry_run, expires_at, acknowledgements, send_id, message_id, error_code, created_at, send_requested_at, finished_at`. 확인 토큰은 응답에 넣지 않고 DB에만 둔다.
+
+발송 허용 조건 (미리보기와 발송 직전에 모두 본다. 아니면 422 `SEND_NOT_ALLOWED`, `details.reasons`):
+
+| 이유 | 조건 |
+|---|---|
+| `BUNDLE_NOT_FINAL` | 외부 확정본이 아니거나 준비되지 않음 |
+| `BUNDLE_STALE` | 묶음 이후 조건이나 외부 문서가 바뀜. 내부 문구만 바뀐 경우는 허용 |
+| `PROPOSAL_SUPERSEDED` / `REVIEW_RECHECK_REQUIRED` | 대체된 협상안 / 검토가 다시 실행됨 |
+| `VALIDATION_REQUIRED` / `RISK_IDENTIFIED` | head 검사가 `checked`가 아님 / 결론이 위반 소지 |
+| `OFFER_VIOLATION` | 확정본 `verdict_code`가 `VIOLATION` |
+| `CHECK_NEEDED_NOT_ACKNOWLEDGED` | `CHECK_NEEDED`인데 `acknowledgements.check_needed`가 없음 |
+| `UNRESOLVED_NOT_ACKNOWLEDGED` | 결론이 `conditional`인데 미해결 쟁점을 모두 확인하지 않음 |
+
+- 추가 문구에 내부 표현(대외비, 최대 수용가, 목표 합의가, 양보 등)이나 제시 단가가 아닌 내부 가격 범위 숫자가 있으면 422 `MESSAGE_INTERNAL_INFO`.
+- 상태: `PREVIEWED → SENDING → SENT | DRY_RUN | FAILED | UNKNOWN`, 미리보기 이후 바뀌면 `STALE`.
+- 같은 문서 버전·담당자에게 `SENDING`·`SENT`·`UNKNOWN`이 있으면 409 `ALREADY_SENT` (DB 부분 고유 인덱스). 만료 409 `PREVIEW_EXPIRED`, 해시 불일치·변경 409 `PREVIEW_STALE`, 실패한 미리보기 재사용 409 `PREVIEW_USED`.
+- mail-mcp가 보내기 전에 거절하면 `FAILED`(`error_code`에 mail-mcp 코드)이고 새 미리보기가 필요하다. 응답은 200이다.
+- 시간 초과·연결 실패·`ALREADY_SENT`·`CLIENT_REF_USED`면 `UNKNOWN`(202)으로 두고 자동으로 다시 보내지 않는다. 오래된 `SENDING`도 `UNKNOWN`이 된다.
+- 복구: `send_offer_mail`에 `client_ref = mail_id`를 넘겨 두었으므로 `list_offer_mail_sends(document_id, client_ref)`로 정확히 찾는다. 기록이 있으면 그 상태를 반영한다. 없고 토큰이 유효하면 같은 토큰·같은 `client_ref`로 한 번 더 부른다(이미 잡힌 요청이면 mail-mcp가 거절해 중복 발송이 없다). 토큰 만료 + 180초 뒤에도 기록이 없으면 `FAILED`(`NOT_SENT`).
+- 저장: `V4__negotiation_mail_sends.sql`의 `neg_mail_sends`. 원본 발송 기록은 mail-mcp SQLite에 있다.
+- Agent 쪽 `/internal/offer-mails/*`와 mail-mcp `client_ref`는 별도 Agent PR에 있다.

@@ -11,7 +11,7 @@ import tools.jackson.databind.node.ObjectNode;
 @Repository
 class NegotiationRepository {
     private static final Set<String> TABLES = Set.of("neg_workspaces", "neg_review_revisions", "neg_proposals",
-            "neg_proposal_revisions", "neg_validations", "neg_export_bundles", "neg_export_files", "neg_requests");
+            "neg_proposal_revisions", "neg_validations", "neg_export_bundles", "neg_export_files", "neg_requests", "neg_mail_sends");
     private final JdbcTemplate jdbc;
     private final JsonMapper mapper;
 

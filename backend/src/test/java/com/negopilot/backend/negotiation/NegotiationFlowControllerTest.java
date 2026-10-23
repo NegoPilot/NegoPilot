@@ -56,6 +56,7 @@ class NegotiationFlowControllerTest {
     @MockitoBean MembershipRepository members;
     @MockitoBean GenerationGateway gateway;
     @MockitoBean SupplierLookupGateway suppliers;
+    @MockitoBean NegotiationMailService mails;
     final UUID owner = UUID.randomUUID();
 
     @BeforeEach void setup() {

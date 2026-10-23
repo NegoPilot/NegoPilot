@@ -20,12 +20,13 @@ class NegotiationController {
     private static final String BASE = ApiPaths.NEGOTIATIONS;
     private static final String PROPOSAL = BASE + "/{id}/proposals/{pid}";
     private final NegotiationService service;
+    private final NegotiationMailService mails;
     private final CurrentUser currentUser;
     private final NegotiationRequestValidator validator;
     private final JsonMapper mapper;
 
-    NegotiationController(NegotiationService service, CurrentUser currentUser, JsonMapper mapper) {
-        this.service = service; this.currentUser = currentUser; this.mapper = mapper;
+    NegotiationController(NegotiationService service, NegotiationMailService mails, CurrentUser currentUser, JsonMapper mapper) {
+        this.service = service; this.mails = mails; this.currentUser = currentUser; this.mapper = mapper;
         this.validator = new NegotiationRequestValidator(mapper);
     }
 
@@ -118,6 +119,37 @@ class NegotiationController {
         var file = service.download(owner, uuid(fileId, rid), rid);
         return ResponseEntity.ok().contentType(MediaType.parseMediaType(file.contentType()))
                 .header("Content-Disposition", disposition(file.filename())).body(file.bytes());
+    }
+
+    @PostMapping(value = PROPOSAL + "/mail-previews", consumes = MediaType.APPLICATION_JSON_VALUE)
+    ResponseEntity<JsonNode> mailPreview(@PathVariable String id, @PathVariable String pid, @RequestBody(required = false) String raw, HttpServletRequest request) {
+        UUID owner = currentUser.requireActive().userId(); UUID rid = begin(request, Set.of());
+        return response(mails.preview(owner, uuid(id, rid), uuid(pid, rid), validator.mailPreview(validator.parse(raw, rid), rid), key(request, rid), rid));
+    }
+
+    @GetMapping(PROPOSAL + "/mails")
+    JsonNode mailList(@PathVariable String id, @PathVariable String pid, HttpServletRequest request) {
+        UUID owner = currentUser.requireActive().userId(); UUID rid = begin(request, Set.of());
+        return mails.list(owner, uuid(id, rid), uuid(pid, rid), rid);
+    }
+
+    @GetMapping(ApiPaths.NEGOTIATION_MAILS + "/{mailId}")
+    JsonNode mail(@PathVariable String mailId, HttpServletRequest request) {
+        UUID owner = currentUser.requireActive().userId(); UUID rid = begin(request, Set.of());
+        return mails.get(owner, uuid(mailId, rid), rid);
+    }
+
+    @PostMapping(value = ApiPaths.NEGOTIATION_MAILS + "/{mailId}/send", consumes = MediaType.APPLICATION_JSON_VALUE)
+    ResponseEntity<JsonNode> mailSend(@PathVariable String mailId, @RequestBody(required = false) String raw, HttpServletRequest request) {
+        UUID owner = currentUser.requireActive().userId(); UUID rid = begin(request, Set.of());
+        return response(mails.send(owner, uuid(mailId, rid), validator.mailSend(validator.parse(raw, rid), rid), key(request, rid), rid));
+    }
+
+    @PostMapping(ApiPaths.NEGOTIATION_MAILS + "/{mailId}/reconcile")
+    ResponseEntity<JsonNode> mailReconcile(@PathVariable String mailId, @RequestBody(required = false) String raw, HttpServletRequest request) {
+        UUID owner = currentUser.requireActive().userId(); UUID rid = begin(request, Set.of());
+        if (raw != null && !raw.isBlank() && !validator.parse(raw, rid).isEmpty()) throw ApiException.validation(rid);
+        return response(mails.reconcile(owner, uuid(mailId, rid), rid));
     }
 
     static String disposition(String name) {
