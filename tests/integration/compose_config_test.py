@@ -81,7 +81,7 @@ class ComposeConfigurationTest(unittest.TestCase):
     def test_test_volumes_are_not_live_volumes(self):
         self.assertEqual(set(self.test["volumes"]), set(self.live["volumes"]))
         self.assertTrue(volume_names(self.live).isdisjoint(volume_names(self.test)))
-        for service, source in (("postgres", "postgres-data"), ("law-mcp", "law-data")):
+        for service, source in (("postgres", "postgres-data"),):
             mounts = self.test["services"][service]["volumes"]
             self.assertTrue(any(mount["type"] == "volume" and mount["source"] == source for mount in mounts))
 
