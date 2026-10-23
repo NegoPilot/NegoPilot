@@ -63,13 +63,14 @@ def _aggregate_sources(sources: set[str], allowed: set[str]) -> str:
 
 
 def _provenance(raw: dict[str, Any], financial_sources: set[str], *,
-                has_contract: bool, has_quotes: bool) -> dict[str, str]:
+                has_contract: bool, quote_sources: set[str]) -> dict[str, str]:
     # 기본 정보와 재무의 출처는 독립적이다. 없는 품질 자료의 기본 출처는 집계하지 않는다.
     operations = {raw["certification_source"], raw["capability_source"]}
     if raw["defect_ppm"] is not None or raw["on_time_rate"] is not None:
         operations.add(raw["quality_source"])
-    if has_contract or has_quotes:
-        operations.add("MOCK")  # 계약과 견적은 현재 수정할 수 없는 합성 자료다.
+    if has_contract:
+        operations.add("MOCK")  # 계약은 현재 수정할 수 없는 합성 자료다.
+    operations |= quote_sources  # 견적은 각 견적의 실제 출처(MOCK 가상, MANUAL 관리자 입력)다.
     return {
         "profile": raw["source"],
         "financials": _aggregate_sources(financial_sources, {"DART", "MOCK"}),
@@ -120,7 +121,8 @@ def _detail(raw: dict[str, Any]) -> LiveSupplierDetail:
         },
         "provenance": _provenance(raw, {row["source"] for row in raw["financials"]},
                                   has_contract=raw["payment_days"] is not None,
-                                  has_quotes=bool(raw["recent_quotes"])),
+                                  # recent_quotes는 최근 5건뿐이라 오래된 견적의 출처가 빠진다.
+                                  quote_sources=set(raw["quote_sources"])),
     })
 
 
@@ -189,7 +191,8 @@ class BusinessSupplierService:
                 "iso14001": row["iso14001"],
                 "matched_capabilities": [],
                 "provenance": _provenance(row, set(row["financial_sources"]),
-                                          has_contract=row["has_contract"], has_quotes=row["has_quotes"]),
+                                          has_contract=row["has_contract"],
+                                          quote_sources=set(row["quote_sources"])),
             })
             summary["matched_capabilities"].append(_capability(row))
         items = []

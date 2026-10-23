@@ -196,13 +196,14 @@ def test_search_with_no_filters_is_still_bounded_and_deterministic(monkeypatch):
 
 def test_search_returns_independent_source_metadata_without_quality_join(monkeypatch):
     rows = [{"supplier_id": "SUP-10000", "source": "MANUAL", "defect_ppm": None,
-             "financial_sources": [], "has_contract": False, "has_quotes": False}]
+             "financial_sources": [], "has_contract": False, "has_quotes": False, "quote_sources": []}]
     calls = mock_query(monkeypatch, rows)
     assert server.search_suppliers() == rows
     sql = calls[0][0]
     assert "ARRAY(SELECT DISTINCT f.source FROM financials f WHERE f.supplier_id = o.supplier_id ORDER BY f.source) AS financial_sources" in sql
     assert "EXISTS(SELECT 1 FROM contracts ct WHERE ct.supplier_id = o.supplier_id) AS has_contract" in sql
     assert "EXISTS(SELECT 1 FROM quotes qt WHERE qt.supplier_id = o.supplier_id) AS has_quotes" in sql
+    assert "ARRAY(SELECT DISTINCT qt.source FROM quotes qt WHERE qt.supplier_id = o.supplier_id ORDER BY qt.source) AS quote_sources" in sql
     assert "JOIN quality" not in sql
     assert "WHERE o.status = 'ACTIVE'" in sql
 
@@ -352,13 +353,17 @@ def test_get_supplier_retains_its_flat_overview_and_detail_shape(monkeypatch):
     capabilities = [{"process": "프레스", "material": "SPCC", "monthly_capacity": 1000}]
     financials = [{"bsns_year": 2025, "revenue": 1000000, "source": "MOCK"}]
     quotes = [{"unit_price": 100, "quoted_at": "2026-01-01"}]
-    calls = mock_query(monkeypatch, [candidate()], [overview], capabilities, financials, quotes)
+    calls = mock_query(monkeypatch, [candidate()], [overview], capabilities, financials, quotes,
+                       [{"source": "MANUAL"}, {"source": "MOCK"}])
 
     assert server.get_supplier("1") == {
         **overview, "flags": [], "law_refs": [],
         "capabilities": capabilities, "financials": financials, "recent_quotes": quotes,
+        "quote_sources": ["MANUAL", "MOCK"],
     }
-    assert len(calls) == 5
+    assert len(calls) == 6
+    assert "ORDER BY quoted_at DESC, quote_id DESC LIMIT 5" in calls[4][0]
+    assert calls[5][0] == "SELECT DISTINCT source FROM quotes WHERE supplier_id = %s ORDER BY source"
     assert calls[0][1] == ("SUP-0001", server.SUPPLIER_CANDIDATES_SHOWN)   # find_suppliers와 같은 ID 조회
     assert all(params == ("SUP-0001",) for _, params in calls[1:])
 
@@ -367,7 +372,7 @@ def test_get_supplier_flags_existing_contract_terms(monkeypatch):
     """기존 계약 조건을 rank_suppliers와 같은 규칙으로 점검하고 조문을 law_refs로 모은다 (#180)."""
     overview = {"supplier_id": "SUP-0001", "name": "한빛정밀", "payment_days": 90, "years_dealing": 3,
                 "price_linkage": False, "raw_material_ratio": 0.4, "source": "MOCK"}
-    mock_query(monkeypatch, [candidate()], [overview], [], [], [])
+    mock_query(monkeypatch, [candidate()], [overview], [], [], [], [])
 
     r = server.get_supplier("1")
     assert [f["code"] for f in r["flags"]] == ["PAYMENT_DAYS_OVER_60", "LINKAGE_TERMS_MISSING"]
