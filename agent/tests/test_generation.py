@@ -401,6 +401,10 @@ async def test_generate_node_in_graph():
 async def test_company_size_never_calls_generation_model():
     from negopilot_agent.generation.generator import plan
     d, r = load('05_offer_check')
+    # 기업 규모 사실을 준 요청일 때만 고정 형식으로 쓴다 (#234)
+    data = d.model_dump(mode='json', by_alias=True)
+    data['sub_queries'][0]['entities']['buyer_size'] = {'ksic_code': 'C30399'}
+    d = DecompositionResult.model_validate(data)
     evidence = [Evidence(id='E1', sub_query='q1', source='business', kind='company_size',
                          label='기업 규모 검토', text='{"is_sme":true,"is_small_business":null,"missing":["independence_met"]}', meta={'role':'buyer'})]
     backend = FakeBackend(draft('소기업이 아닙니다.'))

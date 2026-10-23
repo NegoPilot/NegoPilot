@@ -113,6 +113,7 @@ def test_unknown_buyer_preserves_unknown_linkage_exception(offer_db):
     assert result['company_size']['buyer']['is_small_business'] is None
     assert 'BUYER_SIZE_UNKNOWN' in [f['code'] for f in result['warnings']]
     assert 'LINKAGE_TERMS_MISSING' not in [f['code'] for f in result['violations']]
+    assert 'LINKAGE_TERMS_MISSING' in [f['code'] for f in result['warnings']]   # 지우지 않고 경고로 (#234)
     assert 'LINKAGE_EXEMPT' not in [f['code'] for f in result['info']]
 
 def test_known_non_small_buyer_still_flags_missing_terms(offer_db):

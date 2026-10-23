@@ -157,6 +157,12 @@ class Plan:
     answerable: int = 0                                     # 근거로 답할 수 있는 하위 질문 수
 
 
+def size_requested(decomposition: DecompositionResult) -> bool:
+    """사용자가 기업 규모 사실을 준 협상안 검사인지. 법규 검토 화면(/review)과 규모를 명시한 채팅만 해당한다."""
+    return any(sq.intent == "offer_check" and (sq.entities.supplier_size or sq.entities.buyer_size)
+               for sq in decomposition.sub_queries)
+
+
 def plan(decomposition: DecompositionResult, routing: RouteResult) -> Plan:
     # 법적 결론을 정하거나 법 검토를 빼는 가정은 사용자 지시를 옮긴 것이라 보여 주지 않는다 (#222)
     p = Plan(notices=[f"가정: {a}" for a in decomposition.assumptions if not guard.sets_conclusion(a)])
@@ -278,9 +284,14 @@ class AnswerGenerator:
         return await self._write(decomposition, evidence, p)
 
     async def _write(self, decomposition: DecompositionResult, evidence: list[Evidence], p: Plan) -> Answer:
-        deterministic = render_size_answer(evidence, p.notices, decomposition.original_query)
-        if deterministic is not None:
-            return deterministic
+        if size_requested(decomposition):
+            deterministic = render_size_answer(evidence, p.notices, decomposition.original_query)
+            if deterministic is not None:
+                return deterministic
+        else:
+            # check_offer는 기업 규모 판정을 늘 함께 돌려준다. 규모를 묻지 않은 질문에 '판정 보류' 목록이
+            # 답을 덮지 않게, 그때는 규모 판정을 빼고 평소처럼 답을 쓴다. 판정 보류 경고는 검사 항목에 남는다 (#234)
+            evidence = [e for e in evidence if e.kind != "company_size"]
         # 질문이나 가정이 법적 결론을 정해 주면, 모델이 그 지시를 따랐는지 아래에서 한 번 더 본다 (#222)
         override = guard.overrides(decomposition.original_query) or any(map(guard.sets_conclusion, decomposition.assumptions))
         user = build_user_message(decomposition, evidence, p.notices, override)

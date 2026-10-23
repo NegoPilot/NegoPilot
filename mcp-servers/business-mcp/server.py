@@ -542,6 +542,10 @@ def get_price_benchmarks(rfq_id: str, supplier: str) -> dict:
     }
 
 
+# 구매자 소기업 예외에 걸리는 연동 약정 누락 항목
+LINKAGE_MISSING_CODES = {'LINKAGE_TERMS_MISSING', 'ENERGY_LINKAGE_TERMS_MISSING'}
+
+
 @mcp.tool(annotations={"readOnlyHint": True})
 def check_offer(supplier: str, rfq_id: str, unit_price: int, payment_days: int, price_linkage: bool,
                 raw_material_ratio: float | None = None, contract_days: int = 365,
@@ -605,9 +609,10 @@ def check_offer(supplier: str, rfq_id: str, unit_price: int, payment_days: int, 
     findings += rules.energy_linkage_findings(energy_ratio, price_linkage, contract_amount, contract_days, basis_day,
                                               linkage_waived_by_agreement, buyer_assessment['is_small_business'] is True)
     if buyer_assessment['is_small_business'] is None:
-        # Unknown is not false: do not assert a missing-terms violation while the
-        # buyer's statutory small-business exemption is still unresolved.
-        findings = [f for f in findings if f['code'] not in {'LINKAGE_TERMS_MISSING', 'ENERGY_LINKAGE_TERMS_MISSING'}]
+        # 미확정은 '소기업 아님'이 아니라 위반으로 확정하지 않는다. 다만 비중 10% 이상인데 약정이 없다는 사실은
+        # 지우지 않고 조건부 경고로 남긴다. 지우면 담당자가 연동 누락 자체를 모른다 (#234)
+        findings = [{**f, 'severity': 'warning', 'message': '구매자가 소기업이 아니면 위반 소지: ' + f['message']}
+                    if f['code'] in LINKAGE_MISSING_CODES else f for f in findings]
         findings.append(finding('BUYER_SIZE_UNKNOWN', 'warning',
             '구매자 소기업 판정 보류: ' + ', '.join(buyer_assessment['missing']) +
             '. 소기업이 아니라고 판단한 것이 아니다. 소기업 예외 적용 여부와 연동 약정 의무를 추가 확인해야 한다',

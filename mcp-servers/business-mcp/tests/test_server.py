@@ -280,8 +280,12 @@ def test_rank_suppliers_flags_have_law_refs():
             assert "PAYMENT_DAYS_OVER_60" in [f["code"] for f in c["flags"]]
 
 
-def test_unknown_buyer_suppresses_both_linkage_violations():
+def test_unknown_buyer_keeps_both_linkage_findings_as_conditional_warnings():
+    """구매자 소기업 여부를 모르면 위반으로 확정하지 않되, 연동 누락 사실은 경고로 남긴다 (#234)."""
     out = offer(price_linkage=False, raw_material_ratio=.4, energy_ratio=.12, as_of='2026-10-22')
     assert not {'LINKAGE_TERMS_MISSING', 'ENERGY_LINKAGE_TERMS_MISSING'} & set(codes(out, 'violations'))
-    assert 'BUYER_SIZE_UNKNOWN' in codes(out, 'warnings')
+    assert {'LINKAGE_TERMS_MISSING', 'ENERGY_LINKAGE_TERMS_MISSING', 'BUYER_SIZE_UNKNOWN'} <= set(codes(out, 'warnings'))
+    energy = next(f for f in out['warnings'] if f['code'] == 'ENERGY_LINKAGE_TERMS_MISSING')
+    assert energy['message'].startswith('구매자가 소기업이 아니면 위반 소지: 에너지 비중 12%')
+    assert out['verdict'] != '위반 소지 있음'
     assert out['company_size']['buyer']['is_small_business'] is None
