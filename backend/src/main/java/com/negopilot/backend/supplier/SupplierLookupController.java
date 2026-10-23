@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.JsonNode;
 
-/** v2 live supplier lookup. Python reads business-mcp regardless of the execution mode. */
+/** Live supplier lookup. Python reads business-mcp regardless of the execution mode. */
 @RestController
 @RequestMapping(produces = MediaType.APPLICATION_JSON_VALUE)
 final class SupplierLookupController {
@@ -42,6 +42,12 @@ final class SupplierLookupController {
         UUID id = begin(request);
         noParameters(request, id);
         return gateway.detail(validator.supplierId(supplierId), id);
+    }
+
+    @GetMapping(ApiPaths.SUPPLIERS + "/{supplierId}/quotes")
+    JsonNode quotes(@PathVariable String supplierId, HttpServletRequest request) {
+        UUID id = begin(request);
+        return gateway.quotes(validator.supplierId(supplierId), validator.quotes(request.getParameterMap()), id);
     }
 
     private static UUID begin(HttpServletRequest request) {

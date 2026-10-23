@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 
 import type { Catalog } from '@/api/types'
 import { formatInteger } from '@/utils/format'
@@ -31,7 +31,17 @@ watch(
 const capacityInvalid = computed(
   () => form.minMonthlyCapacity.trim() !== '' && parseCapacity(form.minMonthlyCapacity) === null,
 )
-const canSubmit = computed(() => form.process.trim() !== '' && !capacityInvalid.value && !props.loading)
+const canSubmit = computed(() => !capacityInvalid.value && !props.loading)
+const materialNotice = ref('')
+
+function onProcessChange() {
+  materialNotice.value = ''
+  const process = props.catalog?.processes.find((p) => p.process === form.process.trim())
+  if (process && form.material && !process.materials.includes(form.material.trim())) {
+    form.material = ''
+    materialNotice.value = '변경한 공정에 맞지 않는 소재를 해제했습니다.'
+  }
+}
 
 const processOptions = computed(() => props.catalog?.processes.map((p) => p.process) ?? [])
 
@@ -51,6 +61,7 @@ const regionOptions = computed(() => {
 const appliedChips = computed(() => {
   const chips: { label: string; primary: boolean }[] = []
   const a = props.applied
+  if (a.q) chips.push({ label: `검색: ${a.q}`, primary: true })
   if (a.process) chips.push({ label: a.process, primary: true })
   if (a.material) chips.push({ label: a.material, primary: false })
   if (a.region) chips.push({ label: a.region, primary: false })
@@ -63,10 +74,11 @@ const appliedChips = computed(() => {
 })
 
 function onSubmit() {
-  if (canSubmit.value) emit('submit', { ...form })
+  if (canSubmit.value) emit('submit', { ...form, page: 0 })
 }
 
 function onReset() {
+  materialNotice.value = ''
   Object.assign(form, emptySearchValues())
   emit('reset')
 }
@@ -79,16 +91,23 @@ function onReset() {
       <button class="link-btn" type="button" @click="onReset">초기화</button>
     </div>
 
+    <p class="muted">조건 없이 전체 활성 협력사를 조회합니다. 원하는 조건만 선택하세요.</p>
+
     <div class="field">
-      <label for="f-process">공정 <span class="required" aria-hidden="true">*</span></label>
+      <label for="f-query">협력사명 또는 ID</label>
+      <input id="f-query" v-model="form.q" type="search" :maxlength="TEXT_MAX" placeholder="이름 또는 SUP-0001" autocomplete="off" />
+    </div>
+
+    <div class="field">
+      <label for="f-process">공정 (선택)</label>
       <input
         id="f-process"
         v-model="form.process"
         type="text"
         list="f-process-options"
-        required
         :maxlength="TEXT_MAX"
-        placeholder="예: 다이캐스팅"
+        placeholder="전체 공정"
+        @change="onProcessChange"
         autocomplete="off"
       />
       <datalist id="f-process-options">
@@ -97,16 +116,17 @@ function onReset() {
     </div>
 
     <div class="field">
-      <label for="f-material">소재</label>
+      <label for="f-material">소재 (선택)</label>
       <input
         id="f-material"
         v-model="form.material"
         type="text"
         list="f-material-options"
         :maxlength="TEXT_MAX"
-        placeholder="예: ADC12"
+        placeholder="전체 소재"
         autocomplete="off"
       />
+      <p v-if="materialNotice" class="muted" role="status">{{ materialNotice }}</p>
       <datalist id="f-material-options">
         <option v-for="m in materialOptions" :key="m" :value="m" />
       </datalist>
@@ -118,7 +138,7 @@ function onReset() {
         <option value="">전체</option>
         <option v-for="r in regionOptions" :key="r" :value="r">{{ r }}</option>
       </select>
-      <span v-if="catalogError" class="muted">지역 목록을 불러오지 못했습니다</span>
+      <span v-if="catalogError" class="muted">선택 목록을 불러오지 못했습니다. 공정과 소재를 직접 입력할 수 있습니다.</span>
     </div>
 
     <fieldset class="field certs">
@@ -157,8 +177,8 @@ function onReset() {
       <div v-if="appliedChips.length" class="chips">
         <span v-for="c in appliedChips" :key="c.label" class="chip" :class="{ 'chip-primary': c.primary }">{{ c.label }}</span>
       </div>
-      <p v-else class="muted">아직 검색하지 않았습니다.</p>
-      <p class="footnote">NegoPilot은 검색 조건·선택과 상관없이 질문 내용으로 답합니다.</p>
+      <p v-else class="muted">전체 활성 협력사</p>
+      <p class="footnote">AI 대화는 협력사를 선택하지 않아도 바로 이용할 수 있습니다.</p>
     </div>
   </form>
 </template>
@@ -179,9 +199,6 @@ function onReset() {
 }
 .head h2 {
   font-size: 16px;
-}
-.required {
-  color: var(--danger);
 }
 .certs {
   margin: 0;
@@ -232,5 +249,10 @@ function onReset() {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+@media (min-width: 641px) and (max-width: 1000px) {
+  .search-panel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  .head, .search-panel > p, .applied { grid-column: 1 / -1; }
+  .submit { align-self: end; }
 }
 </style>

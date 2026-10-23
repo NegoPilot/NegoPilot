@@ -9,13 +9,14 @@ from typing import Any, Protocol
 
 from negopilot_agent.routing.mcp_client import DEFAULT_URLS
 
-from .supplier_chat_models import CatalogData, SupplierSearch
+from .supplier_chat_models import CatalogData
 from .supplier_chat_service import SupplierNotFound
-from .supplier_lookup_models import LIVE_SUPPLIER_ID_PATTERN, LiveSupplierDetail, LiveSupplierListData
+from .supplier_lookup_models import (
+    LIVE_SUPPLIER_ID_PATTERN, LiveQuoteListData, LiveQuoteSearch,
+    LiveSupplierDetail, LiveSupplierListData, LiveSupplierSearch,
+)
 
 CATALOG_URI = "business://catalog"
-# business-mcp caps search_suppliers at 100 rows. A full page may hide more matches.
-MCP_ROW_LIMIT = 100
 LIVE_SUPPLIER_ID = re.compile(LIVE_SUPPLIER_ID_PATTERN)
 
 
@@ -88,44 +89,51 @@ def _debt_ratio(row: dict[str, Any]) -> float | None:
     return round(liabilities / equity * 100, 1)
 
 
+def _quality(raw: dict[str, Any]) -> dict[str, Any]:
+    return {"defect_ppm": raw["defect_ppm"],
+            "on_time_delivery_rate": None if raw["on_time_rate"] is None else round(raw["on_time_rate"] * 100, 1),
+            "audit_grade": raw["audit_grade"], "years_dealing": raw["years_dealing"]}
+
+
+def _contract(raw: dict[str, Any]) -> dict[str, Any] | None:
+    if raw["payment_days"] is None:
+        return None
+    return {key: raw[key] for key in ("payment_days", "price_linkage", "raw_material_ratio", "auto_renewal")}
+
+
+def _quote(row: dict[str, Any]) -> dict[str, Any]:
+    return {"quote_id": row["quote_id"], "process": row["process"], "material": row["material"],
+            "unit_price_krw": row["unit_price"], "quoted_at": row["quoted_at"]}
+
+
+def _profile(raw: dict[str, Any], financial_sources: set[str], *, has_quotes: bool) -> dict[str, Any]:
+    return {
+        **{key: raw[key] for key in ("supplier_id", "name", "region", "iatf16949", "iso14001",
+                                   "founded_year", "employees", "updated_at")},
+        "quality": _quality(raw), "existing_contract": _contract(raw),
+        "provenance": _provenance(raw, financial_sources,
+                                  has_contract=raw["payment_days"] is not None, has_quotes=has_quotes),
+    }
+
+
 def _detail(raw: dict[str, Any]) -> LiveSupplierDetail:
     return LiveSupplierDetail.model_validate({
-        "supplier_id": raw["supplier_id"],
-        "name": raw["name"],
-        "region": raw["region"],
-        "iatf16949": raw["iatf16949"],
-        "iso14001": raw["iso14001"],
+        **_profile(raw, {row["source"] for row in raw["financials"]}, has_quotes=bool(raw["recent_quotes"])),
+        **{key: raw[key] or None for key in ("corp_code", "stock_code", "induty_code", "biz_no_masked", "created_at")},
         "capabilities": [_capability(row) for row in raw["capabilities"]],
-        "quality": {
-            "defect_ppm": raw["defect_ppm"],
-            # DB는 0..1 비율, 계약은 0..100 백분율이다.
-            "on_time_delivery_rate": None if raw["on_time_rate"] is None else round(raw["on_time_rate"] * 100, 1),
-        },
         "financials": [{
-            "year": row["bsns_year"],
-            "revenue_krw": row["revenue"],
-            "operating_profit_krw": row["operating_income"],
-            "debt_ratio": _debt_ratio(row),
-            "source": row["source"],
+            "year": row["bsns_year"], "fs_div": row["fs_div"],
+            "revenue_krw": row["revenue"], "operating_profit_krw": row["operating_income"],
+            "net_income_krw": row["net_income"], "total_assets_krw": row["total_assets"],
+            "total_liabilities_krw": row["total_liabilities"], "total_equity_krw": row["total_equity"],
+            "debt_ratio": _debt_ratio(row), "source": row["source"],
         } for row in raw["financials"]],
-        "recent_quotes": [{
-            "process": row["process"],
-            "material": row["material"],
-            "unit_price_krw": row["unit_price"],
-            "quoted_at": row["quoted_at"],
-        } for row in raw["recent_quotes"]],
-        "existing_contract": None if raw["payment_days"] is None else {
-            "payment_days": raw["payment_days"],
-            "price_linkage": raw["price_linkage"],
-        },
-        "provenance": _provenance(raw, {row["source"] for row in raw["financials"]},
-                                  has_contract=raw["payment_days"] is not None,
-                                  has_quotes=bool(raw["recent_quotes"])),
+        "recent_quotes": [_quote(row) for row in raw["recent_quotes"]],
     })
 
 
 class BusinessSupplierService:
-    """Read suppliers through business-mcp tools. Same result shapes as the v0.2 fixture service."""
+    """Read paginated supplier directory data through business-mcp tools."""
 
     def __init__(self, session: SessionFactory = mcp_session) -> None:
         self._session = session
@@ -149,58 +157,25 @@ class BusinessSupplierService:
             "regions": sorted(row["region"] for row in raw["regions"]),
         })
 
-    async def search(self, filters: SupplierSearch) -> LiveSupplierListData:
-        async def fetch(business: BusinessSession) -> list[dict[str, Any]] | None:
-            catalog = await business.read_catalog()
-            materials = catalog["processes"].get(filters.process, [])
-            if filters.material is not None:
-                materials = [material for material in materials if material == filters.material]
-            if filters.region is not None and filters.region not in {row["region"] for row in catalog["regions"]}:
-                materials = []
-            args: dict[str, Any] = {"process": filters.process, "iatf_required": filters.iatf_required,
-                                    "iso14001_required": filters.iso14001_required, "limit": MCP_ROW_LIMIT}
-            if filters.region is not None:
-                args["region"] = filters.region
-            if filters.min_monthly_capacity is not None:
-                args["min_monthly_capacity"] = filters.min_monthly_capacity
-            rows = []
-            # 소재별로 나눠 부르면 한 기업은 소재마다 최대 한 행이라 100행 제한에 덜 걸린다.
-            for material in materials:
-                batch = await business.call_tool("search_suppliers", args | {"material": material})
-                if len(batch) >= MCP_ROW_LIMIT:
-                    return None
-                rows.extend(batch)
-            return rows
+    async def search(self, filters: LiveSupplierSearch) -> LiveSupplierListData:
+        raw = await self._fetch(lambda business: business.call_tool(
+            "list_suppliers_page", filters.model_dump(exclude_none=True)))
+        items = [{
+            **_profile(row, set(row["financial_sources"]), has_quotes=row["has_quotes"]),
+            "matched_capabilities": [_capability(cap) for cap in row["matched_capabilities"]],
+            "max_monthly_capacity": row["max_monthly_capacity"],
+            "latest_quote": None if row["latest_quote"] is None else _quote(row["latest_quote"]),
+        } for row in raw["items"]]
+        return LiveSupplierListData.model_validate(raw | {"items": items})
 
-        rows = await self._fetch(fetch)
-        if rows is None:
-            # 잘린 결과로 supplier_id 순서의 앞부분을 만들면 기업이 빠질 수 있다.
-            raise RuntimeError("search_suppliers result may be truncated")
-        grouped: dict[str, dict[str, Any]] = {}
-        for row in rows:
-            # 계약은 정확히 일치하는 값만 허용한다. MCP의 별칭 정규화 결과는 다시 걸러낸다.
-            if filters.region is not None and row["region"] != filters.region:
-                continue
-            summary = grouped.setdefault(row["supplier_id"], {
-                "supplier_id": row["supplier_id"],
-                "name": row["name"],
-                "region": row["region"],
-                "iatf16949": row["iatf16949"],
-                "iso14001": row["iso14001"],
-                "matched_capabilities": [],
-                "provenance": _provenance(row, set(row["financial_sources"]),
-                                          has_contract=row["has_contract"], has_quotes=row["has_quotes"]),
-            })
-            summary["matched_capabilities"].append(_capability(row))
-        items = []
-        for supplier_id in sorted(grouped)[:filters.limit]:
-            summary = grouped[supplier_id]
-            summary["matched_capabilities"].sort(key=lambda cap: (cap["process"], cap["material"]))
-            items.append(summary)
-        return LiveSupplierListData.model_validate({
-            "items": items,
-            "returned_count": len(items),
-            "limit": filters.limit,
+    async def quotes(self, supplier_id: str, filters: LiveQuoteSearch) -> LiveQuoteListData:
+        raw = await self._fetch(lambda business: business.call_tool(
+            "list_supplier_quotes", {"supplier_id": supplier_id, **filters.model_dump(exclude_none=True)}))
+        if not raw["supplier_exists"]:
+            raise SupplierNotFound("Supplier does not exist.")
+        return LiveQuoteListData.model_validate({
+            key: ([_quote(row) for row in value] if key == "items" else value)
+            for key, value in raw.items() if key != "supplier_exists"
         })
 
     async def detail(self, supplier_id: str) -> LiveSupplierDetail:

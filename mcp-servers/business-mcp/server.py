@@ -25,6 +25,7 @@ from company_size import CompanySizeInput, assess as assess_size
 from psycopg_pool import ConnectionPool, PoolTimeout
 
 import rules
+import supplier_directory
 from rules import finding, linkage_findings, payment_findings
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://agent:agent@localhost:5432/supplier_db")
@@ -360,6 +361,30 @@ def search_suppliers(process: str | None = None, material: str | None = None, re
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
+def list_suppliers_page(q: str | None = None, process: str | None = None, material: str | None = None,
+                        region: str | None = None, iatf_required: bool = False,
+                        iso14001_required: bool = False, min_monthly_capacity: int | None = None,
+                        page: int = 0, size: int = 20, sort: str = "name", direction: str = "asc") -> dict:
+    """협력사 디렉터리 페이지 조회. 선택 조건은 정확한 값으로 비교하고 이름/ID는 부분 검색한다.
+
+    전체 활성 협력사가 대상이며 공정/품질 자료가 없는 기업도 기본 목록에 포함한다.
+    total은 전체 결과 수다. size(1..100)는 한 페이지 크기이며 page는 0부터 시작한다.
+    챗봇 후보 검색과 순위는 기존 search_suppliers와 rank_suppliers를 사용한다.
+    """
+    return supplier_directory.list_suppliers(query, q=q, process=process, material=material, region=region,
+        iatf_required=iatf_required, iso14001_required=iso14001_required,
+        min_monthly_capacity=min_monthly_capacity, page=page, size=size, sort=sort, direction=direction)
+
+
+@mcp.tool(annotations={"readOnlyHint": True})
+def list_supplier_quotes(supplier_id: str, process: str | None = None, material: str | None = None,
+                         page: int = 0, size: int = 20, sort: str = "quoted_at", direction: str = "desc") -> dict:
+    """정확한 협력사 ID의 전체 견적 이력을 페이지로 반환한다. 공정과 소재는 선택 조건이다."""
+    return supplier_directory.list_quotes(query, supplier_id=supplier_id, process=process, material=material,
+                                          page=page, size=size, sort=sort, direction=direction)
+
+
+@mcp.tool(annotations={"readOnlyHint": True})
 def find_suppliers(supplier: str, limit: int = 10) -> dict:
     """이름이나 느슨한 ID로 협력사 후보를 찾는다. 상세 조회 전에 대상을 선택할 때 쓴다.
 
@@ -391,7 +416,8 @@ def get_supplier(supplier: str) -> dict:
     law_refs는 flags의 조문을 겹치지 않게 모은 것이다. law-mcp get_article로 넘겨 조문을 인용한다.
     """
     sid = resolve_supplier_id(supplier)
-    records = query("SELECT * FROM supplier_overview WHERE supplier_id = %s AND status = 'ACTIVE'", (sid,))
+    records = query("SELECT o.*, s.created_at, s.updated_at FROM supplier_overview o "
+                    "JOIN suppliers s USING (supplier_id) WHERE o.supplier_id = %s AND o.status = 'ACTIVE'", (sid,))
     if not records:
         raise ToolError("[SUPPLIER_NOT_FOUND] 활성 협력사가 없다")
     overview = records[0]
@@ -409,8 +435,8 @@ def get_supplier(supplier: str) -> dict:
         "financials": query("SELECT bsns_year, fs_div, source, revenue, operating_income, net_income, "
                             "total_assets, total_liabilities, total_equity FROM financials "
                             "WHERE supplier_id = %s ORDER BY bsns_year", (sid,)),
-        "recent_quotes": query("SELECT process, material, unit_price, quoted_at FROM quotes "
-                               "WHERE supplier_id = %s ORDER BY quoted_at DESC LIMIT 5", (sid,)),
+        "recent_quotes": query("SELECT quote_id, process, material, unit_price, quoted_at FROM quotes "
+                               "WHERE supplier_id = %s ORDER BY quoted_at DESC, quote_id DESC LIMIT 5", (sid,)),
     }
 
 
@@ -523,7 +549,8 @@ def get_price_benchmarks(rfq_id: str, supplier: str) -> dict:
     """
     sid = resolve_supplier_id(supplier)
     rfq = get_rfq(rfq_id)
-    records = query("SELECT * FROM supplier_overview WHERE supplier_id = %s AND status = 'ACTIVE'", (sid,))
+    records = query("SELECT o.*, s.created_at, s.updated_at FROM supplier_overview o "
+                    "JOIN suppliers s USING (supplier_id) WHERE o.supplier_id = %s AND o.status = 'ACTIVE'", (sid,))
     if not records:
         raise ToolError("[SUPPLIER_NOT_FOUND] 활성 협력사가 없다")
     s = records[0]
@@ -586,7 +613,8 @@ def check_offer(supplier: str, rfq_id: str, unit_price: int, payment_days: int, 
         raise ToolError(f"[VALUE_OUT_OF_RANGE] as_of '{as_of}'는 YYYY-MM-DD 형식으로 입력한다") from None
     sid = resolve_supplier_id(supplier)
     rfq = get_rfq(rfq_id)
-    records = query("SELECT * FROM supplier_overview WHERE supplier_id = %s AND status = 'ACTIVE'", (sid,))
+    records = query("SELECT o.*, s.created_at, s.updated_at FROM supplier_overview o "
+                    "JOIN suppliers s USING (supplier_id) WHERE o.supplier_id = %s AND o.status = 'ACTIVE'", (sid,))
     if not records:
         raise ToolError("[SUPPLIER_NOT_FOUND] 활성 협력사가 없다")
     s = records[0]

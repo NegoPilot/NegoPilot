@@ -1,17 +1,18 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "NegoPilot Supplier Live Lookup API",
-    "version": "0.3",
-    "description": "Live supplier lookup against business-mcp (PostgreSQL). Responses carry schema_version 0.3 and mode live. Profiles support DART/MOCK/MANUAL. Financial provenance is aggregated from financial rows and operations from stored component sources. See supplier-lookup.md for cross-field rules."
+    "title": "NegoPilot supplier directory lookup",
+    "version": "0.4",
+    "description": "Always live database lookup. Default all active suppliers with optional name/ID search and independent process/material filters. Pagination is supplier-based. Models and UI deploy together; chat schema is unchanged."
   },
   "paths": {
     "/api/business/catalog": {
       "get": {
-        "operationId": "PublicLiveCatalog",
+        "operationId": "PublicCatalogResponse",
+        "parameters": [],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Live PostgreSQL lookup",
             "content": {
               "application/json": {
                 "schema": {
@@ -30,7 +31,7 @@
               }
             }
           },
-          "404": {
+          "401": {
             "description": "Error",
             "content": {
               "application/json": {
@@ -40,64 +41,7 @@
               }
             }
           },
-          "500": {
-            "description": "Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "504": {
-            "description": "Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/suppliers": {
-      "get": {
-        "operationId": "PublicLiveSearchSuppliers",
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SupplierSearchResponse"
-                }
-              }
-            }
-          },
-          "400": {
+          "403": {
             "description": "Error",
             "content": {
               "application/json": {
@@ -158,16 +102,53 @@
             }
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ]
+      }
+    },
+    "/api/suppliers": {
+      "get": {
+        "operationId": "PublicSupplierSearchResponse",
         "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Q"
+            }
+          },
           {
             "name": "process",
             "in": "query",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 100,
-              "pattern": "\\S"
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Process"
             }
           },
           {
@@ -175,10 +156,18 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 100,
-              "pattern": "\\S"
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Material"
             }
           },
           {
@@ -186,56 +175,252 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 100,
-              "pattern": "\\S"
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Region"
             }
           },
           {
             "name": "iatf_required",
             "in": "query",
+            "required": false,
             "schema": {
-              "type": "boolean",
-              "default": false
+              "default": false,
+              "title": "Iatf Required",
+              "type": "boolean"
             }
           },
           {
             "name": "iso14001_required",
             "in": "query",
+            "required": false,
             "schema": {
-              "type": "boolean",
-              "default": false
+              "default": false,
+              "title": "Iso14001 Required",
+              "type": "boolean"
             }
           },
           {
             "name": "min_monthly_capacity",
             "in": "query",
+            "required": false,
             "schema": {
-              "type": "integer",
+              "anyOf": [
+                {
+                  "maximum": 10000000,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Min Monthly Capacity"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
               "minimum": 1,
-              "maximum": 10000000
+              "title": "Size",
+              "type": "integer"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "name",
+              "enum": [
+                "name",
+                "region",
+                "founded_year",
+                "monthly_capacity",
+                "defect_ppm",
+                "on_time_delivery_rate",
+                "audit_grade",
+                "years_dealing",
+                "payment_days",
+                "raw_material_ratio",
+                "latest_quote_date",
+                "latest_quote_price"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "asc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Direction",
+              "type": "string"
             }
           },
           {
             "name": "limit",
             "in": "query",
+            "required": false,
+            "deprecated": true,
+            "description": "Alias for size only when neither page nor size is supplied. Returns the v0.4 page shape.",
             "schema": {
               "type": "integer",
               "minimum": 1,
-              "maximum": 100,
-              "default": 20
+              "maximum": 100
             }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Live PostgreSQL lookup",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierSearchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
           }
         ]
       }
     },
     "/api/suppliers/{supplier_id}": {
       "get": {
-        "operationId": "PublicLiveGetSupplier",
+        "operationId": "PublicSupplierDetailResponse",
+        "parameters": [
+          {
+            "name": "supplier_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^SUP-[0-9]{4,18}$",
+              "minLength": 8,
+              "maxLength": 22
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Live PostgreSQL lookup",
             "content": {
               "application/json": {
                 "schema": {
@@ -245,6 +430,26 @@
             }
           },
           "400": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
             "description": "Error",
             "content": {
               "application/json": {
@@ -305,6 +510,16 @@
             }
           }
         },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ]
+      }
+    },
+    "/api/suppliers/{supplier_id}/quotes": {
+      "get": {
+        "operationId": "PublicQuoteListResponse",
         "parameters": [
           {
             "name": "supplier_id",
@@ -312,20 +527,208 @@
             "required": true,
             "schema": {
               "type": "string",
+              "pattern": "^SUP-[0-9]{4,18}$",
               "minLength": 8,
-              "maxLength": 22,
-              "pattern": "^SUP-[0-9]{4,18}$"
+              "maxLength": 22
             }
+          },
+          {
+            "name": "process",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Process"
+            }
+          },
+          {
+            "name": "material",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Material"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Size",
+              "type": "integer"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "quoted_at",
+              "enum": [
+                "quoted_at",
+                "unit_price_krw"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Direction",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Live PostgreSQL lookup",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuoteListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
           }
         ]
       }
     },
     "/internal/business/catalog": {
       "get": {
-        "operationId": "InternalLiveCatalog",
+        "operationId": "InternalCatalogResponse",
+        "parameters": [],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Live PostgreSQL lookup",
             "content": {
               "application/json": {
                 "schema": {
@@ -354,6 +757,16 @@
               }
             }
           },
+          "403": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Error",
             "content": {
@@ -365,6 +778,16 @@
             }
           },
           "500": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
             "description": "Error",
             "content": {
               "application/json": {
@@ -399,16 +822,206 @@
           {
             "InternalApiKey": []
           }
-        ],
-        "description": "Python HTTP adapter. Always reads business-mcp, independent of AGENT_EXECUTION_MODE. No model calls."
+        ]
       }
     },
     "/internal/suppliers": {
       "get": {
-        "operationId": "InternalLiveSearchSuppliers",
+        "operationId": "InternalSupplierSearchResponse",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Q"
+            }
+          },
+          {
+            "name": "process",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Process"
+            }
+          },
+          {
+            "name": "material",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Material"
+            }
+          },
+          {
+            "name": "region",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Region"
+            }
+          },
+          {
+            "name": "iatf_required",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Iatf Required",
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "iso14001_required",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Iso14001 Required",
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "min_monthly_capacity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 10000000,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Min Monthly Capacity"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Size",
+              "type": "integer"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "name",
+              "enum": [
+                "name",
+                "region",
+                "founded_year",
+                "monthly_capacity",
+                "defect_ppm",
+                "on_time_delivery_rate",
+                "audit_grade",
+                "years_dealing",
+                "payment_days",
+                "raw_material_ratio",
+                "latest_quote_date",
+                "latest_quote_price"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "asc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Direction",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "deprecated": true,
+            "description": "Alias for size only when neither page nor size is supplied. Returns the v0.4 page shape.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Live PostgreSQL lookup",
             "content": {
               "application/json": {
                 "schema": {
@@ -437,6 +1050,16 @@
               }
             }
           },
+          "403": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Error",
             "content": {
@@ -448,6 +1071,16 @@
             }
           },
           "500": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
             "description": "Error",
             "content": {
               "application/json": {
@@ -478,90 +1111,32 @@
             }
           }
         },
-        "parameters": [
-          {
-            "name": "process",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 100,
-              "pattern": "\\S"
-            }
-          },
-          {
-            "name": "material",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 100,
-              "pattern": "\\S"
-            }
-          },
-          {
-            "name": "region",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 100,
-              "pattern": "\\S"
-            }
-          },
-          {
-            "name": "iatf_required",
-            "in": "query",
-            "schema": {
-              "type": "boolean",
-              "default": false
-            }
-          },
-          {
-            "name": "iso14001_required",
-            "in": "query",
-            "schema": {
-              "type": "boolean",
-              "default": false
-            }
-          },
-          {
-            "name": "min_monthly_capacity",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 10000000
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 100,
-              "default": 20
-            }
-          }
-        ],
         "security": [
           {
             "InternalApiKey": []
           }
-        ],
-        "description": "Python HTTP adapter. Always reads business-mcp, independent of AGENT_EXECUTION_MODE. No model calls."
+        ]
       }
     },
     "/internal/suppliers/{supplier_id}": {
       "get": {
-        "operationId": "InternalLiveGetSupplier",
+        "operationId": "InternalSupplierDetailResponse",
+        "parameters": [
+          {
+            "name": "supplier_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^SUP-[0-9]{4,18}$",
+              "minLength": 8,
+              "maxLength": 22
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Live PostgreSQL lookup",
             "content": {
               "application/json": {
                 "schema": {
@@ -590,6 +1165,16 @@
               }
             }
           },
+          "403": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Error",
             "content": {
@@ -601,6 +1186,16 @@
             }
           },
           "500": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
             "description": "Error",
             "content": {
               "application/json": {
@@ -631,6 +1226,16 @@
             }
           }
         },
+        "security": [
+          {
+            "InternalApiKey": []
+          }
+        ]
+      }
+    },
+    "/internal/suppliers/{supplier_id}/quotes": {
+      "get": {
+        "operationId": "InternalQuoteListResponse",
         "parameters": [
           {
             "name": "supplier_id",
@@ -638,116 +1243,275 @@
             "required": true,
             "schema": {
               "type": "string",
+              "pattern": "^SUP-[0-9]{4,18}$",
               "minLength": 8,
-              "maxLength": 22,
-              "pattern": "^SUP-[0-9]{4,18}$"
+              "maxLength": 22
+            }
+          },
+          {
+            "name": "process",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Process"
+            }
+          },
+          {
+            "name": "material",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Material"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Size",
+              "type": "integer"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "quoted_at",
+              "enum": [
+                "quoted_at",
+                "unit_price_krw"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Direction",
+              "type": "string"
             }
           }
         ],
+        "responses": {
+          "200": {
+            "description": "Live PostgreSQL lookup",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuoteListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
         "security": [
           {
             "InternalApiKey": []
           }
-        ],
-        "description": "Python HTTP adapter. Always reads business-mcp, independent of AGENT_EXECUTION_MODE. No model calls."
+        ]
       }
     }
   },
   "components": {
-    "securitySchemes": {
-      "InternalApiKey": {
-        "type": "apiKey",
-        "in": "header",
-        "name": "X-Internal-Api-Key"
-      }
-    },
     "schemas": {
-      "Capability": {
-        "type": "object",
+      "CatalogData": {
+        "additionalProperties": false,
+        "properties": {
+          "processes": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogProcess"
+            },
+            "title": "Processes",
+            "type": "array"
+          },
+          "regions": {
+            "items": {
+              "maxLength": 100,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            "title": "Regions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "processes",
+          "regions"
+        ],
+        "title": "CatalogData",
+        "type": "object"
+      },
+      "CatalogProcess": {
+        "additionalProperties": false,
         "properties": {
           "process": {
-            "type": "string",
-            "minLength": 1,
             "maxLength": 100,
-            "pattern": "\\S"
-          },
-          "material": {
-            "type": "string",
             "minLength": 1,
-            "maxLength": 100,
-            "pattern": "\\S"
+            "pattern": "\\S",
+            "title": "Process",
+            "type": "string"
           },
-          "monthly_capacity": {
-            "type": "integer",
-            "minimum": 0
+          "materials": {
+            "items": {
+              "maxLength": 100,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            "title": "Materials",
+            "type": "array"
           }
         },
         "required": [
           "process",
-          "material",
-          "monthly_capacity"
+          "materials"
         ],
-        "additionalProperties": false
+        "title": "CatalogProcess",
+        "type": "object"
       },
       "CatalogResponse": {
-        "type": "object",
+        "additionalProperties": false,
         "properties": {
           "schema_version": {
-            "type": "string",
-            "const": "0.3"
+            "const": "0.4",
+            "title": "Schema Version",
+            "type": "string"
           },
           "mode": {
-            "type": "string",
-            "const": "live"
+            "const": "live",
+            "title": "Mode",
+            "type": "string"
           },
           "data": {
-            "type": "object",
-            "properties": {
-              "processes": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "process": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 100,
-                      "pattern": "\\S"
-                    },
-                    "materials": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 100,
-                        "pattern": "\\S"
-                      },
-                      "uniqueItems": true
-                    }
-                  },
-                  "required": [
-                    "process",
-                    "materials"
-                  ],
-                  "additionalProperties": false
-                }
-              },
-              "regions": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 100,
-                  "pattern": "\\S"
-                },
-                "uniqueItems": true
-              }
-            },
-            "required": [
-              "processes",
-              "regions"
-            ],
-            "additionalProperties": false
+            "$ref": "#/components/schemas/CatalogData"
           }
         },
         "required": [
@@ -755,150 +1519,109 @@
           "mode",
           "data"
         ],
-        "additionalProperties": false
+        "title": "LiveCatalogResponse",
+        "type": "object"
       },
-      "ErrorResponse": {
-        "type": "object",
+      "Capability": {
+        "additionalProperties": false,
         "properties": {
-          "request_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid"
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "process": {
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Process",
+            "type": "string"
           },
-          "error": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string",
-                "minLength": 1
-              },
-              "message": {
-                "type": "string",
-                "minLength": 1
-              },
-              "retryable": {
-                "type": "boolean"
-              }
-            },
-            "required": [
-              "code",
-              "message",
-              "retryable"
-            ],
-            "additionalProperties": false
+          "material": {
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Material",
+            "type": "string"
+          },
+          "monthly_capacity": {
+            "minimum": 0,
+            "title": "Monthly Capacity",
+            "type": "integer"
           }
         },
         "required": [
-          "request_id",
-          "error"
+          "process",
+          "material",
+          "monthly_capacity"
         ],
-        "additionalProperties": false
+        "title": "Capability",
+        "type": "object"
       },
-      "ExistingContract": {
-        "type": "object",
+      "LiveExistingContract": {
+        "additionalProperties": false,
         "properties": {
           "payment_days": {
-            "type": "integer",
-            "minimum": 0
+            "minimum": 1,
+            "title": "Payment Days",
+            "type": "integer"
           },
           "price_linkage": {
+            "title": "Price Linkage",
+            "type": "boolean"
+          },
+          "raw_material_ratio": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "ge": 0,
+            "le": 1,
+            "title": "Raw Material Ratio"
+          },
+          "auto_renewal": {
+            "title": "Auto Renewal",
             "type": "boolean"
           }
         },
         "required": [
           "payment_days",
-          "price_linkage"
+          "price_linkage",
+          "raw_material_ratio",
+          "auto_renewal"
         ],
-        "additionalProperties": false
-      },
-      "Financial": {
-        "type": "object",
-        "properties": {
-          "year": {
-            "type": "integer",
-            "minimum": 1900,
-            "maximum": 9999
-          },
-          "revenue_krw": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "operating_profit_krw": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "debt_ratio": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "source": {
-            "type": "string",
-            "enum": [
-              "DART",
-              "MOCK"
-            ]
-          }
-        },
-        "required": [
-          "year",
-          "revenue_krw",
-          "operating_profit_krw",
-          "debt_ratio",
-          "source"
-        ],
-        "additionalProperties": false
+        "title": "LiveExistingContract",
+        "type": "object"
       },
       "Provenance": {
-        "type": "object",
+        "additionalProperties": false,
         "properties": {
           "profile": {
-            "type": "string",
             "enum": [
               "DART",
               "MOCK",
               "MANUAL"
-            ]
+            ],
+            "title": "Profile",
+            "type": "string"
           },
           "financials": {
-            "type": "string",
             "enum": [
               "DART",
               "MOCK",
               "UNKNOWN",
               "MIXED"
-            ]
+            ],
+            "title": "Financials",
+            "type": "string"
           },
           "operations": {
-            "type": "string",
             "enum": [
               "MOCK",
               "MANUAL",
               "MIXED"
-            ]
+            ],
+            "title": "Operations",
+            "type": "string"
           }
         },
         "required": [
@@ -906,126 +1629,283 @@
           "financials",
           "operations"
         ],
-        "additionalProperties": false
+        "title": "LiveProvenance",
+        "type": "object"
       },
-      "Quality": {
-        "type": "object",
+      "LiveQuality": {
+        "additionalProperties": false,
         "properties": {
           "defect_ppm": {
             "anyOf": [
               {
-                "type": "number",
-                "minimum": 0
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "ge": 0
               },
               {
                 "type": "null"
               }
-            ]
+            ],
+            "title": "Defect Ppm"
           },
           "on_time_delivery_rate": {
             "anyOf": [
               {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 100
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "ge": 0,
+                "le": 100
               },
               {
                 "type": "null"
               }
-            ]
+            ],
+            "title": "On Time Delivery Rate"
+          },
+          "audit_grade": {
+            "anyOf": [
+              {
+                "enum": [
+                  "A",
+                  "B",
+                  "C",
+                  "D"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audit Grade"
+          },
+          "years_dealing": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Years Dealing"
           }
         },
         "required": [
           "defect_ppm",
-          "on_time_delivery_rate"
+          "on_time_delivery_rate",
+          "audit_grade",
+          "years_dealing"
         ],
-        "additionalProperties": false
+        "title": "LiveQuality",
+        "type": "object"
       },
-      "Quote": {
-        "type": "object",
+      "LiveQuote": {
+        "additionalProperties": false,
         "properties": {
           "process": {
-            "type": "string",
-            "minLength": 1,
             "maxLength": 100,
-            "pattern": "\\S"
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Process",
+            "type": "string"
           },
           "material": {
-            "type": "string",
-            "minLength": 1,
             "maxLength": 100,
-            "pattern": "\\S"
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Material",
+            "type": "string"
           },
           "unit_price_krw": {
-            "type": "number",
-            "minimum": 0
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "ge": 0,
+            "title": "Unit Price Krw"
           },
           "quoted_at": {
-            "type": "string",
-            "format": "date"
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "title": "Quoted At",
+            "type": "string"
+          },
+          "quote_id": {
+            "minimum": 1,
+            "title": "Quote Id",
+            "type": "integer"
           }
         },
         "required": [
           "process",
           "material",
           "unit_price_krw",
-          "quoted_at"
+          "quoted_at",
+          "quote_id"
         ],
-        "additionalProperties": false
+        "title": "LiveQuote",
+        "type": "object"
       },
-      "SupplierDetail": {
-        "type": "object",
+      "LiveSupplierListData": {
+        "additionalProperties": false,
+        "properties": {
+          "page": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "title": "Page",
+            "type": "integer"
+          },
+          "size": {
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Size",
+            "type": "integer"
+          },
+          "returned_count": {
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Returned Count",
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0,
+            "title": "Total",
+            "type": "integer"
+          },
+          "total_pages": {
+            "minimum": 0,
+            "title": "Total Pages",
+            "type": "integer"
+          },
+          "direction": {
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SupplierSummary"
+            },
+            "maxItems": 100,
+            "title": "Items",
+            "type": "array"
+          },
+          "sort": {
+            "enum": [
+              "name",
+              "region",
+              "founded_year",
+              "monthly_capacity",
+              "defect_ppm",
+              "on_time_delivery_rate",
+              "audit_grade",
+              "years_dealing",
+              "payment_days",
+              "raw_material_ratio",
+              "latest_quote_date",
+              "latest_quote_price"
+            ],
+            "title": "Sort",
+            "type": "string"
+          }
+        },
+        "required": [
+          "page",
+          "size",
+          "returned_count",
+          "total",
+          "total_pages",
+          "direction",
+          "items",
+          "sort"
+        ],
+        "title": "LiveSupplierListData",
+        "type": "object"
+      },
+      "SupplierSummary": {
+        "additionalProperties": false,
         "properties": {
           "supplier_id": {
-            "type": "string",
-            "minLength": 8,
             "maxLength": 22,
-            "pattern": "^SUP-[0-9]{4,18}$"
+            "minLength": 8,
+            "pattern": "^SUP-[0-9]{4,18}$",
+            "title": "Supplier Id",
+            "type": "string"
           },
           "name": {
-            "type": "string",
-            "minLength": 1,
             "maxLength": 100,
-            "pattern": "\\S"
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Name",
+            "type": "string"
           },
           "region": {
-            "type": "string",
-            "minLength": 1,
             "maxLength": 100,
-            "pattern": "\\S"
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Region",
+            "type": "string"
           },
           "iatf16949": {
+            "title": "Iatf16949",
             "type": "boolean"
           },
           "iso14001": {
+            "title": "Iso14001",
             "type": "boolean"
           },
-          "capabilities": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Capability"
-            },
-            "minItems": 1
+          "founded_year": {
+            "anyOf": [
+              {
+                "maximum": 9999,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Founded Year"
+          },
+          "employees": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Employees"
           },
           "quality": {
-            "$ref": "#/components/schemas/Quality"
-          },
-          "financials": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Financial"
-            }
-          },
-          "recent_quotes": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Quote"
-            }
+            "$ref": "#/components/schemas/LiveQuality"
           },
           "existing_contract": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ExistingContract"
+                "$ref": "#/components/schemas/LiveExistingContract"
               },
               {
                 "type": "null"
@@ -1034,6 +1914,46 @@
           },
           "provenance": {
             "$ref": "#/components/schemas/Provenance"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "matched_capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/Capability"
+            },
+            "title": "Matched Capabilities",
+            "type": "array"
+          },
+          "max_monthly_capacity": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Monthly Capacity"
+          },
+          "latest_quote": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LiveQuote"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1042,25 +1962,393 @@
           "region",
           "iatf16949",
           "iso14001",
-          "capabilities",
+          "founded_year",
+          "employees",
           "quality",
-          "financials",
-          "recent_quotes",
           "existing_contract",
-          "provenance"
+          "provenance",
+          "updated_at",
+          "matched_capabilities",
+          "max_monthly_capacity",
+          "latest_quote"
         ],
-        "additionalProperties": false
+        "title": "LiveSupplierSummary",
+        "type": "object"
       },
-      "SupplierDetailResponse": {
-        "type": "object",
+      "SupplierSearchResponse": {
+        "additionalProperties": false,
         "properties": {
           "schema_version": {
-            "type": "string",
-            "const": "0.3"
+            "const": "0.4",
+            "title": "Schema Version",
+            "type": "string"
           },
           "mode": {
-            "type": "string",
-            "const": "live"
+            "const": "live",
+            "title": "Mode",
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/LiveSupplierListData"
+          }
+        },
+        "required": [
+          "schema_version",
+          "mode",
+          "data"
+        ],
+        "title": "LiveSupplierSearchResponse",
+        "type": "object"
+      },
+      "LiveFinancials": {
+        "additionalProperties": false,
+        "properties": {
+          "year": {
+            "maximum": 9999,
+            "minimum": 1900,
+            "title": "Year",
+            "type": "integer"
+          },
+          "revenue_krw": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue Krw"
+          },
+          "operating_profit_krw": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operating Profit Krw"
+          },
+          "debt_ratio": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Debt Ratio"
+          },
+          "source": {
+            "enum": [
+              "DART",
+              "MOCK"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "fs_div": {
+            "enum": [
+              "CFS",
+              "OFS"
+            ],
+            "title": "Fs Div",
+            "type": "string"
+          },
+          "net_income_krw": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Income Krw"
+          },
+          "total_assets_krw": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Assets Krw"
+          },
+          "total_liabilities_krw": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Liabilities Krw"
+          },
+          "total_equity_krw": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Equity Krw"
+          }
+        },
+        "required": [
+          "year",
+          "revenue_krw",
+          "operating_profit_krw",
+          "debt_ratio",
+          "source",
+          "fs_div",
+          "net_income_krw",
+          "total_assets_krw",
+          "total_liabilities_krw",
+          "total_equity_krw"
+        ],
+        "title": "LiveFinancials",
+        "type": "object"
+      },
+      "SupplierDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "supplier_id": {
+            "maxLength": 22,
+            "minLength": 8,
+            "pattern": "^SUP-[0-9]{4,18}$",
+            "title": "Supplier Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Name",
+            "type": "string"
+          },
+          "region": {
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Region",
+            "type": "string"
+          },
+          "iatf16949": {
+            "title": "Iatf16949",
+            "type": "boolean"
+          },
+          "iso14001": {
+            "title": "Iso14001",
+            "type": "boolean"
+          },
+          "founded_year": {
+            "anyOf": [
+              {
+                "maximum": 9999,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Founded Year"
+          },
+          "employees": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Employees"
+          },
+          "quality": {
+            "$ref": "#/components/schemas/LiveQuality"
+          },
+          "existing_contract": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LiveExistingContract"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/Capability"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "financials": {
+            "items": {
+              "$ref": "#/components/schemas/LiveFinancials"
+            },
+            "title": "Financials",
+            "type": "array"
+          },
+          "recent_quotes": {
+            "items": {
+              "$ref": "#/components/schemas/LiveQuote"
+            },
+            "maxItems": 5,
+            "title": "Recent Quotes",
+            "type": "array"
+          },
+          "corp_code": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "pattern": "\\S",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Corp Code"
+          },
+          "stock_code": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "pattern": "\\S",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stock Code"
+          },
+          "induty_code": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "pattern": "\\S",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Induty Code"
+          },
+          "biz_no_masked": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "pattern": "\\S",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Biz No Masked"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "required": [
+          "supplier_id",
+          "name",
+          "region",
+          "iatf16949",
+          "iso14001",
+          "founded_year",
+          "employees",
+          "quality",
+          "existing_contract",
+          "provenance",
+          "updated_at",
+          "capabilities",
+          "financials",
+          "recent_quotes",
+          "corp_code",
+          "stock_code",
+          "induty_code",
+          "biz_no_masked",
+          "created_at"
+        ],
+        "title": "LiveSupplierDetail",
+        "type": "object"
+      },
+      "SupplierDetailResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "schema_version": {
+            "const": "0.4",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "mode": {
+            "const": "live",
+            "title": "Mode",
+            "type": "string"
           },
           "data": {
             "$ref": "#/components/schemas/SupplierDetail"
@@ -1071,46 +2359,101 @@
           "mode",
           "data"
         ],
-        "additionalProperties": false
+        "title": "LiveSupplierDetailResponse",
+        "type": "object"
       },
-      "SupplierSearchResponse": {
-        "type": "object",
+      "LiveQuoteListData": {
+        "additionalProperties": false,
+        "properties": {
+          "page": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "title": "Page",
+            "type": "integer"
+          },
+          "size": {
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Size",
+            "type": "integer"
+          },
+          "returned_count": {
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Returned Count",
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0,
+            "title": "Total",
+            "type": "integer"
+          },
+          "total_pages": {
+            "minimum": 0,
+            "title": "Total Pages",
+            "type": "integer"
+          },
+          "direction": {
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "supplier_id": {
+            "maxLength": 22,
+            "minLength": 8,
+            "pattern": "^SUP-[0-9]{4,18}$",
+            "title": "Supplier Id",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LiveQuote"
+            },
+            "maxItems": 100,
+            "title": "Items",
+            "type": "array"
+          },
+          "sort": {
+            "enum": [
+              "quoted_at",
+              "unit_price_krw"
+            ],
+            "title": "Sort",
+            "type": "string"
+          }
+        },
+        "required": [
+          "page",
+          "size",
+          "returned_count",
+          "total",
+          "total_pages",
+          "direction",
+          "supplier_id",
+          "items",
+          "sort"
+        ],
+        "title": "LiveQuoteListData",
+        "type": "object"
+      },
+      "QuoteListResponse": {
+        "additionalProperties": false,
         "properties": {
           "schema_version": {
-            "type": "string",
-            "const": "0.3"
+            "const": "0.4",
+            "title": "Schema Version",
+            "type": "string"
           },
           "mode": {
-            "type": "string",
-            "const": "live"
+            "const": "live",
+            "title": "Mode",
+            "type": "string"
           },
           "data": {
-            "type": "object",
-            "properties": {
-              "items": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/SupplierSummary"
-                },
-                "maxItems": 100
-              },
-              "returned_count": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 100
-              },
-              "limit": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 100
-              }
-            },
-            "required": [
-              "items",
-              "returned_count",
-              "limit"
-            ],
-            "additionalProperties": false
+            "$ref": "#/components/schemas/LiveQuoteListData"
           }
         },
         "required": [
@@ -1118,56 +2461,69 @@
           "mode",
           "data"
         ],
-        "additionalProperties": false
+        "title": "LiveQuoteListResponse",
+        "type": "object"
       },
-      "SupplierSummary": {
-        "type": "object",
+      "ErrorDetail": {
         "properties": {
-          "supplier_id": {
-            "type": "string",
-            "minLength": 8,
-            "maxLength": 22,
-            "pattern": "^SUP-[0-9]{4,18}$"
+          "code": {
+            "title": "Code",
+            "type": "string"
           },
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100,
-            "pattern": "\\S"
+          "message": {
+            "title": "Message",
+            "type": "string"
           },
-          "region": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100,
-            "pattern": "\\S"
-          },
-          "iatf16949": {
+          "retryable": {
+            "title": "Retryable",
             "type": "boolean"
-          },
-          "iso14001": {
-            "type": "boolean"
-          },
-          "matched_capabilities": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Capability"
-            },
-            "minItems": 1
-          },
-          "provenance": {
-            "$ref": "#/components/schemas/Provenance"
           }
         },
         "required": [
-          "supplier_id",
-          "name",
-          "region",
-          "iatf16949",
-          "iso14001",
-          "matched_capabilities",
-          "provenance"
+          "code",
+          "message",
+          "retryable"
         ],
-        "additionalProperties": false
+        "title": "ErrorDetail",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "request_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        },
+        "required": [
+          "request_id",
+          "error"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "InternalApiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Internal-Api-Key"
+      },
+      "SessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "SESSION",
+        "description": "Cookie name may vary by deployment."
       }
     }
   }
