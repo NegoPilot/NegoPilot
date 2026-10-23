@@ -11,7 +11,7 @@ from datetime import date
 
 from negopilot_shared import CLARIFY_CONFIDENCE, MAX_SUB_QUERIES, SCHEMA_VERSION, load_intents
 
-from negopilot_agent.decomposition.wire import COMPACT_RULE, contract_to_wire
+from negopilot_agent.decomposition.wire import COMPACT_RULE, REASON_RULE, contract_to_wire
 
 # 현업 표현 → 법률·코드 용어. question 필드를 정규화할 때 쓴다
 GLOSSARY = [
@@ -251,7 +251,7 @@ def _intent_table() -> str:
     return "\n".join(lines)
 
 
-def build_system_prompt(compact: bool = False) -> str:
+def build_system_prompt(compact: bool = False, reason: bool = False) -> str:
     """compact면 출력 형식(규칙 10과 예시)을 짧은 형식(wire.py)으로 보여 준다. openai 백엔드가 쓴다."""
     glossary = "\n".join(f"- {src} → {dst}" for src, dst in GLOSSARY)
     laws = "\n".join(f"- {k}: {v}" for k, v in LAW_KEYS.items())
@@ -261,6 +261,8 @@ def build_system_prompt(compact: bool = False) -> str:
         + f"현재 질문: {ex['query']}\n결과:\n{json.dumps(shown(ex['result']), ensure_ascii=False)}" for ex in EXAMPLES)
     output_rule = (COMPACT_RULE if compact else
                    f'original_query에는 사용자 질문을 한 글자도 바꾸지 않고 그대로 넣는다. schema_version은 "{SCHEMA_VERSION}"이다.')
+    if compact and reason:
+        output_rule += REASON_RULE
     return f"""너는 NegoPilot의 쿼리 분해기다. NegoPilot은 자동차 1차 협력사의 협상 담당자가 2차 협력사와 협상할 때 쓰는 도구다.
 사용자 질문을 MCP 도구 하나로 답할 수 있는 크기의 하위 질문으로 나누고, 각 하위 질문에 intent와 엔티티를 붙인다.
 너는 질문에 답하지 않는다. 분해 결과만 낸다. 뒤 단계(Routing)가 intent를 보고 도구를 부르고, Generation이 답을 만든다.
@@ -316,10 +318,14 @@ def build_system_prompt(compact: bool = False) -> str:
   법이 정한 내용(기한, 의무, 서면이나 약정서에 적어야 할 사항, 금지 행위)을 묻는 질문은 법령 이름이 없어도 law_check다.
   법이 정한 절차(분쟁조정, 신고, 확인 요청)와 책임·제재(손해배상·손해액, 과징금, 벌칙)를 묻는 질문도
   "어떻게", "어디서"로 물어도 law_check다.
+  법이 정한 기준·요건·범위(어떤 회사가 중소기업·소기업·중견기업에 드는지, 규모 요건, 유예 기간)와
+  제도를 쓸 때의 조건·효과(어떤 경우에 하는지, 할 수 있는지, 하면 어떻게 되는지)를 묻는 질문도
+  "판단 기준", "요건 설명"처럼 설명을 바라는 말투여도 law_check다. 이 답은 조문에 있다.
   "~이 뭐야?"처럼 용어의 뜻만 묻고 법이 정한 기준·절차·책임을 묻지 않을 때만 general_knowledge다.
   일반 질문처럼 보여도 답에 조문 번호, 기한·비율·금액 같은 숫자, 특정 회사 정보가 들어가야 하면 required intent로 보낸다.
   예: "하도급법이 뭐야?" → general_knowledge / "하도급법상 대금은 며칠 안에 줘야 해?" → law_check
   예: "동반성장위원회가 뭐야?" → general_knowledge / "동반성장위원회 위원은 누가 정해?" → law_check
+  예: "중견기업이 뭐야?" → general_knowledge / "중견기업은 매출이 얼마까지야?" → law_check
 - 근거가 필요한지 애매하면 required 쪽을 고른다.
 - 현재 질문과 관련 이력 및 선택 문맥으로도 해결되지 않는 정보가 답이나 도구 실행을 바꿀 때만 되묻는다.
   도구로 조회할 수 있는 기업 사실이나 검색 조건의 선택 항목을 사용자에게 먼저 요구하지 않는다.

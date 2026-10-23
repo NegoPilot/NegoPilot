@@ -56,6 +56,7 @@ async def main() -> None:
     p.add_argument("--concurrency", type=int, default=8)
     p.add_argument("--repeat", type=int, default=3,
                    help="같은 질문을 N번 분해한다. 실행마다 분해가 조금씩 달라 평균으로 비교한다")
+    p.add_argument("--tag", help="결과 파일 이름 뒤에 붙인다 (예: reason → decomposed_<모델>_reason.json). 실험 결과가 기본 결과를 덮어쓰지 않게 한다")
     args = p.parse_args()
 
     load_dotenv(AGENT / ".env", skip=("NEGOPILOT_DECOMPOSER_MODEL",) if args.backend else ())
@@ -67,16 +68,17 @@ async def main() -> None:
     decomposer = QueryDecomposer(settings=settings)
 
     gold = json.loads((HERE / "retrieval_gold.json").read_text(encoding="utf-8"))
-    print(f"백엔드 {settings.backend} · 모델 {settings.model} · 질문 {len(gold['items'])}개 × {args.repeat}회")
+    print(f"백엔드 {settings.backend} · 모델 {settings.model} · reason {settings.reason} · 질문 {len(gold['items'])}개 × {args.repeat}회")
     runs = []
     for i in range(args.repeat):
         print(f"\n[{i + 1}/{args.repeat}회]")
         results = await decompose_all(decomposer, gold["items"], args.concurrency)
         runs.append({it["id"]: results[it["id"]] for it in gold["items"]})
 
-    out = HERE / "results" / f"decomposed_{settings.model}.json"
+    out = HERE / "results" / f"decomposed_{settings.model}{'_' + args.tag if args.tag else ''}.json"
     out.parent.mkdir(exist_ok=True)
-    out.write_text(json.dumps({"backend": settings.backend, "model": settings.model, "runs": runs},
+    out.write_text(json.dumps({"backend": settings.backend, "model": settings.model,
+                               **({"reason": True} if settings.reason else {}), "runs": runs},
                               ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"저장: {out.relative_to(ROOT)}")
 

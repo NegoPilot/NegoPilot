@@ -45,6 +45,8 @@ class DecomposerSettings:
     # 안전 분류기가 거절하면 서버가 다른 모델로 다시 실행하게 한다 (anthropic 전용)
     use_fallbacks: bool = field(
         default_factory=lambda: os.getenv("NEGOPILOT_DECOMPOSER_FALLBACKS", "1") != "0")
+    # 실험: 하위 질문마다 intent 앞에 판단 근거 한 문장을 쓰게 한다 (openai 전용, wire.REASON_RULE). 기본은 끔
+    reason: bool = field(default_factory=lambda: os.getenv("NEGOPILOT_DECOMPOSER_REASON", "0") == "1")
 
 
 def failed_result(query: str) -> DecompositionResult:
@@ -63,7 +65,8 @@ def make_backend(settings: DecomposerSettings, client: anthropic.AsyncAnthropic 
     if settings.backend == "ollama":
         return OllamaBackend.from_env(settings.model, settings.max_tokens)
     if settings.backend == "openai":
-        return OpenAIBackend(openai.AsyncOpenAI(), settings.model, settings.max_tokens)  # OPENAI_API_KEY
+        return OpenAIBackend(openai.AsyncOpenAI(), settings.model, settings.max_tokens,  # OPENAI_API_KEY
+                            reason=settings.reason)
     if settings.backend == "anthropic":
         return AnthropicBackend(client or anthropic.AsyncAnthropic(), settings.model, settings.effort,
                                 settings.max_tokens, settings.use_fallbacks)
@@ -76,7 +79,8 @@ class QueryDecomposer:
         self.settings = settings or DecomposerSettings()
         self.backend = backend or make_backend(self.settings, client)
         # openai 백엔드는 짧은 출력 형식(wire.py)을 쓰므로 프롬프트의 출력 규칙과 예시도 그 형식으로 보여 준다
-        self.system = build_system_prompt(compact=getattr(self.backend, "COMPACT_OUTPUT", False))
+        self.system = build_system_prompt(compact=getattr(self.backend, "COMPACT_OUTPUT", False),
+                                          reason=getattr(self.backend, "reason", False))
 
     async def decompose(self, query: str, history: list[dict] | None = None, *,
                         context: dict[str, list[str]] | None = None) -> DecompositionResult:
@@ -91,8 +95,8 @@ class QueryDecomposer:
             try:
                 # 스키마 형식은 모델 쪽 구조화 출력이 맞추고, 필드 사이 규칙은 여기서 검증한다
                 cleaned = drop_redundant_as_of(
-                    clean_entity_values(drop_disallowed_entities(drop_disallowed_inputs(
-                        normalize_select(fill_original_query(text, query))))),
+                    clean_entity_values(drop_disallowed_entities(drop_disallowed_inputs(drop_self_references(
+                        normalize_select(fill_original_query(text, query)))))),
                     today)
                 result = DecompositionResult.model_validate_json(cleaned)
             except ValidationError as err:
@@ -175,6 +179,36 @@ def unreadable_inputs(result: DecompositionResult) -> list[str]:
                 errors.append(f"- {sq.id}: {ref.from_}({source}) 결과에서 '{ref.slot}'를 꺼낼 수 없다. "
                               f"꺼낼 수 있는 값: {', '.join(rmap.slots)}")
     return errors
+
+
+def drop_self_references(text: str) -> str:
+    """하위 질문이 자기 자신을 가리키는 depends_on과 inputs를 검증 전에 지운다 (#178).
+
+    multi-hop 질문에서 모델이 q1의 depends_on에 q1을 넣는 경우가 있다. 자기 결과를 입력으로 받을 수는 없어서
+    뜻이 분명한 오류인데, 재시도하면 inputs.from만 남기는 다른 오류로 다시 실패해 분해가 통째로 failed가 된다.
+    지운 뒤 필요한 값이 비면 Routing이 missing_args로 처리한다. 다른 하위 질문을 가리키는 값은 그대로 둔다.
+    JSON이 아니거나 모양이 다르면 그대로 돌려줘 검증 오류로 처리되게 한다.
+    """
+    try:
+        data = json.loads(text)
+        sub_queries = data["sub_queries"]
+    except (ValueError, TypeError, KeyError):
+        return text
+    changed = False
+    for sq in sub_queries if isinstance(sub_queries, list) else []:
+        if not isinstance(sq, dict) or not isinstance(sq_id := sq.get("id"), str):
+            continue
+        if isinstance(deps := sq.get("depends_on"), list) and sq_id in deps:
+            sq["depends_on"] = [d for d in deps if d != sq_id]
+            changed = True
+            log.info("%s의 depends_on에서 자기 자신 제거", sq_id)
+        if isinstance(inputs := sq.get("inputs"), list):
+            kept = [i for i in inputs if not (isinstance(i, dict) and i.get("from") == sq_id)]
+            if len(kept) != len(inputs):
+                sq["inputs"] = kept
+                changed = True
+                log.info("%s의 inputs에서 자기 자신을 가리키는 값 제거", sq_id)
+    return json.dumps(data, ensure_ascii=False) if changed else text
 
 
 def drop_disallowed_inputs(text: str) -> str:

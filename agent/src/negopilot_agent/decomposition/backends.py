@@ -89,10 +89,13 @@ class OpenAIBackend:
     def to_contract(text: str) -> str:
         return wire.to_contract_json(text)
 
-    def __init__(self, client: openai.AsyncOpenAI, model: str, max_tokens: int):
+    def __init__(self, client: openai.AsyncOpenAI, model: str, max_tokens: int, reason: bool = False):
         self.client = tracing.wrap_llm_client(client)   # LANGSMITH_TRACING이 켜졌을 때만 감싼다
         self.model = model
         self.max_tokens = max_tokens
+        self.reason = reason
+        if reason:   # 실험: 하위 질문마다 intent 앞에 판단 근거 한 문장 (wire.REASON_RULE)
+            self.OUTPUT_SCHEMA = to_strict_json_schema(wire.DecompositionWireWithReason)
 
     async def generate(self, system: str, user: str) -> str | None:
         with timing.span("llm", self.model) as meta:
