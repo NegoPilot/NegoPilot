@@ -15,6 +15,8 @@ JSON 키는 snake_case다. 시각은 오프셋이 있는 ISO-8601 문자열이�
 
 `{id}`는 협상 작업 UUID다. `review_id`도 같은 값이다.
 
+엑셀 업로드 검토([legal-review-upload.md](legal-review-upload.md))도 정상 행마다 이 규칙으로 작업을 만들고 검토를 저장한다. 그 작업과 검토는 아래 API로 그대로 조회·재검토하고 협상안을 만든다.
+
 | 메서드와 경로 | 요청 | 응답 |
 | --- | --- | --- |
 | `POST /api/negotiations` | `{supplier_id, rfq_id, title?}` | 201 작업 요약 |

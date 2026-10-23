@@ -10,6 +10,7 @@ Java 소스의 시작 패키지는 `com.negopilot.backend`다. HTTP 경로와 �
 | `chat` | DB에 저장되는 대화와 메시지. [PersistentConversationController](../backend/src/main/java/com/negopilot/backend/chat/PersistentConversationController.java) |
 | `agent` | 답변 생성의 요청 및 응답 계약과 `/health`. [GenerationGateway](../backend/src/main/java/com/negopilot/backend/agent/GenerationGateway.java)와 [HealthController](../backend/src/main/java/com/negopilot/backend/agent/HealthController.java) |
 | `supplier` | 실제 공급사 조회. [SupplierLookupController](../backend/src/main/java/com/negopilot/backend/supplier/SupplierLookupController.java) |
+| `legalreview` | 엑셀 거래·계약 조건 업로드와 행별 법규 검토. [LegalReviewUploadController](../backend/src/main/java/com/negopilot/backend/legalreview/LegalReviewUploadController.java)와 [LegalReviewRunner](../backend/src/main/java/com/negopilot/backend/legalreview/LegalReviewRunner.java) |
 | `admin.supplier` | 공급사 관리. [AdminSupplierController](../backend/src/main/java/com/negopilot/backend/admin/supplier/AdminSupplierController.java) |
 | `admin.data` | 공급사 상태 요약. [AdminDataController](../backend/src/main/java/com/negopilot/backend/admin/data/AdminDataController.java) |
 | `common.api` | 공통 예외와 JSON 오류 응답 및 `request_id` 해석. [ApiException](../backend/src/main/java/com/negopilot/backend/common/api/ApiException.java)과 [ApiErrorHandler](../backend/src/main/java/com/negopilot/backend/common/api/ApiErrorHandler.java) 및 [RequestIds](../backend/src/main/java/com/negopilot/backend/common/api/RequestIds.java) |
