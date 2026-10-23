@@ -45,12 +45,6 @@ export const router = createRouter({
       redirect: (to) => ({ name: 'suppliers', query: { selected: String(to.params.supplierId) } }),
     },
     {
-      path: '/review',
-      name: 'law-review',
-      component: () => import('@/views/LawReviewView.vue'),
-      meta: { title: '법규 검토' },
-    },
-    {
       // 08-2: 엑셀 → 법규 검토(승인/반려) → 협상안 → 저장·발송. 서버 연결 전에는 예시 데이터로 동작한다
       path: '/review/offer',
       name: 'offer-proposal',
