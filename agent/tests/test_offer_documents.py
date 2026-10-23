@@ -77,6 +77,17 @@ def test_repeated_bad_number_falls_back_to_code_text():
     assert writing.cover_letter.startswith('귀사의 무궁한 발전을 기원합니다')
 
 
+def test_missing_model_key_falls_back_instead_of_failing(monkeypatch):
+    # stub 테스트 스택처럼 OPENAI_API_KEY가 비어 있어도 협상안은 코드 문구로 만든다
+    monkeypatch.delenv('OPENAI_API_KEY', raising=False)
+    proposal, doc = offer_and_doc()
+    writer = NegotiationWriter()
+    assert writer.backend is None
+    writing = asyncio.run(writer.write(proposal, doc))
+    assert writing.source == 'fallback' and writing.problems == ['모델 출력 없음 또는 형식 오류']
+    assert writing.cover_letter.startswith('귀사의 무궁한 발전을 기원합니다')
+
+
 @pytest.mark.parametrize('field,text,problem', [
     ('cover_letter', '최대 수용가까지 협의 가능합니다.', '"최대 수용가"'),
     ('cover_letter', '시장 견적과 비교해 정했습니다.', '"시장 견적"'),
