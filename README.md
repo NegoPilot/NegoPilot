@@ -171,6 +171,17 @@ DB와 테이블 및 로컬 계정을 자동으로 준비합니다. [http://local
 
 회원과 대화 기록은 PostgreSQL volume에 저장되어 컨테이너를 다시 만들어도 유지됩니다. 기존 계정과 비밀번호도 덮어쓰지 않습니다. `live`는 모든 자료가 실데이터라는 뜻은 아닙니다. 초기 business DB에는 DART 공시 스냅샷과 가상 기업 및 가상 운영 데이터가 함께 들어갑니다. 모델 공급자 변경과 필드별 출처 및 화면 연결 상태는 [Docker 실행 안내](docs/LOCAL_DOCKER.md)를 참고합니다.
 
+### 제안서 메일 발송 확인
+
+기본값 `MAIL_TRANSPORT=dry_run`은 메일을 보내지 않고 보낼 내용과 기록만 남깁니다. 로컬에서 실제 SMTP 발송을 보려면 테스트용 SMTP 서버 Mailpit을 함께 띄웁니다. Mailpit은 메일을 외부로 배달하지 않고 웹 화면에 보여 줍니다.
+
+```sh
+docker compose --profile mailpit up -d mailpit
+MAIL_TRANSPORT=smtp SMTP_HOST=mailpit SMTP_PORT=1025 SMTP_SECURITY=none docker compose up -d mail-mcp
+```
+
+받은 메일은 [http://localhost:8025](http://localhost:8025)에서 확인합니다. 시연에서 실제 메일 서버를 쓸 때는 `.env`에 `MAIL_TRANSPORT=smtp`와 `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `MAIL_FROM`을 넣고, 확인 토큰 서명 키 `MAIL_CONFIRM_SECRET`을 32자 이상의 새 값으로 바꿉니다. 계정과 비밀번호는 저장소에 넣지 않습니다. 수신자는 business DB의 협력사 담당자(`supplier_contacts`)에서만 고르므로 실제 주소로 보내려면 담당자 메일을 먼저 확인합니다. 환경 변수 전체는 [mail-mcp 안내](mcp-servers/mail-mcp/README.md)를 참고합니다.
+
 ### 모델 키 없는 테스트 실행
 
 Docker Compose 2.24.4 이상에서 테스트 override를 추가합니다. 기본 live 환경과 별도 프로젝트 및 DB volume을 사용하며 웹 포트는 `5174`입니다. 테스트 환경의 모델 키는 빈 값으로 덮어쓰고 채팅은 정해진 stub 응답을 사용합니다. 회원과 대화 저장 및 별도 협력사 MCP 조회는 실제 코드를 실행합니다.
