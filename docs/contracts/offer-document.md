@@ -25,7 +25,7 @@ Agent(가연)가 만들고, 화면(편집·다운로드)과 mail-mcp(#237, 발�
 | `issued_on`, `as_of` | `YYYY-MM-DD` | 작성일, check_offer 기준일 |
 | **`reply_by`** | `YYYY-MM-DD` | 회신 기한 (기본 작성일 + 7일) |
 | **`supplier_id`**, `supplier_name` | `SUP-0000`, 문자열 | 수신 |
-| `sender` | `{company, department, contact_name, phone, email}` | 발신. 환경 변수 `NEGOPILOT_BUYER_*` |
+| `sender` | `{company, department, contact_name, job_title, phone, email}` | 발신. 5절 (`phone`은 null 가능) |
 | **`title`** | 문자열 | 제목 (메일 제목에도 쓰인다) |
 | **`rfq_id`**, **`part_name`**, `vehicle`, `material` | 문자열 | 품목 정보 (`vehicle`, `material`은 null 가능) |
 | `annual_volume`, `unit_price`, `contract_days`, `contract_amount`, `payment_days` | 정수 | 제안 조건. `contract_amount`는 render가 check_offer 값으로 다시 채운다 |
@@ -124,6 +124,16 @@ content_hash = "sha256:" + hashlib.sha256(payload).hexdigest()
 - 받은 문서·첨부로 2절 해시를 다시 계산해 다르면 `[HASH_MISMATCH]`로 거절한다.
 - 수신자는 `supplier_contacts`(#239)의 해당 협력사 담당자로만 고른다.
 
-## 5. 변경 절차
+## 5. 발신 정보 (`sender`, #248)
+
+- 발신 담당자는 **로그인한 회원**(Member: `name`, `email`, `department`, `job_title`, [membership.md](membership.md))이다. 협상안 요청의 선택 필드 `sender`(`name`, `department`, `job_title`, `email`, `phone?`)로 받는다.
+- **백엔드 프록시(나중에 만들 `/api/offer-proposals`)는 `sender`를 클라이언트가 보낸 값이 아니라 인증된 세션의 회원 정보(`/api/auth/me`와 같은 값)로 채워야 한다.** 사용자가 다른 사람 이름이나 이메일로 제안서를 보내지 못하게 하기 위해서다. 클라이언트가 보낸 `sender`는 버린다.
+- 회사명은 회원 정보에 없어서 조직 설정 `NEGOPILOT_BUYER_COMPANY`로 둔다. 비우면 `SKALA 자동차`다.
+- 전화번호도 회원 정보에 없다. 요청의 `phone` → `NEGOPILOT_BUYER_PHONE` 순서로 쓰고, 둘 다 없으면 문서에서 전화 줄을 뺀다(자리 표시를 찍지 않는다).
+- `sender`가 없으면(CLI, 로컬 시험) `NEGOPILOT_BUYER_*` 환경 변수를 쓰고, 비어 있으면 `[담당자]` 같은 자리 표시가 들어간다.
+- 발신 정보는 `document.sender`에 들어가므로 `content_hash`에 포함된다. 담당자가 바뀌면 해시도 바뀐다.
+- 엑셀 일괄 입력은 `sender` 칸을 받지 않는다. 일괄 처리도 백엔드가 세션 회원으로 채운다.
+
+## 6. 변경 절차
 
 필드나 해시를 바꾸면 이 문서, mail.md, `document.py`, 테스트를 한 PR에서 같이 고치고, 뜻이 바뀌면 `schema_version`을 올립니다. mail-mcp 담당(기탁) 승인이 필요합니다.

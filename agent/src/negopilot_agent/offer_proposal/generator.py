@@ -32,6 +32,8 @@ LINKAGE_VIOLATIONS = {'LINKAGE_TERMS_MISSING', 'ENERGY_LINKAGE_TERMS_MISSING'}
 LinkageStatus = Literal['included', 'not_required', 'exempt', 'waived', 'needs_input']
 RATIO_REQUIRED = {'code': 'RAW_MATERIAL_RATIO_REQUIRED', 'severity': 'warning', 'law_refs': [],
                   'message': '원재료 비중을 입력하면 연동 의무를 판정합니다 (지금은 연동 약정 확인 필요)'}
+# 이 모듈이 붙이는 경고 → 같은 뜻의 check_offer 경고. check_offer가 이미 냈으면 붙이지 않는다(중복 경고 방지)
+EQUIVALENT_WARNINGS = {'RAW_MATERIAL_RATIO_REQUIRED': {'RAW_MATERIAL_RATIO_UNKNOWN'}}
 SUPPLY_WARNINGS = {'CAPACITY_SHORT': '월 필요 물량 대비 생산능력을 확인하고, 부족하면 분할 발주나 납기 조정을 제안한다',
                    'CAPABILITY_MISSING': '해당 공정·소재 생산 실적과 설비를 먼저 확인한다',
                    'CERT_MISSING': '필수 인증 취득 일정과 대체 방안을 확인한다'}
@@ -346,6 +348,14 @@ def build_candidates(bench: dict, terms: Terms, ratio_src: str) -> tuple[list[Ca
     return out, skipped
 
 
+def add_warning(warnings: list[dict], warning: dict) -> list[dict]:
+    """같은 뜻의 경고(같은 코드나 EQUIVALENT_WARNINGS의 check_offer 코드)가 이미 있으면 그대로 둔다."""
+    same = {warning['code']} | EQUIVALENT_WARNINGS.get(warning['code'], set())
+    if any(w.get('code') in same for w in warnings):
+        return warnings
+    return warnings + [dict(warning)]
+
+
 def summarize(check: dict) -> dict:
     return {'verdict_code': check.get('verdict_code'), 'violations': check.get('violations') or [],
             'warnings': check.get('warnings') or [], 'law_refs': check.get('law_refs') or [],
@@ -526,7 +536,7 @@ class OfferProposer:
             candidate.violations, candidate.warnings = result['violations'], result['warnings']
             candidate.law_refs = result['law_refs']
             if candidate.linkage_status == 'needs_input':
-                candidate.warnings = candidate.warnings + [dict(RATIO_REQUIRED)]
+                candidate.warnings = add_warning(candidate.warnings, RATIO_REQUIRED)
             if candidate.violations:
                 rejected.append(considered(candidate, '조건을 고쳐도 위반 소지가 남음'))
                 continue
