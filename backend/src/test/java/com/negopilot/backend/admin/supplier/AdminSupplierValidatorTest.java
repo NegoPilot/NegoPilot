@@ -3,6 +3,7 @@ package com.negopilot.backend.admin.supplier;
 import com.negopilot.backend.common.api.ApiException;
 import com.negopilot.backend.auth.CurrentUser;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -45,6 +46,48 @@ class AdminSupplierValidatorTest {
         assertThatThrownBy(() -> validator.capabilitiesRequest(object("{\"version\":0,\"capabilities\":[]}"), null)).isInstanceOf(ApiException.class);
     }
 
+    private static final String CREATE = """
+            {"profile":{"name":"수동기업","region":"부산","founded_year":2020,"biz_no_masked":"123-45-*****"%s},
+             "certifications":{"iatf16949":true,"iso14001":false},
+             "capabilities":[{"process":"프레스","material":"SPCC","monthly_capacity":1000}]}
+            """;
+
+    @Test void creationDefaultsToManualAndOnlyDartCarriesCorpCode() {
+        assertThat(validator.create(object(CREATE.formatted("")), null).path("profile").path("source").stringValue()).isEqualTo("MANUAL");
+        ObjectNode dart = validator.create(object(CREATE.formatted(",\"source\":\"DART\",\"corp_code\":\" 00123456 \"")), null);
+        assertThat(dart.path("profile").path("corp_code").stringValue()).isEqualTo("00123456");
+        assertThat(validator.create(object(CREATE.formatted(",\"source\":\"MOCK\",\"corp_code\":null")), null)
+                .path("profile").path("corp_code").isNull()).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {",\"source\":\"DART\"", ",\"source\":\"DART\",\"corp_code\":\"1234567\"",
+            ",\"source\":\"DART\",\"corp_code\":12345678", ",\"source\":\"MANUAL\",\"corp_code\":\"00123456\"",
+            ",\"source\":\"OPEN\"", ",\"source\":\"manual\""})
+    void creationRejectsUnknownSourceAndMismatchedCorpCode(String origin) {
+        assertThatThrownBy(() -> validator.create(object(CREATE.formatted(origin)), null)).isInstanceOf(ApiException.class);
+    }
+
+    @Test void quotesAreValidatedRowByRow() {
+        ObjectNode valid = validator.quotesRequest(object("""
+                {"version":0,"quotes":[{"process":"프레스","material":" SPCC ","unit_price":1200,"quoted_at":"2026-01-02"}]}
+                """), null);
+        assertThat(valid.path("quotes").get(0).path("material").stringValue()).isEqualTo("SPCC");
+        String tomorrow = java.time.LocalDate.now().plusDays(1).toString();
+        for (String row : List.of(
+                "{\"process\":\"도장\",\"material\":\"SPCC\",\"unit_price\":1,\"quoted_at\":\"2026-01-02\"}",
+                "{\"process\":\"프레스\",\"material\":\"SPCC\",\"unit_price\":0,\"quoted_at\":\"2026-01-02\"}",
+                "{\"process\":\"프레스\",\"material\":\"SPCC\",\"unit_price\":1.5,\"quoted_at\":\"2026-01-02\"}",
+                "{\"process\":\"프레스\",\"material\":\"SPCC\",\"unit_price\":1,\"quoted_at\":\"2026-02-30\"}",
+                "{\"process\":\"프레스\",\"material\":\"SPCC\",\"unit_price\":1,\"quoted_at\":\"2026-1-2\"}",
+                "{\"process\":\"프레스\",\"material\":\"SPCC\",\"unit_price\":1,\"quoted_at\":\"" + tomorrow + "\"}",
+                "{\"process\":\"프레스\",\"material\":\"SPCC\",\"unit_price\":1,\"quoted_at\":\"2026-01-02\",\"source\":\"MOCK\"}")) {
+            assertThatThrownBy(() -> validator.quotesRequest(object("{\"version\":0,\"quotes\":[" + row + "]}"), null))
+                    .as(row).isInstanceOf(ApiException.class);
+        }
+        assertThatThrownBy(() -> validator.quotesRequest(object("{\"version\":0,\"quotes\":[]}"), null)).isInstanceOf(ApiException.class);
+    }
+
     @Test void searchRejectsRepeatedFiltersAndUnsafePagination() {
         assertThatThrownBy(() -> validator.search(Map.of("page", new String[]{"0", "1"}), null)).isInstanceOf(ApiException.class);
         assertThatThrownBy(() -> validator.search(Map.of("size", new String[]{"101"}), null)).isInstanceOf(ApiException.class);
@@ -63,6 +106,7 @@ class AdminSupplierValidatorTest {
         assertThatThrownBy(() -> controller.patch("SUP-0001", "{}", null)).isInstanceOf(ApiException.class);
         assertThatThrownBy(() -> controller.capabilities("SUP-0001", "{}", null)).isInstanceOf(ApiException.class);
         assertThatThrownBy(() -> controller.quality("SUP-0001", "{}", null)).isInstanceOf(ApiException.class);
+        assertThatThrownBy(() -> controller.quotes("SUP-0001", "{}", null)).isInstanceOf(ApiException.class);
         assertThatThrownBy(() -> controller.status("SUP-0001", "{}", null)).isInstanceOf(ApiException.class);
         verifyNoInteractions(service);
     }

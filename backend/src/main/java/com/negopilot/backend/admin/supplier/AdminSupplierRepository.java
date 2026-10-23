@@ -55,15 +55,16 @@ class AdminSupplierRepository {
 
     int insertManualSupplier(String id, JsonNode profile, JsonNode cert) {
         return store.jdbc().update("""
-                INSERT INTO suppliers (supplier_id,source,name,region,employees,revenue_eok,founded_year,
+                INSERT INTO suppliers (supplier_id,source,corp_code,name,region,employees,revenue_eok,founded_year,
                     biz_no_masked,stock_code,induty_code,iatf16949,iso14001,profile_origin_source,
                     certification_source,capability_source,quality_source)
-                VALUES (?,'MANUAL',?,?,?,?,?,?,?,?,?,?,'MANUAL','MANUAL','MANUAL','MANUAL')
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'MANUAL','MANUAL','MANUAL')
                 ON CONFLICT (supplier_id) DO NOTHING
-                """, id, value(profile.get("name")), value(profile.get("region")), value(profile.get("employees")),
+                """, id, value(profile.get("source")), value(profile.get("corp_code")),
+                value(profile.get("name")), value(profile.get("region")), value(profile.get("employees")),
                 value(profile.get("revenue_eok")), value(profile.get("founded_year")), value(profile.get("biz_no_masked")),
                 value(profile.get("stock_code")), value(profile.get("induty_code")),
-                value(cert.get("iatf16949")), value(cert.get("iso14001")));
+                value(cert.get("iatf16949")), value(cert.get("iso14001")), value(profile.get("source")));
     }
 
     void captureOriginalProfile(String id) {
@@ -123,6 +124,13 @@ class AdminSupplierRepository {
                 row.get("process").stringValue(), row.get("material").stringValue(), row.get("monthly_capacity").intValue());
     }
 
+    void appendQuotes(String id, JsonNode quotes) {
+        for (JsonNode row : quotes) store.jdbc().update(
+                "INSERT INTO quotes (supplier_id,process,material,unit_price,quoted_at,source) VALUES (?,?,?,?,?,'MANUAL')", id,
+                row.get("process").stringValue(), row.get("material").stringValue(), row.get("unit_price").intValue(),
+                java.sql.Date.valueOf(row.get("quoted_at").stringValue()));
+    }
+
     void replaceQuality(String id, JsonNode quality) {
         store.jdbc().update("""
                 INSERT INTO quality (supplier_id,defect_ppm,on_time_rate,audit_grade,years_dealing) VALUES (?,?,?,?,?)
@@ -143,7 +151,7 @@ class AdminSupplierRepository {
         result.put("financials", rows("SELECT bsns_year,fs_div,source,revenue,operating_income,net_income,total_assets,total_liabilities,total_equity FROM financials WHERE supplier_id=? ORDER BY bsns_year DESC", id));
         List<Map<String, Object>> contracts = rows("SELECT payment_days,price_linkage,raw_material_ratio,auto_renewal FROM contracts WHERE supplier_id=?", id);
         result.put("contract", contracts.isEmpty() ? null : contracts.getFirst());
-        result.put("quotes", rows("SELECT quote_id,process,material,unit_price,quoted_at FROM quotes WHERE supplier_id=? ORDER BY quoted_at DESC,quote_id DESC", id));
+        result.put("quotes", rows("SELECT quote_id,process,material,unit_price,quoted_at,source FROM quotes WHERE supplier_id=? ORDER BY quoted_at DESC,quote_id DESC", id));
         if (includeAudit) result.put("audit", rows("SELECT event_id,actor_user_id,action,before_data,after_data,created_at FROM supplier_change_events WHERE supplier_id=? ORDER BY event_id DESC LIMIT 100", id));
         return result;
     }

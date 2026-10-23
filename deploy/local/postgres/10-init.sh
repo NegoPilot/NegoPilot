@@ -59,6 +59,7 @@ SET ROLE negopilot_business_owner;
 \i /opt/negopilot/business-seed.sql
 \i /opt/negopilot/V1__supplier_management.sql
 \i /opt/negopilot/V2__supplier_contacts.sql
+\i /opt/negopilot/V3__quote_source.sql
 \i /opt/negopilot/supplier-contacts-demo.sql
 RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;

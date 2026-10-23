@@ -2,7 +2,9 @@ package com.negopilot.backend.admin.supplier;
 
 import com.negopilot.backend.common.api.ApiException;
 
+import java.time.LocalDate;
 import java.time.Year;
+import java.time.format.DateTimeParseException;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,6 +20,8 @@ import tools.jackson.databind.node.ObjectNode;
 final class AdminSupplierValidator {
     static final Set<String> PROFILE = Set.of("name", "region", "employees", "revenue_eok", "founded_year",
             "biz_no_masked", "stock_code", "induty_code");
+    // Origin fields are accepted only on creation. PATCH never changes them.
+    static final Set<String> ORIGIN = Set.of("source", "corp_code");
     static final Set<String> PROCESSES = Set.of("다이캐스팅", "프레스", "사출", "단조", "CNC가공");
     private final JsonMapper mapper;
     AdminSupplierValidator(JsonMapper mapper) { this.mapper = mapper; }
@@ -56,6 +60,11 @@ final class AdminSupplierValidator {
     ObjectNode capabilitiesRequest(ObjectNode body, UUID id) {
         fields(body, Set.of("version", "capabilities"), id); version(body, id);
         capabilities(body.get("capabilities"), id); return body;
+    }
+
+    ObjectNode quotesRequest(ObjectNode body, UUID id) {
+        fields(body, Set.of("version", "quotes"), id); version(body, id);
+        quotes(body.get("quotes"), id); return body;
     }
 
     ObjectNode qualityRequest(ObjectNode body, UUID id) {
@@ -99,8 +108,11 @@ final class AdminSupplierValidator {
     }
 
     private void profile(JsonNode node, boolean full, UUID id) {
-        fields(node, PROFILE, id);
+        Set<String> allowed = new HashSet<>(PROFILE);
+        if (full) allowed.addAll(ORIGIN);
+        fields(node, allowed, id);
         if (node.isEmpty()) throw ApiException.validation(id);
+        if (full) origin((ObjectNode) node, id);
         if (full && !node.propertyNames().containsAll(Set.of("name", "region", "founded_year", "biz_no_masked")))
             throw ApiException.validation(id);
         for (String key : List.of("name", "region", "biz_no_masked")) {
@@ -123,6 +135,22 @@ final class AdminSupplierValidator {
         }
     }
 
+    /** source defaults to MANUAL. Only DART carries a corp_code, and DART requires one. */
+    private void origin(ObjectNode node, UUID id) {
+        String source = node.hasNonNull("source") ? text(node.get("source"), 6, id) : "MANUAL";
+        if (!Set.of("DART", "MOCK", "MANUAL").contains(source)) throw ApiException.validation(id);
+        node.put("source", source);
+        if (source.equals("DART")) {
+            String corpCode = text(node.get("corp_code"), 8, id);
+            if (!corpCode.matches("[0-9]{8}")) throw ApiException.validation(id);
+            node.put("corp_code", corpCode);
+        } else if (node.hasNonNull("corp_code")) {
+            throw ApiException.validation(id);
+        } else {
+            node.putNull("corp_code");
+        }
+    }
+
     private void certifications(JsonNode node, boolean full, UUID id) {
         fields(node, Set.of("iatf16949", "iso14001"), id);
         if (node.isEmpty() || (full && node.size() != 2)) throw ApiException.validation(id);
@@ -139,6 +167,23 @@ final class AdminSupplierValidator {
             if (!PROCESSES.contains(process) || !seen.add(process + "\u0000" + material)) throw ApiException.validation(id);
             ((ObjectNode) row).put("process", process).put("material", material);
             integer(row.get("monthly_capacity"), 1, 10_000_000, id);
+        }
+    }
+
+    private void quotes(JsonNode node, UUID id) {
+        if (node == null || !node.isArray() || node.isEmpty() || node.size() > 100) throw ApiException.validation(id);
+        for (JsonNode row : node) {
+            fields(row, Set.of("process", "material", "unit_price", "quoted_at"), id);
+            if (row.size() != 4) throw ApiException.validation(id);
+            String process = text(row.get("process"), 100, id), material = text(row.get("material"), 100, id);
+            if (!PROCESSES.contains(process)) throw ApiException.validation(id);
+            ((ObjectNode) row).put("process", process).put("material", material);
+            integer(row.get("unit_price"), 1, Integer.MAX_VALUE, id);
+            String quotedAt = text(row.get("quoted_at"), 10, id);
+            try {
+                if (!quotedAt.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}") || LocalDate.parse(quotedAt).isAfter(LocalDate.now()))
+                    throw ApiException.validation(id);
+            } catch (DateTimeParseException ignored) { throw ApiException.validation(id); }
         }
     }
 
