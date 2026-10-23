@@ -1,0 +1,217 @@
+{
+  "revision": "1c7c8b12d43f9960769bfba07679107689320d1f",
+  "dirty": true,
+  "set": "dev",
+  "repeat": 6,
+  "decomposer": {
+    "backend": "openai",
+    "model": "gpt-4.1-mini"
+  },
+  "generator": {
+    "backend": "openai",
+    "model": "gpt-4.1-mini"
+  },
+  "judge_model": "gpt-4.1-mini",
+  "cross_judge": null,
+  "summary": {
+    "cases": 66,
+    "execution_errors": 0,
+    "tool_errors": 0,
+    "retried": 3,
+    "masked": 0,
+    "kind_accuracy": 0.9090909090909091,
+    "expected_points": 162,
+    "scored_points": 162,
+    "covered_points": 147,
+    "point_coverage": 0.9074074074074074,
+    "point_coverage_lower_bound": 0.9074074074074074,
+    "intent_match": 0.9848484848484849,
+    "grounded_when_needed": 1.0,
+    "judge_errors": 0,
+    "unsupported_claims": 25,
+    "spread": {
+      "point_coverage": {
+        "per_run": [
+          0.9259259259259259,
+          0.8518518518518519,
+          0.9259259259259259,
+          0.9259259259259259,
+          0.9629629629629629,
+          0.8518518518518519
+        ],
+        "mean": 0.9074074074074074,
+        "stdev": 0.04536092116265143,
+        "sem": 0.018518518518518514
+      },
+      "kind_accuracy": {
+        "per_run": [
+          0.9090909090909091,
+          0.9090909090909091,
+          0.9090909090909091,
+          0.9090909090909091,
+          0.9090909090909091,
+          0.9090909090909091
+        ],
+        "mean": 0.9090909090909091,
+        "stdev": 0.0,
+        "sem": 0.0
+      },
+      "intent_match": {
+        "per_run": [
+          1.0,
+          0.9090909090909091,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "mean": 0.9848484848484849,
+        "stdev": 0.03711348095126028,
+        "sem": 0.015151515151515157
+      },
+      "grounded_when_needed": {
+        "per_run": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "mean": 1.0,
+        "stdev": 0.0,
+        "sem": 0.0
+      }
+    },
+    "cross_judge": null,
+    "agent": {
+      "total": {
+        "mean": 3.38,
+        "p50": 3.68,
+        "p90": 4.73,
+        "max": 9.07
+      },
+      "decompose_query": {
+        "mean": 1.42,
+        "p50": 1.23,
+        "p90": 1.77,
+        "max": 5.79
+      },
+      "route": {
+        "mean": 0.04,
+        "p50": 0.02,
+        "p90": 0.05,
+        "max": 0.74
+      },
+      "generate": {
+        "mean": 1.92,
+        "p50": 2.31,
+        "p90": 2.96,
+        "max": 7.62
+      },
+      "llm_seconds": {
+        "mean": 3.33,
+        "p50": 3.65,
+        "p90": 4.69,
+        "max": 9.02
+      },
+      "tool_seconds": {
+        "mean": 0.06,
+        "p50": 0.03,
+        "p90": 0.09,
+        "max": 0.74
+      },
+      "llm_calls": {
+        "mean": 1.8,
+        "max": 3
+      },
+      "tool_calls": {
+        "mean": 2.2,
+        "max": 5
+      },
+      "input_tokens": {
+        "mean": 13050.5,
+        "max": 18143
+      },
+      "output_tokens": {
+        "mean": 342.5,
+        "max": 956
+      },
+      "cached_tokens": {
+        "mean": 11661.6,
+        "max": 17792
+      },
+      "cost_usd": {
+        "mean": 0.00227,
+        "max": 0.005696,
+        "total": 0.149799,
+        "unknown_calls": 0
+      }
+    },
+    "judge": {
+      "total": {
+        "mean": 1.17,
+        "p50": 1.05,
+        "p90": 1.66,
+        "max": 3.04
+      },
+      "decompose_query": {
+        "mean": 0.0,
+        "p50": 0.0,
+        "p90": 0.0,
+        "max": 0.0
+      },
+      "route": {
+        "mean": 0.0,
+        "p50": 0.0,
+        "p90": 0.0,
+        "max": 0.0
+      },
+      "generate": {
+        "mean": 0.0,
+        "p50": 0.0,
+        "p90": 0.0,
+        "max": 0.0
+      },
+      "llm_seconds": {
+        "mean": 1.17,
+        "p50": 1.05,
+        "p90": 1.66,
+        "max": 3.04
+      },
+      "tool_seconds": {
+        "mean": 0,
+        "p50": 0,
+        "p90": 0,
+        "max": 0
+      },
+      "llm_calls": {
+        "mean": 1,
+        "max": 1
+      },
+      "tool_calls": {
+        "mean": 0,
+        "max": 0
+      },
+      "input_tokens": {
+        "mean": 4057.7,
+        "max": 7601
+      },
+      "output_tokens": {
+        "mean": 58.5,
+        "max": 244
+      },
+      "cached_tokens": {
+        "mean": 2610.7,
+        "max": 7424
+      },
+      "cost_usd": {
+        "mean": 0.000933,
+        "max": 0.003102,
+        "total": 0.044805,
+        "unknown_calls": 0
+      }
+    }
+  },
+  "note": "eval_pipeline.py --compare 기준선. rows(답변 원문)는 뺐다. 원본은 측정한 사람의 eval_results/에 있다."
+}
