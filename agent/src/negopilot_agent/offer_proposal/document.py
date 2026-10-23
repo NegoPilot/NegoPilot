@@ -14,7 +14,7 @@ from collections.abc import Iterable
 from datetime import date, timedelta
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_serializer
 
 from .generator import Proposal
 from .request import SenderInfo
@@ -52,6 +52,16 @@ class BuyerSettings(BaseModel):
                    department=os.getenv('NEGOPILOT_BUYER_DEPARTMENT') or '[구매 부서]',
                    contact_name=os.getenv('NEGOPILOT_BUYER_CONTACT_NAME') or '[담당자]',
                    phone=phone, email=os.getenv('NEGOPILOT_BUYER_EMAIL') or '[이메일]')
+
+    @model_serializer(mode='wrap')
+    def drop_unset_optional(self, handler):
+        """값이 없는 선택 항목(phone, job_title)은 문서에 넣지 않는다.
+
+        mail-mcp(#247)는 발신 정보에 빈 값이나 자리표시가 있으면 SENDER_INCOMPLETE로 보내지 않으므로,
+        회원 정보에 없는 전화번호를 빈 값으로 넘기면 안 된다. 해시도 이 직렬화 결과로 계산한다.
+        """
+        data = handler(self)
+        return {k: v for k, v in data.items() if not (k in ('phone', 'job_title') and not v)}
 
     def contact(self) -> str:
         """'홍길동 담당 (전화 02-…, a@b.c)'. 전화가 없으면 이메일만."""

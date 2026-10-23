@@ -297,7 +297,7 @@ def member_document(monkeypatch, **sender_over):
 def test_member_sender_fills_proposal_without_placeholders(monkeypatch):
     doc = member_document(monkeypatch)
     assert doc.sender.model_dump() == {'company': 'SKALA 자동차', 'department': '구매전략팀', 'contact_name': '김가연',
-                                       'job_title': '매니저', 'phone': None, 'email': 'gayeon@example.com'}
+                                       'job_title': '매니저', 'email': 'gayeon@example.com'}   # 전화 없음은 아예 뺀다
     for text in supplier_texts(doc):
         flat = text.replace('\n', ' ')
         assert '김가연 매니저' in flat and '구매전략팀' in flat and 'gayeon@example.com' in flat
@@ -337,3 +337,21 @@ def test_company_defaults_to_skala(monkeypatch):
     assert BuyerSettings.from_env().company == 'SKALA 자동차'
     sender = asyncio.run(build_package(request(sender=MEMBER), FakeCaller(bench()))).document.sender
     assert sender.company == 'SKALA 자동차' and sender.contact_name == '김가연'
+
+
+def test_sender_passes_mail_mcp_placeholder_guard(monkeypatch):
+    """mail-mcp(#247) check_document와 같은 규칙: 발신 정보에 빈 값·자리표시가 있으면 보내지 않는다."""
+    import re
+    placeholder = re.compile(r"^\s*\[[^\]]*\]\s*$")
+
+    def blank(sender: dict) -> list[str]:
+        return [k for k, v in sender.items() if not v or placeholder.match(str(v))]
+
+    doc = member_document(monkeypatch).model_dump(mode='json')
+    assert blank(doc['sender']) == [] and 'phone' not in doc['sender']
+    assert OfferDocument.model_validate(doc).sender.phone is None         # 빠진 전화는 다시 읽어도 None
+    no_title = member_document(monkeypatch, job_title='').model_dump(mode='json')['sender']
+    assert 'job_title' not in no_title and blank(no_title) == []
+    monkeypatch.delenv('NEGOPILOT_BUYER_CONTACT_NAME', raising=False)
+    fallback = BuyerSettings.from_env().model_dump()
+    assert 'contact_name' in blank(fallback)                               # 설정도 회원도 없으면 발송이 막힌다
