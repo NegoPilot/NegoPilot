@@ -23,6 +23,7 @@ services:
       APP_DB_PASSWORD: ${APP_DB_PASSWORD:-local-app-password}
       BUSINESS_DB_PASSWORD: ${BUSINESS_DB_PASSWORD:-local-business-password}
       BUSINESS_READER_PASSWORD: ${BUSINESS_READER_PASSWORD:-local-reader-password}
+      MAIL_READER_PASSWORD: ${MAIL_READER_PASSWORD:-local-mail-reader-password}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     restart: unless-stopped
