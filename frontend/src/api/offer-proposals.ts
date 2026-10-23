@@ -125,12 +125,14 @@ export function renderOfferDocument(document: OfferDocument, files: FileFormat |
   return LIVE ? live.render(document, files) : mock.render(document, files)
 }
 
-export function previewOfferMail(rendered: RenderedOffer, format: FileFormat): Promise<MailPreview> {
-  return LIVE ? live.preview(rendered, format) : mock.preview(rendered, format)
+// 메일에는 협력사 제안서 PDF만 붙인다.
+// 본문을 고치면 mail-mcp 확인 토큰이 본문까지 서명하므로, 고친 본문으로 미리보기를 다시 받고 그 토큰으로 보낸다(mail.md 4절).
+export function previewOfferMail(rendered: RenderedOffer, body?: string): Promise<MailPreview> {
+  return LIVE ? live.preview(rendered, body) : mock.preview(rendered, body)
 }
 
-export function sendOfferMail(rendered: RenderedOffer, format: FileFormat, preview: MailPreview): Promise<MailSendResult> {
-  return LIVE ? live.send(rendered, format, preview) : mock.send(preview)
+export function sendOfferMail(rendered: RenderedOffer, preview: MailPreview, body?: string): Promise<MailSendResult> {
+  return LIVE ? live.send(rendered, preview, body) : mock.send(preview)
 }
 
 /** 확정본 첨부에서 파일을 꺼내 브라우저로 저장한다 */
@@ -161,17 +163,19 @@ const live = {
     return request<RenderedOffer>(`${OFFER_PATH}/render`, { method: 'POST', body: JSON.stringify({ document, files }) }, 120_000)
   },
   // TODO(#264): Spring 메일 API가 생기면 경로와 요청 형식을 맞춘다. 첨부는 확정본 그대로 보낸다(해시 검사).
-  preview(rendered: RenderedOffer, format: FileFormat) {
-    return request<MailPreview>(`${MAIL_PATH}/preview`, { method: 'POST', body: JSON.stringify(mailInput(rendered, format)) })
+  // TODO(#264): mail-mcp는 지금 본문 전체가 아니라 템플릿에 덧붙일 message(2,000자)만 받는다. 본문 전체 교체를 받게 되면 필드 이름을 맞춘다.
+  preview(rendered: RenderedOffer, body?: string) {
+    return request<MailPreview>(`${MAIL_PATH}/preview`, { method: 'POST', body: JSON.stringify(mailInput(rendered, body)) })
   },
-  send(rendered: RenderedOffer, format: FileFormat, preview: MailPreview) {
+  send(rendered: RenderedOffer, preview: MailPreview, body?: string) {
     return request<MailSendResult>(`${MAIL_PATH}/send`, { method: 'POST',
-      body: JSON.stringify({ ...mailInput(rendered, format), confirmation_token: preview.confirmation_token }) })
+      body: JSON.stringify({ ...mailInput(rendered, body), confirmation_token: preview.confirmation_token }) })
   },
 }
 
-function mailInput(rendered: RenderedOffer, format: FileFormat) {
-  return { document: rendered.document, attachments: rendered.attachments.filter(a => a.filename.endsWith(`.${format}`)) }
+function mailInput(rendered: RenderedOffer, body?: string) {
+  return { document: rendered.document, attachments: rendered.attachments.filter(a => a.filename.endsWith('.pdf')),
+    ...(body === undefined ? {} : { message: body }) }
 }
 
 function briefingFrom(raw: Record<string, unknown>): InternalBriefing {
@@ -254,20 +258,20 @@ const mock = {
     return { document: final, attachments, check: { verdict_code: final.verdict_code, warnings: [] } }
   },
 
-  async preview(rendered: RenderedOffer, format: FileFormat): Promise<MailPreview> {
+  async preview(rendered: RenderedOffer, edited?: string): Promise<MailPreview> {
     await wait(400)
     const d = rendered.document
-    const attachment = rendered.attachments.find(a => a.filename.endsWith(`.${format}`))!
+    const attachment = rendered.attachments.find(a => a.filename.endsWith('.pdf'))!
     return {
       to: { name: '김영업', email: `sales.${d.supplier_id.toLowerCase()}@example.test`, supplier_name: d.supplier_name },
       from: `${d.sender.contact_name} <${d.sender.email}>`,
       subject: `[NegoPilot] ${d.title} (${d.rfq_id} ${d.part_name})`,
       // mail.md 2절: 본문에는 단가·지급 조건 같은 숫자를 쓰지 않는다
-      body: `${d.supplier_name} 김영업님께\n\n${d.sender.company} ${d.sender.department} ${d.sender.contact_name}입니다.\n`
+      body: edited ?? `${d.supplier_name} 김영업님께\n\n${d.sender.company} ${d.sender.department} ${d.sender.contact_name}입니다.\n`
         + `${d.rfq_id} ${d.part_name} 거래 조건 제안서를 첨부드립니다. 회신 기한까지 검토 후 회신 부탁드립니다.\n\n`
         + `${d.sender.contact_name} ${d.sender.job_title} 드림\n${d.sender.email}`,
       attachments: [{ filename: attachment.filename, content_type: attachment.content_type, bytes: atob(attachment.data_base64).length }],
-      confirmation_token: 'mock-token', expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+      confirmation_token: `mock-token-${Date.now()}`, expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
     }
   },
 

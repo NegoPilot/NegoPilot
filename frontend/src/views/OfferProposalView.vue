@@ -105,7 +105,6 @@ function save(format: FileFormat) {
   catch (e) { errors.value.save = message(e, '파일을 저장하지 못했습니다.') }
 }
 
-const mailFormat = ref<FileFormat>('pdf')
 const mailOpen = ref(false)
 const mailPreview = ref<MailPreview | null>(null)
 const mailLoading = ref(false), mailSending = ref(false), mailError = ref('')
@@ -113,14 +112,20 @@ function closeMail() { mailOpen.value = false; mailPreview.value = null; mailErr
 async function openMail() {
   if (!rendered.value) return
   mailOpen.value = true; mailLoading.value = true; mailError.value = ''; mailPreview.value = null
-  try { mailPreview.value = await previewOfferMail(rendered.value, mailFormat.value) }
+  try { mailPreview.value = await previewOfferMail(rendered.value) }
   catch (e) { mailError.value = message(e, '메일 미리보기를 만들지 못했습니다.') }
   finally { mailLoading.value = false }
 }
-async function sendMail() {
+async function sendMail(body: string) {
   if (!rendered.value || !mailPreview.value || mailSending.value) return
   mailSending.value = true; mailError.value = ''
-  try { sent.value = await sendOfferMail(rendered.value, mailFormat.value, mailPreview.value); mailOpen.value = false; mailPreview.value = null }
+  try {
+    // 본문을 고쳤으면 그 본문으로 미리보기(확인 토큰)를 다시 받고 보낸다
+    const edited = body !== mailPreview.value.body ? body : undefined
+    const preview = edited === undefined ? mailPreview.value : await previewOfferMail(rendered.value, edited)
+    sent.value = await sendOfferMail(rendered.value, preview, edited)
+    mailOpen.value = false; mailPreview.value = null
+  }
   catch (e) { mailError.value = message(e, '메일을 보내지 못했습니다. 미리보기를 다시 열어 주세요.') }
   finally { mailSending.value = false }
 }
@@ -208,16 +213,13 @@ async function sendMail() {
     <section v-if="proposal && rendered" class="panel panel-pad save-row" aria-labelledby="step4-title">
       <div class="save-text">
         <h2 id="step4-title">④ 문서 저장 · 발송</h2>
-        <p class="sub">발신 정보는 로그인 회원(이름·부서·직함·이메일)으로 자동 입력됩니다. Word·PDF에는 발송용 제안서만 담기고, 내부 브리핑은 메일로 보내지 않습니다.</p>
+        <p class="sub">발신 정보는 로그인 회원(이름·부서·직함·이메일)으로 자동 입력됩니다. Word·PDF에는 발송용 제안서만 담기고, 메일에는 PDF만 첨부합니다. 내부 브리핑은 메일로 보내지 않습니다.</p>
         <p v-if="sent" class="ok strong" role="status">✓ {{ sent.to }}에게 {{ sent.status === 'DRY_RUN' ? '발송 시험 완료(실제 메일은 나가지 않음)' : '발송 완료' }}</p>
         <p v-if="errors.save" role="alert" class="field-error">{{ errors.save }}</p>
       </div>
       <div class="save-actions">
         <button type="button" class="btn" @click="save('docx')">⤓ Word 저장</button>
         <button type="button" class="btn" @click="save('pdf')">⤓ PDF 저장</button>
-        <label class="format">첨부
-          <select v-model="mailFormat" aria-label="메일 첨부 형식"><option value="pdf">PDF</option><option value="docx">Word</option></select>
-        </label>
         <button type="button" class="btn btn-primary wide" @click="openMail">메일 미리보기 후 발송</button>
       </div>
     </section>
@@ -239,6 +241,5 @@ async function sendMail() {
 .save-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px}
 .save-text{flex:1 1 420px}.save-text h2{font-size:16px}.save-text .sub{margin:4px 0 0;font-size:12px;color:var(--text-3)}
 .save-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px}.save-actions .btn:not(.wide){min-width:120px}
-.format{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2)}.format select{width:auto}
 @media(max-width:800px){.save-actions,.save-actions .btn{width:100%}}
 </style>

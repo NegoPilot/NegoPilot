@@ -1,12 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { MailPreview, OfferWarning } from '@/api/offer-proposals'
 
 const props = defineProps<{ preview: MailPreview | null; loading: boolean; sending: boolean; error: string; warnings: OfferWarning[] }>()
-const emit = defineEmits<{ close: []; send: [] }>()
+const emit = defineEmits<{ close: []; send: [body: string] }>()
 // mail.md 1절: CHECK_NEEDED면 경고를 확인한 뒤에만 보낸다
 const acknowledged = ref(false)
-const canSend = computed(() => !!props.preview && !props.sending && (props.warnings.length === 0 || acknowledged.value))
+// 본문은 창에서 바로 고친다. 2,000자는 mail-mcp message 상한(mail.md 2절)
+const body = ref('')
+watch(() => props.preview, preview => { if (preview) body.value = preview.body }, { immediate: true })
+const edited = computed(() => !!props.preview && body.value !== props.preview.body)
+const canSend = computed(() => !!props.preview && !props.sending && body.value.trim() !== ''
+  && (props.warnings.length === 0 || acknowledged.value))
 const kb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))}KB`
 
 function onKey(event: KeyboardEvent) { if (event.key === 'Escape' && !props.sending) emit('close') }
@@ -29,8 +34,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
           <dt>제목</dt><dd class="subject">{{ preview.subject }}</dd>
           <dt>첨부</dt><dd><span v-for="a in preview.attachments" :key="a.filename" class="chip">📎 {{ a.filename }} · {{ kb(a.bytes) }}</span></dd>
         </dl>
-        <pre class="body">{{ preview.body }}</pre>
-        <p class="footnote">내부 협상 브리핑은 메일에 들어가지 않습니다. 단가·지급 조건은 첨부한 제안서에만 있습니다.</p>
+        <div class="body-head">
+          <label for="mail-body">메일 내용 <span class="muted">· 바로 고칠 수 있어요</span></label>
+          <button v-if="edited" type="button" class="link-btn" :disabled="sending" @click="body = preview.body">원래 내용으로</button>
+        </div>
+        <textarea id="mail-body" v-model="body" class="body" rows="10" maxlength="2000" :disabled="sending" />
+        <p class="footnote">단가·지급 조건 같은 숫자는 본문에 쓰지 말고 첨부한 제안서로 전달해 주세요. 내부 협상 브리핑은 메일에 들어가지 않습니다.</p>
         <div v-if="warnings.length" class="warn">
           <p v-for="w in warnings" :key="w.code">⚠ {{ w.message }}</p>
           <label><input v-model="acknowledged" type="checkbox" /> 확인 필요 항목을 검토했습니다</label>
@@ -39,7 +48,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       <p v-if="error" role="alert" class="field-error">{{ error }}</p>
       <footer class="foot">
         <button type="button" class="btn" :disabled="sending" @click="emit('close')">취소</button>
-        <button type="button" class="btn btn-primary" :disabled="!canSend" @click="emit('send')">{{ sending ? '발송 중…' : '발송' }}</button>
+        <button type="button" class="btn btn-primary" :disabled="!canSend" @click="emit('send', body)">{{ sending ? '발송 중…' : '발송' }}</button>
       </footer>
     </section>
   </div>
@@ -52,7 +61,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 .head{display:flex;align-items:center;justify-content:space-between}.head h2{font-size:16px}.close{font-size:16px;color:var(--text-3)}
 .fields{margin:0;display:grid;grid-template-columns:max-content 1fr;gap:8px 16px;font-size:13px}.fields dt{color:var(--text-3)}.fields dd{margin:0}
 .subject{font-weight:600}.chip{margin-right:6px}
-.body{margin:0;padding:14px;white-space:pre-wrap;font:inherit;font-size:13px;line-height:1.7;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius)}
+.body-head{display:flex;justify-content:space-between;align-items:center;font-size:13px}
+.body{margin:0;padding:12px 14px;font:inherit;font-size:13px;line-height:1.7;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius);resize:vertical}
 .warn{padding:10px 12px;border:1px solid #f0d2a8;background:#fdf6ec;border-radius:var(--radius);font-size:12px;color:var(--warning)}.warn p{margin:0 0 6px}
 .foot{display:flex;justify-content:flex-end;gap:8px}
 </style>
