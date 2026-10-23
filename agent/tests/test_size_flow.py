@@ -79,3 +79,42 @@ def test_explicit_invalid_range_requests_correction():
 def test_mixed_source_request_is_not_swallowed():
     from negopilot_agent.decomposition.size_facts import explicit_offer_result
     assert explicit_offer_result(QUERY+' 관련 조문 원문도 찾아줘.',[]) is None
+
+
+def _offer_evidence():
+    size = Evidence(id='E2', sub_query='q1', source='business', kind='company_size', label='기업 규모 검토: buyer',
+                    text=json.dumps({'is_sme': None, 'is_small_business': None, 'missing': ['ksic']}), meta={'role': 'buyer'})
+    verdict = Evidence(id='E1', sub_query='q1', source='business', kind='offer_verdict', label='협상안 검사 결과: A(SUP-0003) · RFQ-2026-001',
+                       text=json.dumps({'verdict': '확인 필요'}), meta={'verdict': '확인 필요'})
+    return [verdict, size]
+
+
+def _decomposition(entities):
+    return DecompositionResult.model_validate({'status': 'ok', 'original_query': '검사해 줘', 'sub_queries': [{
+        'id': 'q1', 'question': '검사', 'original_text': '검사해 줘', 'intent': 'offer_check', 'grounding': 'required',
+        'confidence': 0.9, 'entities': {'supplier': 'SUP-0003', 'rfq_id': 'RFQ-2026-001', 'unit_price': 12000,
+                                        'payment_days': 45, 'price_linkage': False, **entities},
+        'inputs': [], 'depends_on': []}]})
+
+
+@pytest.mark.asyncio
+async def test_ordinary_offer_question_is_written_by_the_model_without_size_listing():
+    """규모를 묻지 않은 협상안 질문은 고정 형식이 아니라 평소 답변이다 (#234)."""
+    from negopilot_agent.generation import AnswerGenerator
+    from negopilot_agent.generation.generator import Plan
+    from tests.test_generation import FakeBackend, draft
+    backend = FakeBackend(draft('검사 결과 확인이 필요한 항목이 있습니다. [E1]', ['E1']))
+    answer = await AnswerGenerator(backend=backend)._write(_decomposition({}), _offer_evidence(), Plan())
+    assert answer.text.startswith('검사 결과 확인이') and '판정 보류' not in answer.text
+    assert 'kind="company_size"' not in backend.prompts[0] and '기업 규모 검토' not in backend.prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_offer_with_size_facts_keeps_deterministic_rendering():
+    from negopilot_agent.generation import AnswerGenerator
+    from negopilot_agent.generation.generator import Plan
+    from tests.test_generation import FakeBackend
+    backend = FakeBackend('{}')
+    d = _decomposition({'buyer_size': {'ksic_code': 'C30399', 'average_revenue_eok': 120}})
+    answer = await AnswerGenerator(backend=backend)._write(d, _offer_evidence(), Plan())
+    assert answer.text.startswith('입력한 사실에 따른 기업 규모') and backend.prompts == []
