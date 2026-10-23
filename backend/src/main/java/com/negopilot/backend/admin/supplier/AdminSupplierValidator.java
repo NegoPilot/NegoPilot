@@ -18,6 +18,8 @@ import tools.jackson.databind.node.ObjectNode;
 final class AdminSupplierValidator {
     static final Set<String> PROFILE = Set.of("name", "region", "employees", "revenue_eok", "founded_year",
             "biz_no_masked", "stock_code", "induty_code");
+    // Origin fields are accepted only on creation. PATCH never changes them.
+    static final Set<String> ORIGIN = Set.of("source", "corp_code");
     static final Set<String> PROCESSES = Set.of("다이캐스팅", "프레스", "사출", "단조", "CNC가공");
     private final JsonMapper mapper;
     AdminSupplierValidator(JsonMapper mapper) { this.mapper = mapper; }
@@ -99,8 +101,11 @@ final class AdminSupplierValidator {
     }
 
     private void profile(JsonNode node, boolean full, UUID id) {
-        fields(node, PROFILE, id);
+        Set<String> allowed = new HashSet<>(PROFILE);
+        if (full) allowed.addAll(ORIGIN);
+        fields(node, allowed, id);
         if (node.isEmpty()) throw ApiException.validation(id);
+        if (full) origin((ObjectNode) node, id);
         if (full && !node.propertyNames().containsAll(Set.of("name", "region", "founded_year", "biz_no_masked")))
             throw ApiException.validation(id);
         for (String key : List.of("name", "region", "biz_no_masked")) {
@@ -120,6 +125,22 @@ final class AdminSupplierValidator {
                 if (!value.matches(key.equals("stock_code") ? "[0-9]{6}" : "[0-9]{3,5}")) throw ApiException.validation(id);
                 ((ObjectNode) node).put(key, value);
             }
+        }
+    }
+
+    /** source defaults to MANUAL. Only DART carries a corp_code, and DART requires one. */
+    private void origin(ObjectNode node, UUID id) {
+        String source = node.hasNonNull("source") ? text(node.get("source"), 6, id) : "MANUAL";
+        if (!Set.of("DART", "MOCK", "MANUAL").contains(source)) throw ApiException.validation(id);
+        node.put("source", source);
+        if (source.equals("DART")) {
+            String corpCode = text(node.get("corp_code"), 8, id);
+            if (!corpCode.matches("[0-9]{8}")) throw ApiException.validation(id);
+            node.put("corp_code", corpCode);
+        } else if (node.hasNonNull("corp_code")) {
+            throw ApiException.validation(id);
+        } else {
+            node.putNull("corp_code");
         }
     }
 

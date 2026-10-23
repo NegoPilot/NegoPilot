@@ -55,15 +55,16 @@ class AdminSupplierRepository {
 
     int insertManualSupplier(String id, JsonNode profile, JsonNode cert) {
         return store.jdbc().update("""
-                INSERT INTO suppliers (supplier_id,source,name,region,employees,revenue_eok,founded_year,
+                INSERT INTO suppliers (supplier_id,source,corp_code,name,region,employees,revenue_eok,founded_year,
                     biz_no_masked,stock_code,induty_code,iatf16949,iso14001,profile_origin_source,
                     certification_source,capability_source,quality_source)
-                VALUES (?,'MANUAL',?,?,?,?,?,?,?,?,?,?,'MANUAL','MANUAL','MANUAL','MANUAL')
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'MANUAL','MANUAL','MANUAL')
                 ON CONFLICT (supplier_id) DO NOTHING
-                """, id, value(profile.get("name")), value(profile.get("region")), value(profile.get("employees")),
+                """, id, value(profile.get("source")), value(profile.get("corp_code")),
+                value(profile.get("name")), value(profile.get("region")), value(profile.get("employees")),
                 value(profile.get("revenue_eok")), value(profile.get("founded_year")), value(profile.get("biz_no_masked")),
                 value(profile.get("stock_code")), value(profile.get("induty_code")),
-                value(cert.get("iatf16949")), value(cert.get("iso14001")));
+                value(cert.get("iatf16949")), value(cert.get("iso14001")), value(profile.get("source")));
     }
 
     void captureOriginalProfile(String id) {

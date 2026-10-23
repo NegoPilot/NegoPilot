@@ -95,6 +95,27 @@ class AdminSupplierPostgresTest {
         assertThat((List<?>) created.get("audit")).hasSize(1);
     }
 
+    @Test void creationKeepsRequestedOriginAndRejectsDuplicateCorpCode() {
+        String body = """
+                {"profile":{"source":"DART","corp_code":"%s","name":"공시입력","region":"울산","founded_year":2010,"biz_no_masked":"222-33-*****"},
+                 "certifications":{"iatf16949":false,"iso14001":false},
+                 "capabilities":[{"process":"단조","material":"S45C","monthly_capacity":500}]}
+                """;
+        Map<?, ?> supplier = (Map<?, ?>) service.create(validator.create(object(body.formatted("00999999")), null), ACTOR, null).get("supplier");
+        assertThat(supplier.get("source")).isEqualTo("DART");
+        assertThat(supplier.get("corp_code")).isEqualTo("00999999");
+        assertThat(supplier.get("profile_origin_source")).isEqualTo("DART");
+        assertThat(supplier.get("capability_source")).isEqualTo("MANUAL");
+        String id = (String) supplier.get("supplier_id");
+        assertThatThrownBy(() -> service.patch(id, checkedPatch("{\"version\":0,\"profile\":{\"name\":\"changed\"}}"), ACTOR, null))
+                .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.code).isEqualTo("READ_ONLY_SOURCE"));
+
+        long before = store.jdbc().queryForObject("SELECT count(*) FROM suppliers", Long.class);
+        assertThatThrownBy(() -> service.create(validator.create(object(body.formatted("00123456")), null), ACTOR, null))
+                .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.code).isEqualTo("DATA_CONFLICT"));
+        assertThat(store.jdbc().queryForObject("SELECT count(*) FROM suppliers", Long.class)).isEqualTo(before);
+    }
+
     @Test void dartProfileAndFinancialsStayUntouchedWhileCertificationIsEditable() {
         long version = store.jdbc().queryForObject("SELECT version FROM suppliers WHERE supplier_id='SUP-0001'", Long.class);
         assertThatThrownBy(() -> service.patch("SUP-0001", checkedPatch("{\"version\":" + version + ",\"profile\":{\"name\":\"changed\"}}"), ACTOR, null))

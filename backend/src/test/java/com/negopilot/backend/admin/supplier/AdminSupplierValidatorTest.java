@@ -45,6 +45,28 @@ class AdminSupplierValidatorTest {
         assertThatThrownBy(() -> validator.capabilitiesRequest(object("{\"version\":0,\"capabilities\":[]}"), null)).isInstanceOf(ApiException.class);
     }
 
+    private static final String CREATE = """
+            {"profile":{"name":"수동기업","region":"부산","founded_year":2020,"biz_no_masked":"123-45-*****"%s},
+             "certifications":{"iatf16949":true,"iso14001":false},
+             "capabilities":[{"process":"프레스","material":"SPCC","monthly_capacity":1000}]}
+            """;
+
+    @Test void creationDefaultsToManualAndOnlyDartCarriesCorpCode() {
+        assertThat(validator.create(object(CREATE.formatted("")), null).path("profile").path("source").stringValue()).isEqualTo("MANUAL");
+        ObjectNode dart = validator.create(object(CREATE.formatted(",\"source\":\"DART\",\"corp_code\":\" 00123456 \"")), null);
+        assertThat(dart.path("profile").path("corp_code").stringValue()).isEqualTo("00123456");
+        assertThat(validator.create(object(CREATE.formatted(",\"source\":\"MOCK\",\"corp_code\":null")), null)
+                .path("profile").path("corp_code").isNull()).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {",\"source\":\"DART\"", ",\"source\":\"DART\",\"corp_code\":\"1234567\"",
+            ",\"source\":\"DART\",\"corp_code\":12345678", ",\"source\":\"MANUAL\",\"corp_code\":\"00123456\"",
+            ",\"source\":\"OPEN\"", ",\"source\":\"manual\""})
+    void creationRejectsUnknownSourceAndMismatchedCorpCode(String origin) {
+        assertThatThrownBy(() -> validator.create(object(CREATE.formatted(origin)), null)).isInstanceOf(ApiException.class);
+    }
+
     @Test void searchRejectsRepeatedFiltersAndUnsafePagination() {
         assertThatThrownBy(() -> validator.search(Map.of("page", new String[]{"0", "1"}), null)).isInstanceOf(ApiException.class);
         assertThatThrownBy(() -> validator.search(Map.of("size", new String[]{"101"}), null)).isInstanceOf(ApiException.class);
