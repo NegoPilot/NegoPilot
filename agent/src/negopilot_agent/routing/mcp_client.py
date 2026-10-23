@@ -22,6 +22,7 @@ log = logging.getLogger(__name__)
 DEFAULT_URLS = {
     "business-mcp": ("BUSINESS_MCP_URL", "http://localhost:9102/mcp"),
     "law-mcp": ("LAW_MCP_URL", "http://localhost:9103/mcp"),
+    "mail-mcp": ("MAIL_MCP_URL", "http://localhost:9104/mcp"),
 }
 
 

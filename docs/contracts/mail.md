@@ -78,7 +78,7 @@ content_hash = "sha256:" + hashlib.sha256(payload).hexdigest()
 - `contact_id`를 생략하면 그 협력사의 활성 기본 담당자. 다른 협력사의 담당자 ID는 받지 않는다.
 - 확인 토큰은 문서 번호·버전·해시·수신자·제목·본문에 서명한 값이다 (HMAC-SHA256, `MAIL_CONFIRM_SECRET`). 15분 동안 유효하고 한 번만 쓴다.
 
-### `send_offer_mail(document, confirmation_token, requested_by, attachments?, contact_id?, message?)`
+### `send_offer_mail(document, confirmation_token, requested_by, attachments?, contact_id?, message?, client_ref?)`
 
 미리보기와 **같은 입력**을 다시 넘긴다. 성공하면:
 
@@ -90,9 +90,15 @@ content_hash = "sha256:" + hashlib.sha256(payload).hexdigest()
 
 `MAIL_TRANSPORT=dry_run`이면 `status: DRY_RUN`이고 `mail`(보낼 헤더·본문·첨부 이름)을 함께 돌려준다.
 
-### `list_offer_mail_sends(document_id)` (조회 전용)
+`client_ref`는 호출자가 정한 발송 요청 식별자다. 생략할 수 있다. 값은 1~64자이며 `^[A-Za-z0-9_-]+$` 형식이어야 한다. 형식이 다르면 `INVALID_CLIENT_REF`로 거절한다.
 
-발송 기록: `send_id, version, content_hash, supplier_id, contact_id, recipient(일부 가림), subject, requested_by, status(SENDING/SENT/DRY_RUN/FAILED), dry_run, message_id, error, created_at`.
+확인 토큰을 검증한 뒤 발송을 예약할 때 `client_ref`를 함께 저장한다. 값이 있는 요청에는 부분 고유 인덱스를 적용한다. 같은 값이 이미 있으면 `CLIENT_REF_USED`로 거절하고 오류 메시지에 기존 `send_id`를 넣는다. 이 요청은 SMTP를 호출하지 않는다. 실패한 발송 기록도 같은 식별자를 다시 쓸 수 없다. 식별자를 생략한 기존 호출은 기존 토큰 중복 검사대로 동작한다.
+
+### `list_offer_mail_sends(document_id, client_ref?)` (조회 전용)
+
+발송 기록: `send_id, version, content_hash, supplier_id, contact_id, recipient(일부 가림), subject, requested_by, status(SENDING/SENT/DRY_RUN/FAILED), dry_run, message_id, error, created_at, client_ref`.
+
+`client_ref`를 넘기면 해당 문서에서 그 값과 정확히 일치하는 기록만 반환한다. 생략하면 해당 문서의 모든 발송 기록을 반환한다. 기존 기록과 식별자를 생략한 새 기록의 `client_ref`는 `null`이다. 시작 시 기존 SQLite 테이블에 열이 없으면 `ALTER TABLE`로 추가하며 기존 기록을 유지한다.
 
 ## 5. 오류 코드
 
@@ -105,6 +111,8 @@ content_hash = "sha256:" + hashlib.sha256(payload).hexdigest()
 | `SENDER_INCOMPLETE` | 제안서 발신 정보가 비었거나 자리표시 |
 | `INVALID_ATTACHMENT` | 형식·크기·이름·개수 오류 |
 | `INVALID_MESSAGE` | 추가 문구가 2,000자 초과 |
+| `INVALID_CLIENT_REF` | 발송 요청 식별자가 1~64자의 영문자와 숫자 및 `_` 또는 `-` 형식이 아님 |
+| `CLIENT_REF_USED` | 같은 발송 요청 식별자가 이미 있음. 메시지에 기존 `send_id` 포함 |
 | `RECIPIENT_MISSING` | 활성 담당자(기본 또는 지정)가 없음 |
 | `CONFIRMATION_REQUIRED` | 토큰 없음 |
 | `CONFIRMATION_INVALID` | 서명이 맞지 않음 |
