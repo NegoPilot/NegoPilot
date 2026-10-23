@@ -20,9 +20,9 @@
 
 조회 실패는 needs_information으로 표시하고 실행 실패는 재사용할 legal_review를 발급하지 않는다. `verify_review`는 내부 Python 소비자를 위한 검증 함수이며 신규 협상 생성 API는 추가하지 않는다. 백엔드와 토큰 교환/보관 방식은 후속 통합 시 합의해야 한다.
 
-## 백엔드 참고 구현
+## 협상 후보 생성·경제효과 비교
 
-`feat/252-negotiation-reference` 브랜치의 `docs/handoff/252-negotiation-reference.md`에 후보 생성·경제효과·UI·테스트를 보존했다. 병합 대상이 아니며 필요한 로직만 이관한다. 이 PR은 최신 main의 기존 협상 기능을 변경하지 않는다.
+이 API는 후보 생성·순위 선정·경제효과 계산을 하지 않는다. 처음에는 참고 구현을 별도 브랜치(`feat/252-negotiation-reference`)에 보존했으나, 백엔드가 이 기능을 새로 구현하기로 해서 2026-10-23에 브랜치를 삭제했다. 이 API는 최신 main의 기존 협상 기능을 변경하지 않는다.
 
 ## 검증
 
