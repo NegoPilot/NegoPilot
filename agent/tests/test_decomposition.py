@@ -507,3 +507,20 @@ async def test_numbers_that_only_look_like_an_rfq_do_not_keep_an_invented_rfq():
     result = await fake.decomposer().decompose("SUP-0003에 연간 1200000개, 단가 12,000원, 결제 75일, 연동 없이 괜찮아?")
     assert result.sub_queries[0].entities.rfq_id is None
 
+
+
+async def test_self_reference_is_dropped_before_validation():
+    """자기 자신이나 없는 하위 질문을 depends_on·inputs.from에 넣어도 재시도 없이 고친다 (#178)."""
+    good = json.loads((Path(__file__).resolve().parents[2] / "shared" / "fixtures" / "validation"
+                       / "v24_ranking_then_offer.json").read_text(encoding="utf-8"))["expected"]
+    bad = json.loads(json.dumps(good))
+    bad["sub_queries"][0]["depends_on"] = ["q1"]
+    bad["sub_queries"][0]["inputs"] = [{"slot": "rfq_id", "from": "q1", "select": "top1"}]
+    bad["sub_queries"][1]["depends_on"] = ["q1", "q2", "q9"]
+    fake = FakeClaude(message_json(json.dumps(bad, ensure_ascii=False)))
+
+    result = await fake.decomposer().decompose(good["original_query"])
+
+    assert result.status == "ok" and len(fake.requests) == 1
+    assert result.sub_queries[0].depends_on == [] and result.sub_queries[0].inputs == []
+    assert result.sub_queries[1].depends_on == ["q1"]

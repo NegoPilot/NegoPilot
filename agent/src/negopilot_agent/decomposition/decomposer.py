@@ -92,7 +92,7 @@ class QueryDecomposer:
                 # 스키마 형식은 모델 쪽 구조화 출력이 맞추고, 필드 사이 규칙은 여기서 검증한다
                 cleaned = drop_redundant_as_of(
                     clean_entity_values(drop_disallowed_entities(drop_disallowed_inputs(
-                        normalize_select(fill_original_query(text, query))))),
+                        drop_self_references(normalize_select(fill_original_query(text, query)))))),
                     today)
                 result = DecompositionResult.model_validate_json(cleaned)
             except ValidationError as err:
@@ -147,6 +147,42 @@ def normalize_select(text: str) -> str:
             log.info("%s의 select %r → %r", sq.get("id"), select, fixed)
             ref["select"] = fixed
             changed = True
+    return json.dumps(data, ensure_ascii=False) if changed else text
+
+
+def drop_self_references(text: str) -> str:
+    """depends_on과 inputs.from에서 자기 자신이나 없는 하위 질문을 가리키는 항목을 검증 전에 지운다 (#178).
+
+    모델이 q1의 depends_on에 q1을 넣으면 검증에 걸리고, 재시도에서 depends_on만 고치고 inputs.from은 그대로 둬
+    다시 실패할 때가 있다. 자기 결과를 입력으로 받을 수는 없어서 뜻이 분명한 오류이므로 코드로 지운다.
+    앞뒤 순서가 바뀐 참조처럼 뜻이 분명하지 않은 것은 그대로 둬 검증이 판단하게 한다.
+    JSON이 아니거나 모양이 다르면 그대로 돌려줘 검증 오류로 처리되게 한다.
+    """
+    try:
+        data = json.loads(text)
+        sub_queries = data["sub_queries"]
+    except (ValueError, TypeError, KeyError):
+        return text
+    if not isinstance(sub_queries, list):
+        return text
+    ids = {sq.get("id") for sq in sub_queries if isinstance(sq, dict)}
+    changed = False
+    for sq in sub_queries:
+        if not isinstance(sq, dict):
+            continue
+        others = ids - {sq.get("id")}
+        if isinstance(sq.get("depends_on"), list):
+            kept = [d for d in sq["depends_on"] if d in others]
+            if kept != sq["depends_on"]:
+                log.info("%s의 depends_on에서 %s 제거", sq.get("id"), [d for d in sq["depends_on"] if d not in others])
+                sq["depends_on"] = kept
+                changed = True
+        if isinstance(sq.get("inputs"), list):
+            kept = [i for i in sq["inputs"] if not isinstance(i, dict) or i.get("from") in others]
+            if kept != sq["inputs"]:
+                log.info("%s의 inputs에서 자기 자신이나 없는 하위 질문을 가리키는 항목 제거", sq.get("id"))
+                sq["inputs"] = kept
+                changed = True
     return json.dumps(data, ensure_ascii=False) if changed else text
 
 
