@@ -113,6 +113,8 @@ export function maskBizNo(raw: string): string | null {
 }
 
 export type SupplierErrors = Record<string, string>
+/** 입력칸 키로 보여 줄 오류를 찾는다. 저장을 누르기 전에는 undefined */
+export type SupplierErrorOf = (key: string) => string | undefined
 
 export function validateSupplier(form: SupplierForm, takenIds: Set<string>, thisYear: number): SupplierErrors {
   const e: SupplierErrors = {}
