@@ -8,14 +8,15 @@
 | 회원과 세션 및 개인 대화 | `negopilot_app` | `negopilot_app` | `APP_DB_PASSWORD` |
 | Spring 관리자 협력사 수정 | `negopilot_business` | `negopilot_business_owner` | `BUSINESS_DB_PASSWORD` |
 | business MCP 조회 | `negopilot_business` | `negopilot_business_reader` | `BUSINESS_READER_PASSWORD` |
+| mail MCP 수신자 조회 | `negopilot_business` | `negopilot_mail_reader` | `MAIL_READER_PASSWORD` |
 
 `POSTGRES_DB=postgres`를 사용한다. 초기화 스크립트에는 비밀번호를 저장하지 않는다. psql은 환경 변수 값을 SQL 문자열로 인용해서 역할을 만든다.
 
-최초 named volume 생성 시 공식 PostgreSQL entrypoint가 `10-init.sh`를 실행한다. DB가 이미 존재하면 스크립트는 거절한다. business 스키마도 별도로 비어 있는지 검사한다. seed와 관리자 migration은 한 트랜잭션에서 적용한다. app DB의 테이블은 Spring Flyway가 만든다.
+최초 named volume 생성 시 공식 PostgreSQL entrypoint가 `10-init.sh`를 실행한다. DB가 이미 존재하면 스크립트는 거절한다. business 스키마도 별도로 비어 있는지 검사한다. seed와 관리자 migration(V1), 협력사 담당자 migration(V2)과 로컬 시연 담당자(`supplier-contacts-demo.sql`, 예약 도메인 `example.test`)는 한 트랜잭션에서 적용한다. app DB의 테이블은 Spring Flyway가 만든다.
 
 이미지 빌드 단계는 기존 `mcp-servers/business-mcp/scripts/seed.py`의 SQL 실행 요청을 캡처한다. 저장소의 DART CSV 스냅샷과 기존 난수 seed를 그대로 사용한다. 외부 DART API와 DB에는 접속하지 않는다. 원본 CSV도 다시 쓰지 않는다. 기존 `schema.sql`에 삭제 구문이 있으므로 생성된 SQL을 기존 DB에 수동으로 적용하면 안 된다. 이 이미지의 빈 DB 초기화 hook에서만 사용한다.
 
-business MCP reader는 업무 테이블 8개와 `supplier_overview`의 `SELECT` 권한만 받는다. app DB에는 접속할 수 없다. 관리자 감사 테이블과 sequence의 권한도 받지 않는다. Spring의 business owner 연결은 별도 계정을 사용한다.
+business MCP reader는 업무 테이블 8개와 `supplier_overview`의 `SELECT` 권한만 받는다. 협력사 담당자 이메일(`supplier_contacts`)은 받지 않는다. 모델이 보는 도구 결과에 개인 연락처가 섞이지 않게 하기 위해서다. mail MCP reader는 `suppliers`와 `supplier_contacts`의 `SELECT` 권한만 받는다. app DB에는 접속할 수 없다. 관리자 감사 테이블과 sequence의 권한도 받지 않는다. Spring의 business owner 연결은 별도 계정을 사용한다.
 
 초기화가 모두 성공한 뒤 `postgres.public.negopilot_local_init`에 `business-seed-v1` marker를 기록한다. 이미지의 healthcheck는 TCP 연결로 이 marker를 확인한다. 초기화 중 사용하는 socket 전용 서버를 준비 완료로 처리하지 않는다.
 
