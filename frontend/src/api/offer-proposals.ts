@@ -216,7 +216,7 @@ const live = {
     // check_offer가 조건 자체를 거절했거나(공급자·RFQ 없음, 값 범위) 서버 판정이 생성 불가면 화면도 반려로 둔다
     const blocked = row.check_error_code
       ? `조건을 검사하지 못했습니다 (${row.check_error_code}). 공급자 ID·RFQ ID·값 범위를 확인해 주세요.`
-      : stored.eligibility === 'blocked' ? '법규 검토에서 협상안 생성이 막혔습니다. 조건을 확인해 주세요.' : null
+      : (row.eligibility ?? stored.eligibility) === 'blocked' ? '법규 검토에서 협상안 생성이 막혔습니다. 조건을 확인해 주세요.' : null
     if (blocked && !rows.some(r => r.verdict === 'rejected') && rows[0]) {
       rows[0] = { ...rows[0], verdict: 'rejected', reason: rows[0].reason ?? blocked }
     }
