@@ -365,6 +365,38 @@ async def test_disallowed_input_slot_is_dropped_without_retry():
     assert result.parallel_groups() == [["q1", "q2"]]
 
 
+@pytest.mark.parametrize("self_ref", [
+    {"depends_on": ["q2"]},                                                                  # 첫 시도 출력
+    {"inputs": [{"slot": "rfq_id", "from": "q2", "select": "top1"}], "depends_on": []},      # 재시도 출력
+    {"inputs": [{"slot": "rfq_id", "from": "q2", "select": "top1"},
+                {"slot": "rfq_id", "from": "q1", "select": "top1"}], "depends_on": ["q1", "q2"]},
+])
+async def test_self_reference_is_dropped_without_retry(self_ref):
+    """하위 질문이 자기 자신에 의존하면 재시도하지 않고 지운다. 다른 하위 질문에 대한 의존은 남는다 (#178)."""
+    data = fixture("08")
+    with_self = json.loads(json.dumps(data["expected"]))
+    q2 = with_self["sub_queries"][1]
+    if "inputs" in self_ref:
+        q2["inputs"] = self_ref["inputs"]
+        q2["depends_on"] = self_ref["depends_on"]
+    else:
+        q2["depends_on"] = q2["depends_on"] + self_ref["depends_on"]
+    fake = FakeClaude(message_json(json.dumps(with_self, ensure_ascii=False)))
+    result = await fake.decomposer().decompose(data["query"])
+    assert len(fake.requests) == 1
+    assert result.status == "ok"
+    assert "q2" not in result.sub_queries[1].depends_on
+    assert all(i.from_ != "q2" for i in result.sub_queries[1].inputs)
+
+
+def test_drop_self_references_leaves_other_output_alone():
+    from negopilot_agent.decomposition.decomposer import drop_self_references
+    chained = json.dumps(fixture("08")["expected"], ensure_ascii=False)
+    assert drop_self_references(chained) == chained                # 앞 질문에 대한 의존은 그대로
+    assert drop_self_references("not json") == "not json"          # 검증 단계가 오류로 처리
+    assert drop_self_references('{"status": "failed"}') == '{"status": "failed"}'
+
+
 def test_drop_disallowed_inputs_leaves_other_output_alone():
     from negopilot_agent.decomposition.decomposer import drop_disallowed_inputs
     allowed = json.dumps(fixture("08")["expected"], ensure_ascii=False)

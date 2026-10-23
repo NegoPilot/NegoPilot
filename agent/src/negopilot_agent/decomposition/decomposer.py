@@ -91,8 +91,8 @@ class QueryDecomposer:
             try:
                 # 스키마 형식은 모델 쪽 구조화 출력이 맞추고, 필드 사이 규칙은 여기서 검증한다
                 cleaned = drop_redundant_as_of(
-                    clean_entity_values(drop_disallowed_entities(drop_disallowed_inputs(
-                        normalize_select(fill_original_query(text, query))))),
+                    clean_entity_values(drop_disallowed_entities(drop_disallowed_inputs(drop_self_references(
+                        normalize_select(fill_original_query(text, query)))))),
                     today)
                 result = DecompositionResult.model_validate_json(cleaned)
             except ValidationError as err:
@@ -147,6 +147,36 @@ def normalize_select(text: str) -> str:
             log.info("%s의 select %r → %r", sq.get("id"), select, fixed)
             ref["select"] = fixed
             changed = True
+    return json.dumps(data, ensure_ascii=False) if changed else text
+
+
+def drop_self_references(text: str) -> str:
+    """하위 질문이 자기 자신을 가리키는 depends_on과 inputs를 검증 전에 지운다 (#178).
+
+    multi-hop 질문에서 모델이 q1의 depends_on에 q1을 넣는 경우가 있다. 자기 결과를 입력으로 받을 수는 없어서
+    뜻이 분명한 오류인데, 재시도하면 inputs.from만 남기는 다른 오류로 다시 실패해 분해가 통째로 failed가 된다.
+    지운 뒤 필요한 값이 비면 Routing이 missing_args로 처리한다. 다른 하위 질문을 가리키는 값은 그대로 둔다.
+    JSON이 아니거나 모양이 다르면 그대로 돌려줘 검증 오류로 처리되게 한다.
+    """
+    try:
+        data = json.loads(text)
+        sub_queries = data["sub_queries"]
+    except (ValueError, TypeError, KeyError):
+        return text
+    changed = False
+    for sq in sub_queries if isinstance(sub_queries, list) else []:
+        if not isinstance(sq, dict) or not isinstance(sq_id := sq.get("id"), str):
+            continue
+        if isinstance(deps := sq.get("depends_on"), list) and sq_id in deps:
+            sq["depends_on"] = [d for d in deps if d != sq_id]
+            changed = True
+            log.info("%s의 depends_on에서 자기 자신 제거", sq_id)
+        if isinstance(inputs := sq.get("inputs"), list):
+            kept = [i for i in inputs if not (isinstance(i, dict) and i.get("from") == sq_id)]
+            if len(kept) != len(inputs):
+                sq["inputs"] = kept
+                changed = True
+                log.info("%s의 inputs에서 자기 자신을 가리키는 값 제거", sq_id)
     return json.dumps(data, ensure_ascii=False) if changed else text
 
 
