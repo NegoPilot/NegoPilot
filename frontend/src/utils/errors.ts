@@ -33,6 +33,10 @@ const MESSAGES: Record<string, string> = {
   INVALID_STATUS_TRANSITION: '현재 상태에서는 처리할 수 없습니다. 목록을 새로 확인해 주세요.',
   MEMBER_NOT_ACTIVE: '활성 상태인 회원만 역할을 변경할 수 있습니다.',
   LAST_ADMIN_REQUIRED: '활성 관리자 계정이 최소 한 개 필요합니다.',
+  VERSION_CONFLICT: '다른 사람이 먼저 수정했습니다. 최신 내용을 다시 불러온 뒤 확인해 주세요.',
+  DATA_CONFLICT: '이미 다른 협력사가 쓰는 값입니다. DART 고유번호를 확인해 주세요.',
+  READ_ONLY_SOURCE: 'DART 공시 기업의 기본 정보는 수정할 수 없습니다.',
+  BUSINESS_DATA_UNAVAILABLE: '협력사 DB에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.',
 }
 
 export interface ErrorView {

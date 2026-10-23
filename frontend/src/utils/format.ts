@@ -36,6 +36,11 @@ export function formatCapacity(value: number | null | undefined): string {
   return value == null ? NO_DATA : `${integer.format(value)} EA/월`
 }
 
+/** 한국 날짜 기준 오늘 (YYYY-MM-DD) */
+export function todayIso(): string {
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(new Date())
+}
+
 /** "50,000" 같은 입력을 양의 정수로. 숫자가 아니면 null */
 export function parsePositiveInteger(raw: string): number | null {
   const cleaned = raw.replace(/[,\s]/g, '')

@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { RouterLink } from 'vue-router'
 
+import FormField from '@/components/form/FormField.vue'
+import PanelSection from '@/components/form/PanelSection.vue'
+import SavedNotice from '@/components/form/SavedNotice.vue'
 import { LEGALIZE_REPO, STORED_LAWS, lawVersionsAsOf } from '@/data/dataCatalog'
 import { downloadJson, useDataRequests } from '@/stores/dataRequests'
 import {
@@ -169,17 +171,9 @@ const downloadName = computed(() => `law-${(mode.value === 'legalize' ? fetchFor
     <p class="intro">
       law-mcp는 DB가 아니라 법령 원문 파일을 색인해 읽습니다. 새 법령은 legalize-kr(국가법령정보센터 원문)에서 받거나 같은 형식의 원문 파일을 올려 추가합니다.
     </p>
-    <p v-if="done" class="message" role="status">
-      {{ done }} <RouterLink :to="{ name: 'admin-data' }">등록 요청 목록 보기 →</RouterLink>
-    </p>
+    <SavedNotice v-if="done" :message="done" :to="{ name: 'admin-data' }" link-text="등록 요청 목록 보기 →" />
 
-    <section class="panel panel-pad" aria-labelledby="stored-h">
-      <div class="panel-title">
-        <div>
-          <h2 id="stored-h">저장된 법령 {{ STORED_LAWS.length }}개</h2>
-          <p class="sub">기준일 {{ today }} · 시행 예정 판이 있으면 오늘 기준 답변은 현재 시행 판으로 합니다.</p>
-        </div>
-      </div>
+    <PanelSection :title="`저장된 법령 ${STORED_LAWS.length}개`" :sub="`기준일 ${today} · 시행 예정 판이 있으면 오늘 기준 답변은 현재 시행 판으로 합니다.`">
       <div class="table-wrap">
         <table>
           <thead>
@@ -200,80 +194,60 @@ const downloadName = computed(() => `law-${(mode.value === 'legalize' ? fetchFor
           </tbody>
         </table>
       </div>
-    </section>
+    </PanelSection>
 
     <div class="layout">
-      <section class="panel panel-pad" aria-labelledby="add-h">
-        <div class="panel-title">
-          <div>
-            <h2 id="add-h">법령 추가</h2>
-            <p class="sub">새 법령을 받거나, 이미 있는 법령의 개정본 원문을 올립니다.</p>
-          </div>
-        </div>
+      <PanelSection title="법령 추가" sub="새 법령을 받거나, 이미 있는 법령의 개정본 원문을 올립니다.">
         <div class="tabs" role="tablist" aria-label="추가 방법">
           <button type="button" role="tab" class="tab" :class="{ on: mode === 'legalize' }" :aria-selected="mode === 'legalize'" @click="setMode('legalize')">legalize-kr에서 받기</button>
           <button type="button" role="tab" class="tab" :class="{ on: mode === 'upload' }" :aria-selected="mode === 'upload'" @click="setMode('upload')">원문 파일 올리기</button>
         </div>
 
         <form v-if="mode === 'legalize'" class="grid" novalidate @submit.prevent="submit">
-          <div class="field span2">
-            <label for="l-name">법령명 *</label>
+          <FormField id="l-name" label="법령명" required span="full" :error="err('name')">
             <input id="l-name" v-model="fetchForm.name" type="text" placeholder="예: 독점규제 및 공정거래에 관한 법률" :aria-invalid="!!err('name')" />
-            <span v-if="err('name')" class="field-error">{{ err('name') }}</span>
-          </div>
-          <div class="field">
-            <label for="l-kind">구분 *</label>
+          </FormField>
+          <FormField id="l-kind" label="구분" required>
             <select id="l-kind" v-model="fetchForm.kind">
               <option v-for="k in LAW_KINDS" :key="k" :value="k">{{ k }}</option>
             </select>
-          </div>
-          <div class="field">
-            <label for="l-key">법령 키 *</label>
+          </FormField>
+          <FormField id="l-key" label="법령 키" required :error="err('lawKey')" hint="Agent가 도구를 부를 때 쓰는 이름">
             <input id="l-key" v-model="fetchForm.lawKey" type="text" autocomplete="off" placeholder="예: fair_trade_act" :aria-invalid="!!err('lawKey')" />
-            <span v-if="err('lawKey')" class="field-error">{{ err('lawKey') }}</span>
-            <span v-else class="hint">Agent가 도구를 부를 때 쓰는 이름</span>
-          </div>
-          <div class="field span2">
-            <label for="l-alias">별칭</label>
+          </FormField>
+          <FormField id="l-alias" label="별칭" span="full" :error="err('aliases')" hint="질문에 '공정거래법'처럼 써도 이 법령을 찾습니다. 법령명은 자동으로 들어갑니다.">
             <input id="l-alias" v-model="fetchForm.aliases" type="text" placeholder="쉼표로 구분 (예: 공정거래법)" :aria-invalid="!!err('aliases')" />
-            <span v-if="err('aliases')" class="field-error">{{ err('aliases') }}</span>
-            <span v-else class="hint">질문에 '공정거래법'처럼 써도 이 법령을 찾습니다. 법령명은 자동으로 들어갑니다.</span>
-          </div>
-          <div class="field span2">
-            <label for="l-path">legalize-kr 경로 *</label>
+          </FormField>
+          <FormField id="l-path" label="legalize-kr 경로" required span="full" :error="err('path')">
             <input id="l-path" v-model="fetchForm.path" type="text" placeholder="kr/법령명/법률.md" :aria-invalid="!!err('path')" @input="pathEdited = true" />
-            <span v-if="err('path')" class="field-error">{{ err('path') }}</span>
-            <span v-else class="hint">법령명과 구분으로 채웠습니다. <a :href="LEGALIZE_REPO" target="_blank" rel="noopener noreferrer">저장소에서 확인 ↗</a></span>
-          </div>
-          <div class="field">
-            <label for="l-ver">받을 개정본 수</label>
+            <template #hint>법령명과 구분으로 채웠습니다. <a :href="LEGALIZE_REPO" target="_blank" rel="noopener noreferrer">저장소에서 확인 ↗</a></template>
+          </FormField>
+          <FormField id="l-ver" label="받을 개정본 수" :error="err('versions')" hint="시행 예정 판까지 포함해 최근 순">
             <input id="l-ver" v-model="fetchForm.versions" type="text" inputmode="numeric" maxlength="2" :aria-invalid="!!err('versions')" />
-            <span v-if="err('versions')" class="field-error">{{ err('versions') }}</span>
-            <span v-else class="hint">시행 예정 판까지 포함해 최근 순</span>
-          </div>
+          </FormField>
         </form>
 
         <form v-else class="grid" novalidate @submit.prevent="submit">
-          <div class="field">
-            <label for="u-key">법령 *</label>
+          <FormField id="u-key" label="법령" required :error="err('lawKey')">
             <select id="u-key" v-model="uploadForm.lawKey" :aria-invalid="!!err('lawKey')">
               <option value="">선택</option>
               <option v-for="l in STORED_LAWS" :key="l.key" :value="l.key">{{ l.alias }} ({{ l.key }}) 개정본</option>
               <option value="__new">새 법령</option>
             </select>
-            <span v-if="err('lawKey')" class="field-error">{{ err('lawKey') }}</span>
-          </div>
-          <div v-if="uploadForm.lawKey === '__new'" class="field">
-            <label for="u-newkey">새 법령 키 *</label>
+          </FormField>
+          <FormField v-if="uploadForm.lawKey === '__new'" id="u-newkey" label="새 법령 키" required :error="err('newKey')">
             <input id="u-newkey" v-model="uploadForm.newKey" type="text" autocomplete="off" placeholder="예: fair_trade_act" :aria-invalid="!!err('newKey')" />
-            <span v-if="err('newKey')" class="field-error">{{ err('newKey') }}</span>
-          </div>
-          <div class="field span2">
-            <label for="u-file">원문 파일 (.md) *</label>
+          </FormField>
+          <FormField
+            id="u-file"
+            label="원문 파일 (.md)"
+            required
+            span="full"
+            :error="err('file')"
+            hint="legalize-kr과 같은 형식: frontmatter(제목, 공포일자, 시행일자, 출처) + '##### 제N조 (제목)'"
+          >
             <input id="u-file" class="file" type="file" accept=".md,text/markdown" :aria-invalid="!!err('file')" @change="onFile" />
-            <span v-if="err('file')" class="field-error">{{ err('file') }}</span>
-            <span v-else class="hint">legalize-kr과 같은 형식: frontmatter(제목, 공포일자, 시행일자, 출처) + '##### 제N조 (제목)'</span>
-          </div>
+          </FormField>
 
           <div v-if="summary" class="info-box span2">
             <h3>원문 확인</h3>
@@ -294,7 +268,7 @@ const downloadName = computed(() => `law-${(mode.value === 'legalize' ? fetchFor
             </ul>
           </div>
         </form>
-      </section>
+      </PanelSection>
 
       <aside class="panel panel-pad side" aria-labelledby="apply-h">
         <h2 id="apply-h">반영 방법</h2>
@@ -327,14 +301,6 @@ const downloadName = computed(() => `law-${(mode.value === 'legalize' ? fetchFor
   font-size: 12px;
   color: var(--text-2);
 }
-.message {
-  margin: 0;
-  padding: 10px 14px;
-  font-size: 12px;
-  background: var(--primary-soft);
-  color: var(--primary);
-  border-radius: var(--radius);
-}
 code {
   font-size: 12px;
 }
@@ -354,14 +320,6 @@ code {
 }
 .span2 {
   grid-column: 1 / -1;
-}
-.field > label {
-  font-weight: 600;
-  color: var(--text);
-}
-.hint {
-  font-size: 11px;
-  color: var(--text-3);
 }
 .file {
   font: inherit;
