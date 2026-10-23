@@ -55,6 +55,12 @@ const standalone = computed(() => route.meta.standalone === true)
         </svg>
         법규 검토
       </RouterLink>
+      <RouterLink to="/review/offer" class="nav-item" active-class="on">
+        <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M4 1.5h5.5L12.5 4.5v10h-8.5zM9.5 1.5v3h3M6 8h4.5M6 10.5h4.5" />
+        </svg>
+        협상안
+      </RouterLink>
       <div v-if="session" class="account">
         <span class="account-email" :title="session.email">{{ session.email }}</span>
         <RouterLink v-if="session.role === 'ADMIN'" :to="{ name: 'admin' }" class="btn account-btn">관리자 화면 →</RouterLink>

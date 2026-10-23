@@ -51,6 +51,13 @@ export const router = createRouter({
       meta: { title: '법규 검토' },
     },
     {
+      // 08-2: 엑셀 → 법규 검토(승인/반려) → 협상안 → 저장·발송. 서버 연결 전에는 예시 데이터로 동작한다
+      path: '/review/offer',
+      name: 'offer-proposal',
+      component: () => import('@/views/OfferProposalView.vue'),
+      meta: { title: '협상안' },
+    },
+    {
       // 새 탭에서 열리므로 URL만으로 대화를 다시 불러온다
       path: '/evidence/:conversationId/:responseId/:evidenceId',
       name: 'evidence-detail',
