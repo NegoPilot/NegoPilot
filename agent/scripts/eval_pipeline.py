@@ -4,6 +4,8 @@ uv run python scripts/eval_pipeline.py --set dev --limit 3 --repeat 3
 uv run python scripts/eval_pipeline.py --set validation --no-judge
 uv run python scripts/eval_pipeline.py --set validation --cross-judge gpt-5.4-mini   # 같은 답변을 다른 모델로도 채점
 uv run python scripts/eval_pipeline.py --set validation --repeat 6 --compare eval_results/pipeline-<이전>.json
+NEGOPILOT_REVIEW_ROUNDS=0 uv run python scripts/eval_pipeline.py --set dev --repeat 3   # 검토 루프 끔 (전후 비교용)
+NEGOPILOT_REVIEW_CRITIC=1 uv run python scripts/eval_pipeline.py --set dev --repeat 3    # 모델 검토자 켬
 
 --repeat 2 이상이면 회차별 값과 표준편차·표준오차를 낸다. --compare는 지표 차이가 두 결과의 표준오차를
 합친 폭의 2배보다 작으면 "흔들림 범위"로 표시한다. 같은 세트·모델로 잰 결과끼리 비교한다.
@@ -42,7 +44,10 @@ async def evaluate_case(graph, item, input_dir, judge_client=None, judge_model="
             state = await graph.ainvoke({"query": query})
             answer = state["answer"]
             routing = state.get("routing") or RouteResult(status="not_routed")
-            intents = [sq.intent for sq in state["decomposition"].sub_queries]
+            review = state.get("review")
+            # 검토 루프가 보충으로 붙인 하위 질문은 분해 결과가 아니므로 intent 비교에서 뺀다
+            added = {qid for r in (review.rounds if review else []) for a in r.actions for qid in a.detail.get("added", [])}
+            intents = [sq.intent for sq in state["decomposition"].sub_queries if sq.id not in added]
             expected = [sq.intent for sq in expected_decomposition.sub_queries]
             # 분해 intent가 정답 분해와 같은지, 근거가 필요한 답변에 근거 표시가 붙었는지 (#110)
             row.update(intents=intents, expected_intents=expected, intent_match=intents == expected,
@@ -60,6 +65,8 @@ async def evaluate_case(graph, item, input_dir, judge_client=None, judge_model="
             verification = answer.verification
             row.update(retried=bool(verification and verification.attempts > 1),
                        masked=bool(verification and verification.masked))
+            row["review"] = [{"kind": a.kind, "resolved": a.resolved, "detail": a.detail}
+                             for r in review.rounds for a in r.actions] if review else []
         except Exception as error:
             row.update(error=f"{type(error).__name__}: {error}"[:300], kind_ok=False)
     # 실패·재시도에 사용한 토큰도 분모에서 빠지지 않게 보존한다.
@@ -177,6 +184,8 @@ def summarize(rows):
         "tool_errors": sum(row.get("tool_errors", 0) for row in rows),
         "retried": sum(row.get("retried", False) for row in rows),
         "masked": sum(row.get("masked", False) for row in rows),
+        "review_triggered": sum(bool(row.get("review")) for row in rows),
+        "review_resolved": sum(any(a["resolved"] for a in row.get("review", [])) for row in rows),
         **quality(rows),
         "judge_errors": sum(row.get("judge_status") == "error" for row in rows),
         "unsupported_claims": sum(len(row.get("unsupported_claims", [])) for row in rows),
@@ -217,6 +226,8 @@ def report(metadata, summary, rows, base=None, base_path=None):
              f"{len(by_case(rows))}문항 × {metadata['repeat']}회",
              f"- 분해 {metadata['decomposer']['model']} · 생성 {metadata['generator']['model']} · "
              f"채점 {metadata['judge_model'] or '없음'}",
+             f"- 검토 루프 {metadata.get('review', {}).get('rounds', 0)}회 · "
+             f"모델 검토자 {'켬' if metadata.get('review', {}).get('critic') else '끔'}",
              "",
              "| 지표 | 값 |", "| --- | --- |",
              f"| 정답 포인트 커버 | {pct(summary['point_coverage'])} "
@@ -227,6 +238,8 @@ def report(metadata, summary, rows, base=None, base_path=None):
              f"| 근거 없는 주장 (답변당 평균) | "
              f"{summary['unsupported_claims'] / answers:.2f}개 |" if answers else "| 근거 없는 주장 | - |",
              f"| 재생성 / [확인 필요]로 가림 | {summary['retried']} / {summary['masked']} |",
+             f"| 검토 루프 보강 시도 / 성공 (문항·회차) | {summary.get('review_triggered', 0)} / "
+             f"{summary.get('review_resolved', 0)} |",
              f"| 실행 오류 / 도구 오류 / 채점 오류 | {summary['execution_errors']} / {summary['tool_errors']} / "
              f"{summary['judge_errors']} |"]
     if total:
@@ -280,6 +293,8 @@ async def main():
     from negopilot_agent.graph import build_graph
     from negopilot_agent.decomposition import DecomposerSettings
     from negopilot_agent.generation import GeneratorSettings
+    from negopilot_agent.review import critic_enabled
+    from negopilot_agent.review.reviewer import configured_rounds
     import openai
 
     gold, input_dir = SETS[args.set]
@@ -299,6 +314,7 @@ async def main():
     metadata = {"revision": revision, "dirty": dirty, "set": args.set, "repeat": args.repeat,
                 "decomposer": {"backend": d.backend, "model": d.model},
                 "generator": {"backend": g.backend, "model": g.model},
+                "review": {"rounds": configured_rounds(), "critic": configured_rounds() > 0 and critic_enabled()},
                 "judge_model": None if args.no_judge else args.judge_model,
                 "cross_judge": None if args.no_judge else args.cross_judge}
     print(f"{args.set}: {len(items)}개 × {args.repeat}회. 모델·채점 API 비용이 발생합니다.", flush=True)

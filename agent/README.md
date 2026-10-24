@@ -1,9 +1,11 @@
 # agent
 
-NegoPilot의 LangGraph Agent입니다. **쿼리 분해**, **Routing**, **Generation** 노드와 세 노드를 잇는 그래프가 들어 있습니다.
+NegoPilot의 LangGraph Agent입니다. **쿼리 분해**, **Routing**, **Generation**, **검토** 노드와 이를 잇는 그래프가 들어 있습니다.
 
 ```
-[사용자 질문] → decompose_query → route → (MCP 병렬·순차 호출) → generate
+[사용자 질문] → decompose_query → route → (MCP 병렬·순차 호출) → generate → review ─(보강할 것 없음)→ 끝
+                                                                    ↑               │
+                                                                    └── research ←──┘ (근거 보강, 최대 NEGOPILOT_REVIEW_ROUNDS회)
 ```
 
 ## 전체 그래프 (`negopilot_agent.graph`)
@@ -18,11 +20,30 @@ state["answer"]                                       # Answer (kind, text, cita
 
 | 동작 | 내용 |
 | --- | --- |
-| 상태 | `query`, `history` → `decomposition` → `routing` → `answer` ([`graph.py`](src/negopilot_agent/graph.py)의 `AgentState`) |
+| 상태 | `query`, `history` → `decomposition` → `routing` → `answer` → `review` ([`graph.py`](src/negopilot_agent/graph.py)의 `AgentState`) |
 | 분기 | 분해가 `clarify`·`failed`면 `route`를 건너뛰고 `generate`로 간다 (되묻기·실패 안내) |
+| 검토 루프 | `review`가 답과 도구 결과를 보고 보강할 거리가 있으면 `research`가 도구를 더 부른 뒤 `generate`로 돌아간다 (아래 검토 루프) |
 | 부품 교체 | `build_graph(decomposer=..., caller=..., generator=...)`. 테스트는 가짜 분해·가짜 MCP·가짜 생성으로 세 단계를 한 번에 돈다 ([`tests/test_graph.py`](tests/test_graph.py)) |
 
 질문 하나를 처음부터 끝까지 돌려 보려면 MCP 서버 두 개를 띄우고 `scripts/ask.py`를 씁니다 (아래 실행).
+
+## 검토 루프 (`negopilot_agent.review`)
+
+답을 만든 뒤 한 번 더 보고, 근거를 더 찾으면 나아지는 경우에만 도구를 더 불러 답을 다시 씁니다.
+먼저 규칙으로 정해진 실패(도구 오류, 검색 0건)를 보고, 규칙에 걸린 것이 없고 답이 나왔으면 모델 검토자가 빠진 부분을 봅니다.
+보강할 것이 없으면 모델·도구 호출이 늘지 않습니다 (모델 검토자는 기본 꺼짐).
+
+| 보강 | 판단 | 언제 | 무엇을 |
+| --- | --- | --- | --- |
+| `retry_error` | 규칙 | 도구 호출이 일시 오류로 실패 (공개 오류 코드가 붙은 입력 오류는 제외) | 그 하위 질문과, 그 결과가 없어 건너뛴 뒤 질문을 다시 실행. 다시 해도 실패면 답을 다시 쓰지 않는다 |
+| `relax` | 규칙 | 협력사 검색(`supplier_search`)이 0건 | 지역이 있으면 맞닿은 시·도에서 먼저 찾는다. 그래도 없으면 지역 → 최소 월 생산능력 → IATF 인증 순으로 조건을 하나씩 뺀다. 공정·소재는 빼지 않는다. 바꾼 조건은 분해 `assumptions`에 적어 답 끝에 "가정:"으로 밝힌다 |
+| `follow_up` | 모델 ([`critic.py`](src/negopilot_agent/review/critic.py)) | 사용자가 물었는데 답이 다루지 않은 부분, 또는 판단에 꼭 필요한 법적 조건이 근거에 없어 빠짐 (예: 단가 인상 요청인데 하도급대금 조정 규정 없음) | 검토자가 낸 보충 질문(최대 2개)을 기존 분해기로 하위 질문으로 바꿔 뒤에 붙이고 새 하위 질문만 실행. 근거가 생기면 다시 생성. 검토자는 도구 인자를 직접 만들지 않아 분해 계약 검증을 그대로 거친다 |
+
+- 모델 검토자: `NEGOPILOT_REVIEW_CRITIC` (기본 `0` = 규칙 검토만, `1`이면 켬. 2026-10-24 정답 세트 평가에서 커버 개선이 흔들림 범위 안이고 비용 +74%, 시간 +3초라 기본 끔), 모델 `NEGOPILOT_CRITIC_MODEL` (기본 `gpt-4.1-mini`). 검토자가 실패하면(형식 오류, 모델 오류) 보충 없이 원래 답을 둔다. 스텁 모드 API와 테스트에서는 꺼진다
+- 효과 측정: `NEGOPILOT_REVIEW_ROUNDS=0`과 기본값으로 `scripts/eval_pipeline.py`를 같은 세트·회차로 돌려 정답 포인트 커버를 비교한다 (`--compare`, `--cross-judge`). 보강이 걸리는 질문만 보려면 `scripts/eval_review_loop.py`
+- 라운드 수: `build_graph(review_rounds=...)` 또는 `NEGOPILOT_REVIEW_ROUNDS` (기본 1). `0`이면 보강하지 않아 예전 일직선 그래프와 같은 결과다
+- 기록: `state["review"]`(`ReviewLog`)에 라운드별 보강과 결과(`resolved`)가 남는다. LangSmith 트레이스에서는 `review`·`research` 노드로 보인다
+- 테스트: [`tests/test_review_loop.py`](tests/test_review_loop.py)
 
 ## 쿼리 분해 (`negopilot_agent.decomposition`)
 

@@ -10,3 +10,9 @@ def no_langsmith_tracing(monkeypatch):
     monkeypatch.setenv("LANGCHAIN_TRACING_V2", "false")
     monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
     monkeypatch.delenv("LANGCHAIN_API_KEY", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def no_model_critic(monkeypatch):
+    """검토 루프의 모델 검토자는 실제 모델을 부르므로 테스트에서는 끈다. 검토자 테스트는 가짜 백엔드를 직접 넣는다."""
+    monkeypatch.setenv("NEGOPILOT_REVIEW_CRITIC", "0")
