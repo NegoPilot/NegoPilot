@@ -1,9 +1,9 @@
 """검토 루프 테스트: generate → review → research → generate.
 
-모델과 MCP 서버 없이 가짜 분해·도구·생성으로 세 가지 보강을 확인한다.
-- relax: 협력사 검색 0건 → 지역 등 조건을 빼고 다시 검색, 뺀 조건은 "가정:"으로 밝힘
+모델과 MCP 서버 없이 가짜 분해·도구·생성·검토자로 세 가지 보강을 확인한다.
+- relax: 협력사 검색 0건 → 인접 지역에서 찾고, 없으면 지역 등 조건을 빼고 다시 검색. 바꾼 조건은 "가정:"으로 밝힘
 - retry_error: 일시 오류로 실패한 도구 호출을 다시 실행 (공개 오류 코드가 붙은 입력 오류는 제외)
-- fetch_article: 답이 근거에 없는 조문을 써서 가려지면 그 조문을 가져와 다시 생성
+- follow_up: 모델 검토자가 답에서 빠진 부분을 보충 질문으로 내면, 분해해 하위 질문을 붙이고 실행한 뒤 다시 생성
 
     uv run python -m pytest -q tests/test_review_loop.py
 """
@@ -18,8 +18,9 @@ from negopilot_shared import DecompositionResult, RouteResult
 from negopilot_agent.decomposition import QueryDecomposer
 from negopilot_agent.generation import AnswerGenerator
 from negopilot_agent.graph import build_graph
-from negopilot_agent.review import ReviewLog, plan
-from negopilot_agent.review.reviewer import guess_law
+from negopilot_agent.review import Critic, Critique, ReviewLog, follow_ups, plan
+from negopilot_agent.review.critic import build_user_message
+from negopilot_agent.review.reviewer import _region_abbr
 from negopilot_agent.routing import Router
 
 from negopilot_agent.api import generation_stubs
@@ -31,14 +32,6 @@ from tests.test_generation_http_contract import (API_KEY, assert_wire, no_extern
 
 ROWS = [{"supplier_id": "SUP-0060", "name": "가상 프레스", "region": "경남", "process": "프레스"},
         {"supplier_id": "SUP-0052", "name": "가상 금형", "region": "울산", "process": "프레스"}]
-ARTICLE_13 = {
-    "law_key": "subcontract_act", "law_name": "하도급거래 공정화에 관한 법률", "article_no": "제13조",
-    "title": "하도급대금의 지급 등", "chapter": None, "deleted": False,
-    "paragraphs": [{"no": "①", "text": "원사업자는 목적물등의 수령일부터 60일 이내의 가능한 짧은 기한으로 정한 지급기일까지 하도급대금을 지급하여야 한다."}],
-    "citation": "「하도급거래 공정화에 관한 법률」 제13조(하도급대금의 지급 등) [시행 2026-10-02]",
-    "effective_date": "2026-10-02", "as_of": "2026-10-23",
-    "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률", "upcoming_changes": [],
-}
 SUPPLIER = {"supplier_id": "SUP-0060", "name": "가상 프레스", "region": "경남", "payment_days": 60}
 
 
@@ -84,26 +77,37 @@ class CiteAll:
         return json.dumps({"answer": f"확인한 협력사입니다. [{', '.join(ids)}]", "used_evidence": ids})
 
 
-class SaysArticle13:
-    """근거에 제13조가 없으면 기억으로 '하도급법 제13조'를 쓴다 (가려짐). 근거에 생기면 그것을 인용한다."""
+class Sequence:
+    """분해 백엔드: 부를 때마다 다음 분해 결과를 돌려준다 (원래 질문, 보충 질문 순)."""
 
-    def __init__(self):
-        self.prompts: list[str] = []
+    def __init__(self, *results: dict):
+        self.texts = [json.dumps(r, ensure_ascii=False) for r in results]
+        self.users: list[str] = []
 
     async def generate(self, system: str, user: str) -> str:
-        self.prompts.append(user)
-        article = re.search(r'<e id="(E\d+)"[^>]*citable="yes" label="[^"]*제13조', user)
-        first = re.search(r'<e id="(E\d+)"[^>]*citable="yes"', user).group(1)
-        if article:
-            eid = article.group(1)
-            return json.dumps({"answer": f"결제 기한은 하도급법 제13조를 따릅니다. [{eid}]", "used_evidence": [eid]})
-        return json.dumps({"answer": f"이 협력사의 결제 조건입니다. [{first}] 결제 기한은 하도급법 제13조를 따릅니다.",
-                           "used_evidence": [first]})
+        self.users.append(user)
+        return self.texts[min(len(self.users), len(self.texts)) - 1]
 
 
-def app_for(dec: dict, caller: Caller, generator_backend, rounds: int | None = 1):
-    return build_graph(decomposer=QueryDecomposer(backend=Fixed(dec)), caller=caller,
-                       generator=AnswerGenerator(backend=generator_backend), review_rounds=rounds)
+class CriticSays:
+    """검토자 백엔드: 정해 둔 판단을 돌려주고 받은 입력을 기록한다."""
+
+    def __init__(self, *missing: tuple[str, str], text: str | None = None):
+        self.text = text if text is not None else json.dumps(
+            {"complete": not missing, "missing": [{"aspect": a, "question": q} for a, q in missing]},
+            ensure_ascii=False)
+        self.users: list[str] = []
+
+    async def generate(self, system: str, user: str) -> str | None:
+        self.users.append(user)
+        return self.text
+
+
+def app_for(dec: dict, caller: Caller, generator_backend, rounds: int | None = 1, critic=False, follow=None):
+    backend = Sequence(dec, follow) if follow else Fixed(dec)
+    return build_graph(decomposer=QueryDecomposer(backend=backend), caller=caller,
+                       generator=AnswerGenerator(backend=generator_backend), review_rounds=rounds,
+                       critic=Critic(backend=critic) if critic else False)
 
 
 # ---------- relax ----------
@@ -112,13 +116,43 @@ def search_by_region(args, _n):
     return [] if "region" in args else ROWS
 
 
+async def test_empty_region_is_widened_to_adjacent_regions_first():
+    def busan_only(args, _n):
+        return ROWS[:1] if args.get("region") == "부산" else []
+
+    caller = Caller(search_suppliers=busan_only)
+    backend = CiteAll()
+    dec = decomposition(sub(entities={"process": "프레스", "region": "제주"}))
+    state = await app_for(dec, caller, backend).ainvoke({"query": dec["original_query"]})
+
+    # 제주와 뱃길이 가까운 전남·부산을 찾아본다. 조건을 빼지는 않는다
+    assert [args.get("region") for _, args in caller.calls] == ["제주", "전남", "부산"]
+    answer = state["answer"]
+    assert answer.kind == "answer" and answer.citations
+    assert any("제주에 없어 인접 지역(부산)에서 찾았습니다" in n for n in answer.notices)
+    # 분해에는 사용자가 말한 지역이 그대로 남고, 결과에는 부산 검색이 들어간다
+    assert state["decomposition"].sub_queries[0].entities.region == "제주"
+    assert [c.args["region"] for c in state["routing"].outcomes[0].calls] == ["부산"]
+    action = state["review"].rounds[0].actions[0]
+    assert (action.kind, action.resolved, action.detail["nearby"]) == ("relax", True, ["부산"])
+
+
+@pytest.mark.parametrize("name,abbr", [("제주특별자치도", "제주"), ("경상남도", "경남"), ("부산광역시", "부산"),
+                                       ("충청북도", "충북"), ("경기도", "경기"), ("서울", "서울")])
+def test_region_names_map_to_business_abbreviations(name, abbr):
+    assert _region_abbr(name) == abbr
+
+
 async def test_empty_search_is_relaxed_and_the_dropped_condition_is_disclosed():
     caller = Caller(search_suppliers=search_by_region)
     backend = CiteAll()
     dec = decomposition(sub(entities={"process": "프레스", "region": "제주"}))
     state = await app_for(dec, caller, backend).ainvoke({"query": dec["original_query"]})
 
-    assert [args for _, args in caller.calls] == [{"process": "프레스", "region": "제주"}, {"process": "프레스"}]
+    # 인접 지역(전남, 부산)에도 없으면 지역 조건을 뺀다
+    assert [args for _, args in caller.calls] == [
+        {"process": "프레스", "region": "제주"}, {"process": "프레스", "region": "전남"},
+        {"process": "프레스", "region": "부산"}, {"process": "프레스"}]
     answer = state["answer"]
     assert answer.kind == "answer" and answer.citations and answer.verification.ok
     assert any("지역(제주) 조건을 빼고 다시 찾았습니다" in n for n in answer.notices)
@@ -142,6 +176,8 @@ async def test_conditions_are_dropped_one_by_one_until_results_appear():
 
     assert [args for _, args in caller.calls] == [
         {"process": "프레스", "region": "제주", "min_monthly_capacity": 50000},
+        {"process": "프레스", "region": "전남", "min_monthly_capacity": 50000},
+        {"process": "프레스", "region": "부산", "min_monthly_capacity": 50000},
         {"process": "프레스", "min_monthly_capacity": 50000},
         {"process": "프레스"},
     ]
@@ -237,57 +273,131 @@ async def test_retry_also_runs_dependents_that_were_skipped():
     assert state["answer"].kind == "answer"
 
 
-# ---------- fetch_article ----------
+# ---------- follow_up (모델 검토자) ----------
 
-async def test_ungrounded_article_is_fetched_and_the_answer_rewritten():
-    caller = Caller(get_supplier=lambda args, n: SUPPLIER, get_article=lambda args, n: ARTICLE_13)
-    backend = SaysArticle13()
-    dec = decomposition(sub(intent="supplier_detail", entities={"supplier": "SUP-0060"}), query="SUP-0060 결제 조건 알려줘")
-    state = await app_for(dec, caller, backend).ainvoke({"query": dec["original_query"]})
+LAW_HITS = [{"law_key": "subcontract_act", "article_no": "제16조의2", "type": "조문",
+             "citation": "하도급법 제16조의2①", "title": "공급원가 변동에 따른 하도급대금의 조정",
+             "text": "원사업자는 공급원가가 변동되는 경우 하도급대금을 조정하여야 한다."}]
+ARTICLE_16_2 = {
+    "law_key": "subcontract_act", "law_name": "하도급거래 공정화에 관한 법률", "article_no": "제16조의2",
+    "title": "공급원가 변동에 따른 하도급대금의 조정", "chapter": None, "deleted": False,
+    "paragraphs": [{"no": "①", "text": "원사업자는 공급원가가 변동되는 경우 하도급대금을 조정하여야 한다."}],
+    "citation": "「하도급거래 공정화에 관한 법률」 제16조의2", "effective_date": "2026-10-02", "as_of": "2026-10-23",
+    "source_url": "https://www.law.go.kr/법령/하도급거래공정화에관한법률", "upcoming_changes": [],
+}
+LAW_TOOLS = {"search_regulation": lambda args, n: LAW_HITS, "get_article": lambda args, n: ARTICLE_16_2}
 
-    assert ("get_article", {"law": "subcontract_act", "article_no": "제13조"}) in caller.calls
-    answer = state["answer"]
-    assert answer.verification.ok and not answer.verification.masked
-    assert "[확인 필요]" not in answer.text and "제13조" in answer.text
-    assert any("제13조" in c.label for c in answer.citations)
-    # 처음 생성(재시도 포함 2회) + 보강 뒤 1회
-    assert len(backend.prompts) == 3
+
+def price_question() -> dict:
+    return decomposition(sub(intent="supplier_detail", entities={"supplier": "SUP-0060"},
+                             question="SUP-0060 정보", original_text="SUP-0060"),
+                         query="SUP-0060이 원자재 값이 올라 단가를 8% 올려 달래. 받아 줘야 해?")
+
+
+def law_follow_up() -> dict:
+    return decomposition(sub(intent="law_check", entities={},
+                             question="원자재 가격 변동에 따른 하도급대금 조정 요건", original_text="연동 약정"),
+                         query="원자재 가격이 오를 때 하도급대금 조정 요건은?")
+
+
+async def test_critic_follow_up_adds_a_sub_query_and_rewrites_the_answer():
+    caller = Caller(get_supplier=lambda args, n: SUPPLIER, **LAW_TOOLS)
+    backend = CiteAll()
+    critic = CriticSays(("단가 인상 요청인데 하도급대금 조정 규정을 다루지 않음",
+                         "원자재 가격이 오를 때 하도급대금 조정 요건은?"))
+    dec = price_question()
+    state = await app_for(dec, caller, backend, critic=critic, follow=law_follow_up()).ainvoke(
+        {"query": dec["original_query"]})
+
+    subs = state["decomposition"].sub_queries
+    assert [(s.id, s.intent) for s in subs] == [("q1", "supplier_detail"), ("q2", "law_check")]
+    assert state["decomposition"].original_query == dec["original_query"]   # 원래 질문은 그대로
+    # 기존 결과(get_supplier)는 다시 부르지 않고 새 하위 질문의 법령 도구만 부른다
+    assert [t for t, _ in caller.calls] == ["get_supplier", "search_regulation", "get_article"]
+    assert [o.status for o in state["routing"].outcomes] == ["ok", "ok"]
+    assert len(backend.prompts) == 2 and "제16조의2" in backend.prompts[1]
     action = state["review"].rounds[0].actions[0]
-    assert (action.kind, action.resolved, action.detail) == (
-        "fetch_article", True, {"law": "subcontract_act", "article_no": "제13조"})
+    assert (action.kind, action.resolved, action.detail["added"]) == ("follow_up", True, ["q2"])
+    assert state["review"].rounds[0].regenerated
+    # 검토자는 질문·하위 질문·근거·답을 본다
+    assert "<question>SUP-0060이 원자재 값이" in critic.users[0] and "supplier_detail" in critic.users[0]
 
 
-async def test_unknown_article_keeps_the_masked_answer_without_regenerating():
-    def no_article(args, n):
-        raise ValueError("없는 조문")
+async def test_complete_answer_is_left_alone():
+    caller = Caller(get_supplier=lambda args, n: SUPPLIER)
+    backend = CiteAll()
+    critic = CriticSays()
+    dec = price_question()
+    state = await app_for(dec, caller, backend, critic=critic).ainvoke({"query": dec["original_query"]})
 
-    caller = Caller(get_supplier=lambda args, n: SUPPLIER, get_article=no_article)
-    backend = SaysArticle13()
-    dec = decomposition(sub(intent="supplier_detail", entities={"supplier": "SUP-0060"}), query="SUP-0060 결제 조건 알려줘")
-    state = await app_for(dec, caller, backend).ainvoke({"query": dec["original_query"]})
-
-    assert state["answer"].verification.masked and "[확인 필요]" in state["answer"].text
-    assert len(backend.prompts) == 2
-    assert state["review"].rounds[0].regenerated is False
+    assert len(critic.users) == 1 and len(backend.prompts) == 1
+    assert state["review"].rounds == [] and len(caller.calls) == 1
 
 
-def law_routing(*laws: str) -> RouteResult:
-    return RouteResult.model_validate({"status": "routed", "outcomes": [
-        {"id": "q1", "intent": "law_check", "status": "ok", "calls": [
-            {"server": "law-mcp", "tool": "search_regulation", "args": {"query": "x"},
-             "result": [{"law_key": law, "article_no": "제1조", "type": "조문"} for law in laws]}]}]})
+@pytest.mark.parametrize("text", ["이건 JSON이 아님", '{"complete": false}', ""])
+async def test_broken_critic_output_keeps_the_answer(text):
+    caller = Caller(get_supplier=lambda args, n: SUPPLIER)
+    backend = CiteAll()
+    dec = price_question()
+    state = await app_for(dec, caller, backend, critic=CriticSays(text=text)).ainvoke({"query": dec["original_query"]})
+
+    assert state["answer"].kind == "answer" and state["review"].rounds == [] and len(backend.prompts) == 1
 
 
-@pytest.mark.parametrize("text,laws,expected", [
-    ("상생협력법 [확인 필요]에 따라", ("subcontract_act",), "winwin_act"),         # 가린 자리 앞 이름이 먼저
-    ("하도급법 시행령 [확인 필요]", (), "subcontract_decree"),
-    ("관련 조문 [확인 필요]", ("winwin_act",), "winwin_act"),                       # 근거의 법령
-    ("관련 조문 [확인 필요]", (), "subcontract_act"),                                # 단서가 없으면 하도급법
-    ("관련 조문 [확인 필요]", ("winwin_act", "subcontract_act"), None),              # 모르면 가져오지 않는다
-    ("하도급법 [확인 필요], 상생협력법 [확인 필요]", (), None),
-])
-def test_law_of_masked_article(text, laws, expected):
-    assert guess_law(text, law_routing(*laws)) == expected
+async def test_follow_up_that_duplicates_an_existing_sub_query_is_not_added():
+    caller = Caller(get_supplier=lambda args, n: SUPPLIER)
+    backend = CiteAll()
+    dec = price_question()
+    critic = CriticSays(("협력사 정보가 부족함", "SUP-0060 정보 알려줘"))
+    state = await app_for(dec, caller, backend, critic=critic, follow=price_question()).ainvoke(
+        {"query": dec["original_query"]})
+
+    action = state["review"].rounds[0].actions[0]
+    assert (action.kind, action.resolved, action.detail["added"]) == ("follow_up", False, [])
+    assert len(caller.calls) == 1 and len(backend.prompts) == 1
+    assert len(state["decomposition"].sub_queries) == 1
+
+
+async def test_follow_up_that_finds_nothing_does_not_regenerate():
+    caller = Caller(get_supplier=lambda args, n: SUPPLIER, search_regulation=lambda args, n: [])
+    backend = CiteAll()
+    dec = price_question()
+    critic = CriticSays(("조정 규정 없음", "원자재 가격이 오를 때 하도급대금 조정 요건은?"))
+    state = await app_for(dec, caller, backend, critic=critic, follow=law_follow_up()).ainvoke(
+        {"query": dec["original_query"]})
+
+    assert state["review"].rounds[0].actions[0].resolved is False
+    assert not state["review"].rounds[0].regenerated and len(backend.prompts) == 1
+    assert len(state["decomposition"].sub_queries) == 1   # 바뀐 것이 없으면 분해도 그대로
+
+
+async def test_critic_runs_only_when_rules_found_nothing_and_there_is_an_answer():
+    critic = CriticSays(("x", "원자재 가격이 오를 때 하도급대금 조정 요건은?"))
+    caller = Caller(search_suppliers=lambda args, n: [])
+    dec = decomposition(sub(entities={"process": "프레스", "material": "SPCC"}))
+    state = await app_for(dec, caller, CiteAll(), critic=critic).ainvoke({"query": dec["original_query"]})
+    assert state["answer"].kind == "no_result" and critic.users == []
+
+
+def test_follow_ups_respect_the_sub_query_limit():
+    critique = Critique.model_validate({"complete": False, "missing": [{"aspect": "a", "question": "b"}]})
+    one = DecompositionResult.model_validate(decomposition(sub()))
+    five = DecompositionResult.model_validate(decomposition(*(sub(f"q{i}") for i in range(1, 6))))
+    assert [a.kind for a in follow_ups(critique, one)] == ["follow_up"]
+    assert follow_ups(critique, five) == []
+    assert follow_ups(Critique(complete=True, missing=[]), one) == []
+
+
+async def test_critic_caps_follow_ups_and_ignores_missing_when_complete():
+    many = json.dumps({"complete": False, "missing": [{"aspect": str(i), "question": f"질문 {i}"} for i in range(4)]})
+    dec = DecompositionResult.model_validate(price_question())
+    from negopilot_agent.generation.answer import Answer
+    answer = Answer(kind="answer", text="답")
+    got = await Critic(backend=CriticSays(text=many)).critique(dec, answer, {"q1": "ok"})
+    assert [m.question for m in got.missing] == ["질문 0", "질문 1"]
+    done = json.dumps({"complete": True, "missing": [{"aspect": "a", "question": "b"}]})
+    assert (await Critic(backend=CriticSays(text=done)).critique(dec, answer, {})).missing == []
+    assert "<answer>\n답" in build_user_message(dec, answer, {"q1": "ok"})
 
 
 # ---------- 루프 제어 ----------
@@ -302,27 +412,30 @@ async def test_zero_rounds_keeps_the_old_single_pass_graph():
     assert state["review"].rounds == [] and state["review"].pending == []
 
 
-async def test_rounds_are_capped(monkeypatch):
+async def test_rounds_are_capped():
     """보강해도 또 보강할 거리가 생기는 경우에도 라운드 수에서 멈춘다."""
     def flaky(args, n):
         if n == 1:
             raise ConnectionError("일시 오류")
         return SUPPLIER
 
-    caller = Caller(get_supplier=flaky, get_article=lambda args, n: ARTICLE_13)
-    backend = SaysArticle13()
-    dec = decomposition(sub(intent="supplier_detail", entities={"supplier": "SUP-0060"}), query="SUP-0060 결제 조건 알려줘")
-    state = await app_for(dec, caller, backend).ainvoke({"query": dec["original_query"]})
+    def make():
+        return (Caller(get_supplier=flaky, **LAW_TOOLS),
+                CriticSays(("조정 규정 없음", "원자재 가격이 오를 때 하도급대금 조정 요건은?")))
 
-    # 1회차 오류 재시도 뒤 새 답에서 조문이 가려져도, 라운드가 1이라 더 보강하지 않는다
-    assert len(state["review"].rounds) == 1
+    dec = price_question()
+    caller, critic = make()
+    state = await app_for(dec, caller, CiteAll(), critic=critic, follow=law_follow_up()).ainvoke(
+        {"query": dec["original_query"]})
+    # 1회차 오류 재시도 뒤 검토자가 빠진 부분을 찾아도, 라운드가 1이라 더 보강하지 않는다
+    assert len(state["review"].rounds) == 1 and critic.users == []
     assert [t for t, _ in caller.calls] == ["get_supplier", "get_supplier"]
-    assert state["answer"].verification.masked
 
-    caller = Caller(get_supplier=flaky, get_article=lambda args, n: ARTICLE_13)
-    state = await app_for(dec, caller, SaysArticle13(), rounds=2).ainvoke({"query": dec["original_query"]})
-    assert [r.actions[0].kind for r in state["review"].rounds] == ["retry_error", "fetch_article"]
-    assert state["answer"].verification.ok
+    caller, critic = make()
+    state = await app_for(dec, caller, CiteAll(), rounds=2, critic=critic, follow=law_follow_up()).ainvoke(
+        {"query": dec["original_query"]})
+    assert [r.actions[0].kind for r in state["review"].rounds] == ["retry_error", "follow_up"]
+    assert [o.status for o in state["routing"].outcomes] == ["ok", "ok"]
 
 
 async def test_rounds_follow_the_environment(monkeypatch):
@@ -371,7 +484,9 @@ async def test_http_empty_region_search_is_relaxed(monkeypatch):
 
     assert data["execution_status"] == "COMPLETED"
     assert data["answer"]["kind"] == "answer" and data["answer"]["citations"]
-    assert any("지역(제주) 조건을 빼고 다시 찾았습니다" in n for n in data["answer"]["notices"])
-    assert calls == [("search_suppliers", {"region": "제주"}), ("search_suppliers", {})]
+    assert any("제주에 없어 인접 지역" in n for n in data["answer"]["notices"])
+    assert calls[0] == ("search_suppliers", {"region": "제주"})
+    assert [c[1]["region"] for c in calls[1:]] == ["전남", "부산"]
     assert data["routing"]["outcomes"][0]["status"] == "ok"
     assert data["decomposition"]["assumptions"]
+    assert data["decomposition"]["sub_queries"][0]["entities"]["region"] == "제주"

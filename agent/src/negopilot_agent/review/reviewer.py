@@ -1,55 +1,50 @@
 """검토 에이전트: 생성한 답과 도구 결과를 보고, 근거를 더 찾으면 나아지는 경우에만 한 번 더 찾게 한다.
 
-분해 → 라우트 → 생성 뒤에 붙는다. 판단은 모델 없이 규칙으로 한다 (비용이 없고 같은 상황에 늘 같은 판단).
+분해 → 라우트 → 생성 뒤에 붙는다. 먼저 규칙으로 정해진 실패를 보고, 규칙에 걸리지 않은 답은 모델 검토자가 본다.
 
 보강 종류
-1. retry_error: 도구 호출이 일시 오류로 실패한 하위 질문을 다시 실행한다.
+1. retry_error (규칙): 도구 호출이 일시 오류로 실패한 하위 질문을 다시 실행한다.
    RFQ 없음, 협력사 없음처럼 공개 오류 코드가 붙은 실패는 입력 문제라 다시 불러도 같으므로 제외한다.
-2. relax: 협력사 검색이 0건이면 지역 → 최소 월 생산능력 → IATF 인증 순으로 조건을 하나씩 빼며 다시 검색한다.
-   공정·소재는 질문의 핵심이라 빼지 않는다. 뺀 조건은 분해 가정에 적어 답 끝에 "가정:"으로 밝힌다.
-3. fetch_article: 답이 근거에 없는 조문 번호를 써서 [확인 필요]로 가려졌으면, 그 조문을 law-mcp에서 가져와
-   근거에 넣고 다시 생성한다. 법령은 가린 자리 바로 앞의 법령 이름 → 근거의 법령 순으로 정하고,
-   여러 법령 중 어느 것인지 모르면 가져오지 않는다 (다른 법령의 같은 번호 조문으로 검사를 통과하지 않게).
+2. relax (규칙): 협력사 검색이 0건이면 먼저 인접 지역에서 찾고, 그래도 없으면 지역 → 최소 월 생산능력 → IATF 인증
+   순으로 조건을 하나씩 뺀다. 공정·소재는 질문의 핵심이라 빼지 않는다. 바꾼 조건은 분해 가정에 적어 답 끝에 밝힌다.
+3. follow_up (모델 검토자, critic.py): 질문에 답하지 못했거나 판단에 필요한 법적 조건이 근거에 없어 빠진 부분을
+   보충 질문으로 받아, 기존 분해기로 하위 질문을 만들고 Routing으로 실행한다.
 
 보강해서 결과가 바뀐 경우에만 generate로 돌아간다. 라운드 수는 NEGOPILOT_REVIEW_ROUNDS(기본 1, 0이면 끔)를 넘지 않는다.
 """
 
 import logging
 import os
-import re
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
-from negopilot_shared import DecompositionResult, RouteResult, SubQueryOutcome
+from negopilot_shared import DecompositionResult, RouteResult
+from negopilot_shared.decomposition import MAX_SUB_QUERIES, SubQuery
 
 from negopilot_agent.generation.answer import Answer
-from negopilot_agent.generation.verify import ARTICLE_RE, MASK, normalize_article
+from negopilot_agent.review.critic import Critique
 from negopilot_agent.routing.router import Router
 
 log = logging.getLogger(__name__)
 
 DEFAULT_ROUNDS = 1
-MAX_ARTICLES = 3          # 한 라운드에 가져올 최대 조문 수
 # 빼도 되는 검색 조건 (뺄 순서). 값은 가정 문구에 쓸 이름
 RELAXABLE = {"region": "지역", "min_monthly_capacity": "최소 월 생산능력", "iatf_required": "IATF 인증"}
-DEFAULT_LAW = "subcontract_act"   # 법령 단서가 하나도 없을 때. NegoPilot 답의 대부분이 하도급법이다
-# law-mcp ALIASES와 같은 이름 (공백·가운뎃점을 뺀 형태). 긴 이름부터 맞춰야 '하도급법 시행령'이 '하도급법'으로 읽히지 않는다
-LAW_NAMES = {
-    "하도급거래공정화에관한법률시행령": "subcontract_decree",
-    "하도급거래공정화에관한법률": "subcontract_act",
-    "하도급법시행령": "subcontract_decree",
-    "하도급법": "subcontract_act",
-    "대중소기업상생협력촉진에관한법률시행령": "winwin_decree",
-    "대중소기업상생협력촉진에관한법률": "winwin_act",
-    "상생협력법시행령": "winwin_decree",
-    "상생협력법": "winwin_act",
-    "중소기업기본법시행령": "sme_decree",
-    "중소기업기본법": "sme_act",
+# 시·도별 맞닿은 지역 (business-mcp 지역 약칭). 제주는 육지와 맞닿지 않아 뱃길이 가까운 곳을 둔다
+ADJACENT = {
+    "서울": ["경기", "인천"], "인천": ["서울", "경기"], "경기": ["서울", "인천", "강원", "충북", "충남"],
+    "강원": ["경기", "충북", "경북"], "충북": ["경기", "강원", "경북", "대전", "세종", "충남", "전북"],
+    "충남": ["경기", "충북", "세종", "대전", "전북"], "대전": ["충남", "충북", "세종"], "세종": ["충남", "충북", "대전"],
+    "전북": ["충남", "충북", "경북", "경남", "전남"], "광주": ["전남"], "전남": ["광주", "전북", "경남"],
+    "경북": ["강원", "충북", "전북", "경남", "대구", "울산"], "대구": ["경북", "경남"],
+    "경남": ["부산", "울산", "대구", "경북", "전북", "전남"], "울산": ["부산", "경남", "경북"], "부산": ["울산", "경남"],
+    "제주": ["전남", "부산"],
 }
-_LAW_BEFORE_MASK = re.compile(
-    r"((?:하도급거래\s*공정화에\s*관한\s*법률|하도급법|대[·ㆍ]?\s*중소기업\s*상생협력\s*촉진에\s*관한\s*법률|상생협력법"
-    r"|중소기업기본법)(?:\s*시행령)?)\s*" + re.escape(MASK))
+# 지역 약칭으로 바꿀 때 떼는 꼬리 (business-mcp resolve_region과 같은 규칙의 간단판)
+REGION_NAMES = {"경상남": "경남", "경상북": "경북", "전라남": "전남", "전라북": "전북", "충청남": "충남", "충청북": "충북"}
+FOLLOW_UP_INTENTS = {"rfq_lookup", "supplier_search", "supplier_detail", "supplier_ranking", "offer_check",
+                     "law_check", "law_article"}
 
 
 def configured_rounds() -> int:
@@ -59,18 +54,18 @@ def configured_rounds() -> int:
         return DEFAULT_ROUNDS
 
 
-ActionKind = Literal["retry_error", "relax", "fetch_article"]
+ActionKind = Literal["retry_error", "relax", "follow_up"]
 
 
 class ReviewAction(BaseModel):
     kind: ActionKind
     sub_query: str
     reason: str                                         # 왜 보강하는지 (로그·트레이스용)
-    detail: dict[str, Any] = Field(default_factory=dict)  # relax: dropped, fetch_article: law·article_no
+    detail: dict[str, Any] = Field(default_factory=dict)  # relax: 바꾼 조건, follow_up: 빠진 부분·보충 질문·추가한 하위 질문
     resolved: bool | None = None                        # 실행 뒤 결과가 나아졌는지. 실행 전에는 None
 
     def key(self) -> tuple:
-        return self.kind, self.sub_query, self.detail.get("law"), self.detail.get("article_no")
+        return self.kind, self.sub_query, self.detail.get("question")
 
 
 class ReviewRound(BaseModel):
@@ -103,66 +98,26 @@ def plan(decomposition: DecompositionResult, routing: RouteResult | None, answer
             if keys:
                 actions.append(ReviewAction(kind="relax", sub_query=o.id, reason="검색 결과 0건",
                                             detail={"relaxable": keys}))
-    actions += _article_actions(routing, answer)
     return actions
 
 
-def _article_actions(routing: RouteResult, answer: Answer | None) -> list[ReviewAction]:
-    report = answer.verification if answer else None
-    if answer is None or answer.kind != "answer" or report is None or not report.masked:
+def follow_ups(critique: Critique, decomposition: DecompositionResult) -> list[ReviewAction]:
+    """검토자의 보충 질문을 보강으로 바꾼다. 하위 질문 자리가 남아 있을 때만."""
+    if critique.complete or len(decomposition.sub_queries) >= MAX_SUB_QUERIES:
         return []
-    known = {normalize_article(str(e.meta.get("article_no") or "")) for e in answer.evidence} - {""}
-    articles: list[str] = []
-    for item in report.ungrounded_articles:
-        m = ARTICLE_RE.search(item)
-        article = normalize_article(m.group(0)) if m else ""
-        # 조문은 근거에 있고 항만 틀린 경우는 조문을 다시 가져와도 나아지지 않는다
-        if article and article not in known and article not in articles:
-            articles.append(article)
-    if not articles:
-        return []
-    law = guess_law(answer.text, routing)
-    if law is None:
-        log.info("검토: 근거에 없는 조문 %s의 법령을 정할 수 없어 보강하지 않음", articles)
-        return []
-    target = _attach_target(routing)
-    if target is None:
-        return []
-    return [ReviewAction(kind="fetch_article", sub_query=target.id, reason="근거에 없는 조문 번호",
-                         detail={"law": law, "article_no": a}) for a in articles[:MAX_ARTICLES]]
-
-
-def guess_law(text: str, routing: RouteResult) -> str | None:
-    """가린 조문의 법령. 가린 자리 앞 이름 → 근거에 나온 법령 → 기본(하도급법). 후보가 둘 이상이면 None."""
-    named = {LAW_NAMES.get(re.sub(r"[\s·ㆍ]", "", m.group(1))) for m in _LAW_BEFORE_MASK.finditer(text)} - {None}
-    if named:
-        return named.pop() if len(named) == 1 else None
-    seen: set[str] = set()
-    for o in routing.outcomes:
-        for c in [*o.calls, *o.referenced_articles]:
-            if c.server != "law-mcp" or c.error:
-                continue
-            if isinstance(c.args.get("law"), str):
-                seen.add(c.args["law"])
-            if isinstance(c.result, list):
-                seen |= {h["law_key"] for h in c.result if isinstance(h, dict) and isinstance(h.get("law_key"), str)}
-    seen = {LAW_NAMES.get(re.sub(r"[\s·ㆍ]", "", s), s) for s in seen}
-    if len(seen) > 1:
-        return None
-    return seen.pop() if seen else DEFAULT_LAW
-
-
-def _attach_target(routing: RouteResult) -> SubQueryOutcome | None:
-    """가져온 조문을 붙일 하위 질문. 법령을 다룬 질문이 있으면 그것, 없으면 결과가 있는 첫 질문."""
-    ok = [o for o in routing.outcomes if o.status == "ok"]
-    law = [o for o in ok if any(c.server == "law-mcp" for c in o.calls) or o.referenced_articles]
-    return (law or ok or [None])[0]
+    return [ReviewAction(kind="follow_up", sub_query="new", reason="검토자: 답에서 빠진 부분",
+                         detail={"aspect": m.aspect, "question": m.question}) for m in critique.missing]
 
 
 # ---------- 실행 ----------
 
-async def reinforce(router: Router, decomposition: DecompositionResult, routing: RouteResult,
-                    actions: list[ReviewAction]) -> tuple[DecompositionResult, RouteResult, list[ReviewAction], bool]:
+class Decomposer(Protocol):
+    async def decompose(self, query: str, history: list[dict] | None = None) -> DecompositionResult: ...
+
+
+async def reinforce(router: Router, decomposer: Decomposer | None, decomposition: DecompositionResult,
+                    routing: RouteResult, actions: list[ReviewAction]
+                    ) -> tuple[DecompositionResult, RouteResult, list[ReviewAction], bool]:
     """보강을 실행한다. (분해, 라우팅, 결과를 적은 actions, 바뀐 것이 있는지)를 돌려준다."""
     done: list[ReviewAction] = []
     changed = False
@@ -177,42 +132,130 @@ async def reinforce(router: Router, decomposition: DecompositionResult, routing:
         changed = any(a.resolved for a in done)
 
     for a in (a for a in actions if a.kind == "relax"):
-        decomposition, routing, dropped = await _relax(router, decomposition, routing, a)
-        done.append(a.model_copy(update={"resolved": dropped is not None, "detail": a.detail | {"dropped": dropped or []}}))
-        changed |= dropped is not None
+        decomposition, routing, how = await _relax(router, decomposition, routing, a)
+        done.append(a.model_copy(update={"resolved": how is not None, "detail": a.detail | (how or {})}))
+        changed |= how is not None
 
-    fetch = [a for a in actions if a.kind == "fetch_article"]
-    if fetch:
-        outcomes = {o.id: o.model_copy(deep=True) for o in routing.outcomes}
-        for a in fetch:
-            call = await router.fetch("law-mcp", "get_article",
-                                      {"law": a.detail["law"], "article_no": a.detail["article_no"]})
-            ok = call.error is None and isinstance(call.result, dict)
-            if ok:
-                outcomes[a.sub_query].referenced_articles.append(call)
-            done.append(a.model_copy(update={"resolved": ok}))
-            changed |= ok
-        routing = routing.model_copy(update={"outcomes": [outcomes[o.id] for o in routing.outcomes]})
+    for a in (a for a in actions if a.kind == "follow_up"):
+        if decomposer is None:
+            done.append(a.model_copy(update={"resolved": False}))
+            continue
+        decomposition, routing, added = await _follow_up(router, decomposer, decomposition, routing, a)
+        resolved = any(o.status == "ok" for o in routing.outcomes if o.id in added)
+        done.append(a.model_copy(update={"resolved": resolved, "detail": a.detail | {"added": added}}))
+        changed |= resolved
 
     return decomposition, routing, done, changed
 
 
 async def _relax(router: Router, decomposition: DecompositionResult, routing: RouteResult,
-                 action: ReviewAction) -> tuple[DecompositionResult, RouteResult, list[str] | None]:
-    """조건을 앞에서부터 하나씩 더 빼며 다시 검색한다. 결과가 나온 조건 조합을 쓰고, 끝까지 0건이면 그대로 둔다."""
+                 action: ReviewAction) -> tuple[DecompositionResult, RouteResult, dict[str, Any] | None]:
+    """0건 검색을 넓힌다. 지역이 있으면 인접 지역부터, 그래도 없으면 조건을 앞에서부터 하나씩 더 뺀다.
+
+    결과가 나온 방법을 detail로 돌려준다 ({"nearby": [...]} 또는 {"dropped": [...]}). 끝까지 0건이면 None.
+    """
     sq = next(s for s in decomposition.sub_queries if s.id == action.sub_query)
     keys: list[str] = action.detail["relaxable"]
+
+    region = sq.entities.region
+    neighbors = ADJACENT.get(_region_abbr(region), []) if isinstance(region, str) else []
+    if neighbors:
+        found = []
+        for name in neighbors:
+            candidate = _with_entities(decomposition, sq, {"region": name})
+            result = await router.rerun(candidate, routing, {sq.id})
+            outcome = next(o for o in result.outcomes if o.id == sq.id)
+            if outcome.status == "ok":
+                found.append((name, outcome))
+        if found:
+            names = [n for n, _ in found]
+            # 지역마다 부른 검색을 한 하위 질문의 결과로 합친다. 분해의 지역 값은 원래대로 두고 가정에 밝힌다
+            merged = found[0][1].model_copy(update={"calls": [c for _, o in found for c in o.calls]})
+            routing = routing.model_copy(update={
+                "outcomes": [merged if o.id == sq.id else o for o in routing.outcomes]})
+            note = (f"'{sq.original_text}' 조건에 맞는 협력사가 {region}에 없어 "
+                    f"인접 지역({', '.join(names)})에서 찾았습니다.")
+            return (decomposition.model_copy(update={"assumptions": [*decomposition.assumptions, note]}), routing,
+                    {"nearby": names})
+
     for n in range(1, len(keys) + 1):
         dropped = keys[:n]
-        relaxed_sq = sq.model_copy(update={"entities": sq.entities.model_copy(update=dict.fromkeys(dropped))})
-        candidate = decomposition.model_copy(update={
-            "sub_queries": [relaxed_sq if s.id == sq.id else s for s in decomposition.sub_queries]})
+        candidate = _with_entities(decomposition, sq, dict.fromkeys(dropped))
         result = await router.rerun(candidate, routing, {sq.id})
         if next(o for o in result.outcomes if o.id == sq.id).status == "ok":
             removed = ", ".join(f"{RELAXABLE[k]}({_shown(getattr(sq.entities, k))})" for k in dropped)
             note = f"'{sq.original_text}' 조건에 맞는 협력사가 없어 {removed} 조건을 빼고 다시 찾았습니다."
-            return candidate.model_copy(update={"assumptions": [*decomposition.assumptions, note]}), result, dropped
+            return (candidate.model_copy(update={"assumptions": [*decomposition.assumptions, note]}), result,
+                    {"dropped": dropped})
     return decomposition, routing, None
+
+
+def _with_entities(decomposition: DecompositionResult, sq: SubQuery, update: dict[str, Any]) -> DecompositionResult:
+    changed = sq.model_copy(update={"entities": sq.entities.model_copy(update=update)})
+    return decomposition.model_copy(update={
+        "sub_queries": [changed if s.id == sq.id else s for s in decomposition.sub_queries]})
+
+
+def _region_abbr(region: str) -> str:
+    name = region.strip()
+    for long, short in REGION_NAMES.items():
+        if name.startswith(long):
+            return short
+    for suffix in ("특별자치시", "특별자치도", "특별시", "광역시", "도", "시"):
+        if name.endswith(suffix) and len(name) > len(suffix) + 1:
+            name = name[: -len(suffix)]
+            break
+    return name[:2] if name[:2] in ADJACENT else name
+
+
+async def _follow_up(router: Router, decomposer: Decomposer, decomposition: DecompositionResult,
+                     routing: RouteResult, action: ReviewAction) -> tuple[DecompositionResult, RouteResult, list[str]]:
+    """검토자의 보충 질문을 분해기로 하위 질문으로 바꿔 기존 분해 뒤에 붙이고, 새 하위 질문만 실행한다.
+
+    원래 질문(original_query)과 기존 하위 질문·결과는 그대로 둔다. 이미 있는 하위 질문과 같은 것은 붙이지 않는다.
+    """
+    try:
+        extra = await decomposer.decompose(action.detail["question"])
+    except Exception as error:  # noqa: BLE001 - 보충은 덤이다. 실패해도 원래 답은 그대로 둔다
+        log.warning("보충 질문 분해 실패: %s", type(error).__name__)
+        return decomposition, routing, []
+    if extra.status != "ok":
+        return decomposition, routing, []
+
+    existing = {_signature(s) for s in decomposition.sub_queries}
+    room = MAX_SUB_QUERIES - len(decomposition.sub_queries)
+    next_no = 1 + max(int(s.id[1:]) for s in decomposition.sub_queries)
+    ids: dict[str, str] = {}
+    added: list[SubQuery] = []
+    for s in extra.sub_queries:
+        if len(added) >= room:
+            break
+        # 앞 결과가 필요한 하위 질문은 그 앞 질문도 함께 붙었을 때만 쓴다
+        if (s.intent not in FOLLOW_UP_INTENTS or _signature(s) in existing
+                or any(d not in ids for d in s.depends_on)):
+            continue
+        ids[s.id] = f"q{next_no + len(added)}"
+        added.append(s.model_copy(update={
+            "id": ids[s.id],
+            "depends_on": [ids[d] for d in s.depends_on],
+            "inputs": [i.model_copy(update={"from_": ids[i.from_]}) for i in s.inputs]}))
+        existing.add(_signature(s))
+    if not added:
+        return decomposition, routing, []
+
+    try:
+        extended = DecompositionResult.model_validate(
+            decomposition.model_copy(update={"sub_queries": [*decomposition.sub_queries, *added]})
+            .model_dump(by_alias=True))
+    except ValueError as error:
+        log.warning("보충 하위 질문을 붙이지 못함: %s", error)
+        return decomposition, routing, []
+    new_ids = [s.id for s in added]
+    return extended, await router.rerun(extended, routing, set(new_ids)), new_ids
+
+
+def _signature(sq: SubQuery) -> tuple:
+    return sq.intent, sq.entities.model_dump_json(exclude_none=True)
 
 
 def _shown(value: Any) -> str:

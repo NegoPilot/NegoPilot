@@ -16,6 +16,7 @@ from negopilot_agent.generation import Answer, AnswerGenerator, GeneratorSetting
 from negopilot_agent.generation.backends import GenerationAnthropicBackend, GenerationOpenAIBackend, GenerationOllamaBackend
 from negopilot_agent import timing, tracing
 from negopilot_agent.graph import build_graph
+from negopilot_agent.review import Critic, critic_enabled
 from negopilot_agent.routing import McpToolCaller, ToolCaller
 
 from .execution import CLIENT_CLOSE_TIMEOUT_SECONDS, ModelUnavailable, SafeToolCaller, public_routing
@@ -104,7 +105,7 @@ class GenerationExecutor:
         self.backend = backend
 
     async def execute(self, request: GenerationExecutionRequest) -> GenerationExecutionResponse:
-        owned: list[LazyModelBackend] = []
+        owned: list[LazyModelBackend | Critic] = []
         try:
             decomposer = self.decomposer
             if decomposer is None:
@@ -128,8 +129,13 @@ class GenerationExecutor:
             caller = self.caller
             if caller is None:
                 caller = GenerationStubToolCaller() if self.settings.mode == "stub" else McpToolCaller()
+            # 스텁 모드와 생성 백엔드를 바꿔 끼운 경우(테스트)는 모델 검토자를 쓰지 않는다 (규칙 검토만)
+            critic: Critic | bool = False
+            if self.settings.mode != "stub" and self.backend is None and critic_enabled():
+                critic = Critic()
+                owned.append(critic)
             graph = build_graph(decomposer=decomposer, caller=SafeToolCaller(caller),
-                                generator=SafeGenerator(AnswerGenerator(backend=backend)))
+                                generator=SafeGenerator(AnswerGenerator(backend=backend)), critic=critic)
             with timing.collect() as timings:
                 state = await graph.ainvoke({
                     "query": request.query,
