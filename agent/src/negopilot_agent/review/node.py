@@ -38,7 +38,7 @@ class ReviewState(TypedDict):
 def make_review_node(max_rounds: int | None = None, critic: Critic | bool | None = None):
     """max_rounds를 생략하면 NEGOPILOT_REVIEW_ROUNDS(기본 1)를 따른다. 0이면 검토만 하고 보강하지 않는다.
 
-    critic: 모델 검토자. None이면 NEGOPILOT_REVIEW_CRITIC(기본 켬)을 따르고, False면 규칙 검토만 한다.
+    critic: 모델 검토자. None이면 NEGOPILOT_REVIEW_CRITIC(기본 끔)을 따르고, False면 규칙 검토만 한다.
     """
     rounds = configured_rounds() if max_rounds is None else max_rounds
     if critic is None:

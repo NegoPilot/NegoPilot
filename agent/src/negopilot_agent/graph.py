@@ -46,7 +46,7 @@ def build_graph(decomposer: QueryDecomposer | None = None, caller: ToolCaller | 
     """생략한 부품은 환경 변수 설정(.env.example)을 따른다. MCP 서버는 BUSINESS_MCP_URL, LAW_MCP_URL.
 
     review_rounds: 검토 루프에서 보강할 최대 횟수. 0이면 보강하지 않는다 (예전 일직선 그래프와 같은 결과).
-    critic: 모델 검토자. None이면 NEGOPILOT_REVIEW_CRITIC(기본 켬), False면 규칙 검토만.
+    critic: 모델 검토자. None이면 NEGOPILOT_REVIEW_CRITIC(기본 끔), False면 규칙 검토만.
     """
     graph = StateGraph(AgentState)
     # timing.collect() 안에서 실행하면 노드별 시간이 기록된다 (밖이면 기록하지 않음)

@@ -5,6 +5,7 @@ uv run python scripts/eval_pipeline.py --set validation --no-judge
 uv run python scripts/eval_pipeline.py --set validation --cross-judge gpt-5.4-mini   # 같은 답변을 다른 모델로도 채점
 uv run python scripts/eval_pipeline.py --set validation --repeat 6 --compare eval_results/pipeline-<이전>.json
 NEGOPILOT_REVIEW_ROUNDS=0 uv run python scripts/eval_pipeline.py --set dev --repeat 3   # 검토 루프 끔 (전후 비교용)
+NEGOPILOT_REVIEW_CRITIC=1 uv run python scripts/eval_pipeline.py --set dev --repeat 3    # 모델 검토자 켬
 
 --repeat 2 이상이면 회차별 값과 표준편차·표준오차를 낸다. --compare는 지표 차이가 두 결과의 표준오차를
 합친 폭의 2배보다 작으면 "흔들림 범위"로 표시한다. 같은 세트·모델로 잰 결과끼리 비교한다.
@@ -43,7 +44,10 @@ async def evaluate_case(graph, item, input_dir, judge_client=None, judge_model="
             state = await graph.ainvoke({"query": query})
             answer = state["answer"]
             routing = state.get("routing") or RouteResult(status="not_routed")
-            intents = [sq.intent for sq in state["decomposition"].sub_queries]
+            review = state.get("review")
+            # 검토 루프가 보충으로 붙인 하위 질문은 분해 결과가 아니므로 intent 비교에서 뺀다
+            added = {qid for r in (review.rounds if review else []) for a in r.actions for qid in a.detail.get("added", [])}
+            intents = [sq.intent for sq in state["decomposition"].sub_queries if sq.id not in added]
             expected = [sq.intent for sq in expected_decomposition.sub_queries]
             # 분해 intent가 정답 분해와 같은지, 근거가 필요한 답변에 근거 표시가 붙었는지 (#110)
             row.update(intents=intents, expected_intents=expected, intent_match=intents == expected,
@@ -61,7 +65,6 @@ async def evaluate_case(graph, item, input_dir, judge_client=None, judge_model="
             verification = answer.verification
             row.update(retried=bool(verification and verification.attempts > 1),
                        masked=bool(verification and verification.masked))
-            review = state.get("review")
             row["review"] = [{"kind": a.kind, "resolved": a.resolved, "detail": a.detail}
                              for r in review.rounds for a in r.actions] if review else []
         except Exception as error:

@@ -123,7 +123,8 @@ class CriticSettings:
 
 
 def critic_enabled() -> bool:
-    return os.getenv("NEGOPILOT_REVIEW_CRITIC", "1") != "0"
+    # 기본 끔: 2026-10-24 정답 세트 평가에서 커버 개선 없이 비용·시간만 늘었다 (PR #295). 켜려면 1
+    return os.getenv("NEGOPILOT_REVIEW_CRITIC", "0") == "1"
 
 
 def make_backend(settings: CriticSettings) -> tuple[Backend, Callable[[], Awaitable[None]]]:
