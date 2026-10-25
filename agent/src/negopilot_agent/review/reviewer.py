@@ -43,6 +43,7 @@ ADJACENT = {
 # 지역 약칭으로 바꿀 때 쓰는 긴 이름 (business-mcp resolve_region과 같은 규칙의 간단판)
 REGION_NAMES = {"경상남": "경남", "경상북": "경북", "전라남": "전남", "전라북": "전북", "충청남": "충남", "충청북": "충북"}
 MAX_OPTIONS = 3
+BUTTON_HINT = "아래 버튼을 누르면 그 조건으로 다시 찾아볼 수 있습니다."
 
 
 def configured_rounds() -> int:
@@ -150,8 +151,9 @@ async def _alternatives(router: Router, decomposition: DecompositionResult, rout
         nearby = [n for n in ADJACENT.get(_region_abbr(region), []) if await has_results({"region": n})]
         if nearby:
             nearby = nearby[:MAX_OPTIONS]
-            note = (f"{region}에는 조건에 맞는 협력사가 없습니다. 인접 지역({', '.join(nearby)})에는 있어요. "
-                    "아래에서 골라 다시 찾아볼 수 있습니다.")
+            # 앞 문장(결과 없음 안내)과 겹치지 않게 '없다'를 다시 말하지 않는다
+            note = (f"{region}에는 없지만 인접 지역({', '.join(nearby)})에는 같은 조건의 협력사가 있습니다. "
+                    f"{BUTTON_HINT}")
             return (Suggestion(note=note, options=[_search_sentence(sq, {"region": n}) for n in nearby]),
                     {"nearby": nearby})
 
@@ -160,7 +162,7 @@ async def _alternatives(router: Router, decomposition: DecompositionResult, rout
         update = dict.fromkeys(dropped)
         if await has_results(update):
             removed = ", ".join(f"{RELAXABLE[k]}({_shown(getattr(sq.entities, k))})" for k in dropped)
-            note = f"조건에 맞는 협력사가 없습니다. {removed} 조건을 빼면 찾을 수 있어요. 아래 문장으로 다시 찾아볼 수 있습니다."
+            note = f"{removed} 조건을 빼면 찾을 수 있는 협력사가 있습니다. {BUTTON_HINT}"
             return Suggestion(note=note, options=[_search_sentence(sq, update)]), {"dropped": dropped}
     return None
 

@@ -104,7 +104,9 @@ async def test_empty_region_suggests_adjacent_regions_that_have_results():
     answer = state["answer"]
     assert answer.kind == "no_result" and not answer.citations
     assert answer.options == ["부산 프레스 협력사 찾아줘"]
-    assert "제주에는 조건에 맞는 협력사가 없습니다. 인접 지역(부산)에는 있어요." in answer.text
+    assert answer.text.endswith("제주에는 없지만 인접 지역(부산)에는 같은 조건의 협력사가 있습니다. "
+                                "아래 버튼을 누르면 그 조건으로 다시 찾아볼 수 있습니다.")
+    assert answer.text.count("없습니다") == 1   # 결과 없음 안내를 되풀이하지 않는다
     # 답과 분해·Routing은 사용자가 고른 조건(제주) 그대로다. 모델도 부르지 않는다
     assert state["decomposition"].sub_queries[0].entities.region == "제주"
     assert state["decomposition"].assumptions == []
@@ -141,7 +143,7 @@ async def test_without_adjacent_results_the_region_condition_is_dropped():
         {"process": "프레스", "region": "부산"}, {"process": "프레스"}]
     answer = state["answer"]
     assert answer.options == ["프레스 협력사 찾아줘"]
-    assert "지역(제주) 조건을 빼면 찾을 수 있어요" in answer.text
+    assert "지역(제주) 조건을 빼면 찾을 수 있는 협력사가 있습니다. 아래 버튼을 누르면" in answer.text
     assert state["review"].rounds[0].actions[0].detail["dropped"] == ["region"]
 
 
@@ -155,7 +157,7 @@ async def test_conditions_are_dropped_one_by_one_until_results_appear():
 
     assert [args for _, args in caller.calls] == [{"process": "사출", "min_monthly_capacity": 500000}, {"process": "사출"}]
     assert state["answer"].options == ["사출 협력사 찾아줘"]
-    assert "최소 월 생산능력(500,000개 이상) 조건을 빼면" in state["answer"].text
+    assert "최소 월 생산능력(500,000개 이상) 조건을 빼면 찾을 수 있는 협력사가 있습니다." in state["answer"].text
 
 
 async def test_search_sentence_keeps_the_conditions_that_were_not_dropped():
