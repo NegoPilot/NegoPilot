@@ -118,11 +118,16 @@ LAW_REMINDER = """\
 ISSUES_REMINDER = """\
 <review_issues>
 쟁점 검토 단계가 이 상황의 법적 쟁점과 결론을 좌우하는 하도급법 조문을 골랐다.
-답변에서 쟁점마다 한 단락 이상 다루고, 그 조문 근거(label에 조문 번호가 있는 근거)의 id를 인용한다.
+답변에서 쟁점마다 2~3문장으로 다루고, 그 조문 근거(label에 조문 번호가 있는 근거)의 id를 인용한다.
 정의 조문이면 상황 속 대상(원재료, 계약 등)이 그 정의에 해당하는지를 정의 조문 근거로 쓴다.
+쟁점 문장에는 조문과 상황의 사실만 쓰고, 근거에 없는 절차·예외·실무 조언을 덧붙이지 않는다.
 근거로 확인할 수 없는 쟁점은 "확인 필요"라고 쓴다. 이 목록은 다룰 쟁점일 뿐 결론이 아니다.
-{lines}
+{offer}{lines}
 </review_issues>"""
+# 협상안 검사가 있으면 판정 요약이 쟁점 문단에 밀리지 않게 순서를 정한다 (회귀 테스트 gv13)
+ISSUES_OFFER_ORDER = ("협상안 검사 결과가 있으면 그 판정(위반 소지 여부)과 판정 근거(수급사업자 해당 여부 등)를 "
+                      "답변 맨 앞에 먼저 쓰고, 쟁점 검토는 그 뒤에 쓴다. "
+                      "판정은 검사 근거에 적힌 결과를 그대로 쓰고, 쟁점 검토 내용 때문에 '확인 필요'로 바꾸지 않는다.\n")
 
 
 def build_user_message(decomposition: DecompositionResult, evidence: list[Evidence],
@@ -144,7 +149,9 @@ def build_user_message(decomposition: DecompositionResult, evidence: list[Eviden
         parts.append(LAW_REMINDER)
     if issues:
         # 근거로 가져온 쟁점 조문을 답변이 빠뜨리지 않게, 쟁점 목록을 근거 뒤에 둔다 (법률 검토 실험 5차: 미인용 누락 25→3건)
+        offer = any(sq.intent == "offer_check" for sq in decomposition.sub_queries)
         parts.append(ISSUES_REMINDER.format(
+            offer=ISSUES_OFFER_ORDER if offer else "",
             lines="\n".join(f"- {i.issue}: {i.law} {i.article_no} ({i.title})" for i in issues)))
     if override:
         # 질문 속 결론 지시를 근거보다 나중에 읽으면 따르기 쉬워서, 규칙 6을 근거 바로 뒤에 다시 적는다 (#222)
