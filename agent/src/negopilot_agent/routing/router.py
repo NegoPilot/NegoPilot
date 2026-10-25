@@ -140,9 +140,7 @@ class Router:
 
     async def rerun(self, decomposition: DecompositionResult, routing: RouteResult,
                     targets: set[str]) -> RouteResult:
-        """targets 하위 질문을 (다시) 실행한다. 그 결과가 없어 건너뛰었던 뒤 질문도 함께 다시 실행한다 (검토 루프).
-
-        targets에는 검토가 새로 붙인 하위 질문(아직 결과 없음)도 들어올 수 있다.
+        """targets 하위 질문을 다시 실행한다. 그 결과가 없어 건너뛰었던 뒤 질문도 함께 다시 실행한다 (검토 루프).
 
         나머지 하위 질문의 결과는 그대로 둔다. 같은 묶음 순서(parallel_groups)를 따라 앞 결과를 뒤 질문의 inputs로 쓴다.
         """
@@ -153,7 +151,7 @@ class Router:
         async with session() if session else contextlib.nullcontext():
             for group in decomposition.parallel_groups():
                 todo = [qid for qid in group if qid in targets
-                        or (qid in done and done[qid].status == "skipped" and changed
+                        or (done[qid].status == "skipped" and changed
                             and (set(by_id[qid].depends_on) & changed or routing.halted))]
                 for o in await asyncio.gather(*(self._run(by_id[qid], done) for qid in todo)):
                     done[o.id] = o

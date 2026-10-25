@@ -22,7 +22,7 @@ sys.path[:0] = [str(ROOT / "src"), str(ROOT.parent / "shared" / "src"), str(ROOT
 
 from ask import load_env  # noqa: E402
 
-# 지역·생산능력·인증 조건 때문에 0건이 나기 쉬운 질문, 판단에 필요한 법 조건을 따로 묻지 않은 질문. 끝의 둘은 대조군
+# 지역·생산능력·인증 조건 때문에 0건이 나기 쉬운 질문과, 법령 질문. 끝의 둘은 대조군
 TRIGGER = [
     "제주 지역 프레스 협력사 찾아줘",
     "강원도에 있는 알루미늄 다이캐스팅 업체 보여줘",
@@ -30,35 +30,27 @@ TRIGGER = [
     "전남에 있는 IATF 인증 단조 업체 알려줘",
     "SUP-0003 결제 조건이 하도급법상 괜찮은지 관련 조문 번호까지 알려줘",
     "RFQ-2026-001 1위 협력사에 결제 75일로 제안하면 하도급법 몇 조에 걸려?",
-    "SUP-0003이 원자재 가격이 올라서 단가를 8% 올려 달래. 받아 줘야 해?",
-    "SUP-0012한테 납품 단가를 5% 깎자고 해도 돼?",
     "SUP-0010 정보 알려줘",
     "하도급대금 지급 기한은 며칠이야?",
 ]
 
 
 class Fixed:
-    """처음(원래 질문) 분해는 정해 둔 결과를 돌려주고, 그 뒤(검토자의 보충 질문)는 실제 분해기에 맡긴다."""
+    """분해 백엔드 대신 정해 둔 분해 결과를 돌려준다."""
 
     def __init__(self, text: str):
         self.text = text
-        self.real = None
 
-    async def decompose(self, query: str, history: list[dict] | None = None, **kwargs):
-        from negopilot_shared import DecompositionResult
-        from negopilot_agent.decomposition import QueryDecomposer
-        if self.text is not None:
-            text, self.text = self.text, None
-            return DecompositionResult.model_validate_json(text)
-        self.real = self.real or QueryDecomposer()
-        return await self.real.decompose(query, history, **kwargs)
+    async def generate(self, system: str, user: str) -> str:
+        return self.text
 
 
 async def run(query: str, decomposition_json: str, rounds: int) -> dict:
     from negopilot_agent import timing
+    from negopilot_agent.decomposition import QueryDecomposer
     from negopilot_agent.graph import build_graph
 
-    graph = build_graph(decomposer=Fixed(decomposition_json), review_rounds=rounds)
+    graph = build_graph(decomposer=QueryDecomposer(backend=Fixed(decomposition_json)), review_rounds=rounds)
     with timing.collect() as t:
         state = await graph.ainvoke({"query": query})
     answer = state["answer"]
@@ -69,10 +61,10 @@ async def run(query: str, decomposition_json: str, rounds: int) -> dict:
         "masked": bool(v and v.masked),
         "ungrounded": (v.ungrounded_numbers + v.ungrounded_articles) if v else [],
         "citations": len(answer.citations),
+        "options": answer.options,
         "notices": answer.notices,
         "text": answer.text,
         "outcomes": [o.status for o in state["routing"].outcomes] if state.get("routing") else [],
-        "sub_queries": [sq.question for sq in state["decomposition"].sub_queries],
         "review": [[{"kind": a.kind, "resolved": a.resolved, "detail": a.detail} for a in r.actions]
                    for r in review.rounds] if review else [],
         "timings": t.summary(),
@@ -105,6 +97,7 @@ def summary(rows: list[dict]) -> dict:
         return {
             "answers": sum(r["kind"] == "answer" for r in rs),
             "no_result": sum(r["kind"] == "no_result" for r in rs),
+            "with_buttons": sum(bool(r.get("options")) for r in rs),
             "masked": sum(r["masked"] for r in rs),
             "llm_calls": sum(r["timings"].get("llm_calls", 0) for r in rs),
             "tool_calls": sum(r["timings"].get("tool_calls", 0) for r in rs),
@@ -113,7 +106,6 @@ def summary(rows: list[dict]) -> dict:
         }
     return {"cases": len(rows), "before": mode("before"), "after": mode("after"),
             "triggered": sum(bool(r["after"]["review"]) for r in rows),
-            "follow_up": sum(any(a["kind"] == "follow_up" for rd in r["after"]["review"] for a in rd) for r in rows),
             "resolved": sum(any(a["resolved"] for rd in r["after"]["review"] for a in rd) for r in rows)}
 
 
@@ -121,16 +113,17 @@ def markdown(name: str, rows: list[dict], s: dict) -> str:
     b, a = s["before"], s["after"]
     lines = [f"# 검토 루프 전후 비교 ({name}, {s['cases']}문항)", "",
              "| 지표 | 루프 없음 | 검토 루프 |", "| --- | --- | --- |"]
-    for key, label in [("answers", "답변(answer)"), ("no_result", "결과 없음"), ("masked", "[확인 필요] 가림"),
+    for key, label in [("answers", "답변(answer)"), ("no_result", "결과 없음"),
+                       ("with_buttons", "다른 검색 버튼을 단 답"), ("masked", "[확인 필요] 가림"),
                        ("llm_calls", "LLM 호출"), ("tool_calls", "도구 호출"), ("seconds", "총 시간(초)"),
                        ("cost_usd", "비용(USD)")]:
         lines.append(f"| {label} | {b[key]} | {a[key]} |")
-    lines += ["", f"루프가 보강을 시도한 문항 {s['triggered']}개 (모델 검토자 보충 {s['follow_up']}개), "
-              f"그중 보강에 성공한 문항 {s['resolved']}개", "",
+    lines += ["", f"루프가 보강을 시도한 문항 {s['triggered']}개, 그중 보강에 성공한 문항 {s['resolved']}개", "",
               "| id | 질문 | 전 | 후 | 보강 |", "| --- | --- | --- | --- | --- |"]
     for r in rows:
         def cell(x):
-            return f"{x['kind']}{' (가림)' if x['masked'] else ''}"
+            buttons = f" 버튼: {' / '.join(x['options'])}" if x.get("options") else ""
+            return f"{x['kind']}{' (가림)' if x['masked'] else ''}{buttons}"
         acts = "; ".join(f"{a['kind']}{'✓' if a['resolved'] else '✗'}" for rd in r["after"]["review"] for a in rd) or "-"
         lines.append(f"| {r['id']} | {r['query']} | {cell(r['before'])} | {cell(r['after'])} | {acts} |")
     return "\n".join(lines) + "\n"

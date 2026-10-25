@@ -1,35 +1,34 @@
 """검토 에이전트: 생성한 답과 도구 결과를 보고, 근거를 더 찾으면 나아지는 경우에만 한 번 더 찾게 한다.
 
-분해 → 라우트 → 생성 뒤에 붙는다. 먼저 규칙으로 정해진 실패를 보고, 규칙에 걸리지 않은 답은 모델 검토자가 본다.
+분해 → 라우트 → 생성 뒤에 붙는다. 판단은 모델 없이 규칙으로 한다.
 
 보강 종류
-1. retry_error (규칙): 도구 호출이 일시 오류로 실패한 하위 질문을 다시 실행한다.
+1. retry_error: 도구 호출이 일시 오류로 실패한 하위 질문을 다시 실행하고 답을 다시 쓴다.
    RFQ 없음, 협력사 없음처럼 공개 오류 코드가 붙은 실패는 입력 문제라 다시 불러도 같으므로 제외한다.
-2. relax (규칙): 협력사 검색이 0건이면 먼저 인접 지역에서 찾고, 그래도 없으면 지역 → 최소 월 생산능력 → IATF 인증
-   순으로 조건을 하나씩 뺀다. 공정·소재는 질문의 핵심이라 빼지 않는다. 바꾼 조건은 분해 가정에 적어 답 끝에 밝힌다.
-3. follow_up (모델 검토자, critic.py): 질문에 답하지 못했거나 판단에 필요한 법적 조건이 근거에 없어 빠진 부분을
-   보충 질문으로 받아, 기존 분해기로 하위 질문을 만들고 Routing으로 실행한다.
+2. suggest: 협력사 검색이 0건이면 조건을 넓힌 검색을 미리 해 보고, 결과가 있는 검색만 사용자에게 버튼으로 권한다.
+   지역이 있으면 맞닿은 시·도부터, 그래도 없으면 지역 → 최소 월 생산능력 → IATF 인증 순으로 조건을 하나씩 뺀다.
+   공정·소재는 질문의 핵심이라 빼지 않는다. 사용자가 고른 조건을 Agent가 마음대로 바꾸지 않고,
+   바꿀지는 사용자가 버튼(answer.options)을 눌러 정한다. 답을 다시 쓰지 않으므로 모델 호출이 늘지 않는다.
 
-보강해서 결과가 바뀐 경우에만 generate로 돌아간다. 라운드 수는 NEGOPILOT_REVIEW_ROUNDS(기본 1, 0이면 끔)를 넘지 않는다.
+라운드 수는 NEGOPILOT_REVIEW_ROUNDS(기본 1, 0이면 끔)를 넘지 않는다.
 """
 
 import logging
 import os
-from typing import Any, Literal, Protocol
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from negopilot_shared import DecompositionResult, RouteResult
-from negopilot_shared.decomposition import MAX_SUB_QUERIES, SubQuery
+from negopilot_shared.decomposition import SubQuery
 
 from negopilot_agent.generation.answer import Answer
-from negopilot_agent.review.critic import Critique
 from negopilot_agent.routing.router import Router
 
 log = logging.getLogger(__name__)
 
 DEFAULT_ROUNDS = 1
-# 빼도 되는 검색 조건 (뺄 순서). 값은 가정 문구에 쓸 이름
+# 빼도 되는 검색 조건 (뺄 순서). 값은 안내 문구에 쓸 이름
 RELAXABLE = {"region": "지역", "min_monthly_capacity": "최소 월 생산능력", "iatf_required": "IATF 인증"}
 # 시·도별 맞닿은 지역 (business-mcp 지역 약칭). 제주는 육지와 맞닿지 않아 뱃길이 가까운 곳을 둔다
 ADJACENT = {
@@ -41,10 +40,9 @@ ADJACENT = {
     "경남": ["부산", "울산", "대구", "경북", "전북", "전남"], "울산": ["부산", "경남", "경북"], "부산": ["울산", "경남"],
     "제주": ["전남", "부산"],
 }
-# 지역 약칭으로 바꿀 때 떼는 꼬리 (business-mcp resolve_region과 같은 규칙의 간단판)
+# 지역 약칭으로 바꿀 때 쓰는 긴 이름 (business-mcp resolve_region과 같은 규칙의 간단판)
 REGION_NAMES = {"경상남": "경남", "경상북": "경북", "전라남": "전남", "전라북": "전북", "충청남": "충남", "충청북": "충북"}
-FOLLOW_UP_INTENTS = {"rfq_lookup", "supplier_search", "supplier_detail", "supplier_ranking", "offer_check",
-                     "law_check", "law_article"}
+MAX_OPTIONS = 3
 
 
 def configured_rounds() -> int:
@@ -54,18 +52,18 @@ def configured_rounds() -> int:
         return DEFAULT_ROUNDS
 
 
-ActionKind = Literal["retry_error", "relax", "follow_up"]
+ActionKind = Literal["retry_error", "suggest"]
 
 
 class ReviewAction(BaseModel):
     kind: ActionKind
     sub_query: str
     reason: str                                         # 왜 보강하는지 (로그·트레이스용)
-    detail: dict[str, Any] = Field(default_factory=dict)  # relax: 바꾼 조건, follow_up: 빠진 부분·보충 질문·추가한 하위 질문
+    detail: dict[str, Any] = Field(default_factory=dict)  # suggest: 넓힐 수 있는 조건, 결과가 있던 검색
     resolved: bool | None = None                        # 실행 뒤 결과가 나아졌는지. 실행 전에는 None
 
-    def key(self) -> tuple:
-        return self.kind, self.sub_query, self.detail.get("question")
+    def key(self) -> tuple[str, str]:
+        return self.kind, self.sub_query
 
 
 class ReviewRound(BaseModel):
@@ -74,11 +72,19 @@ class ReviewRound(BaseModel):
     regenerated: bool         # 보강 결과로 답을 다시 만들었는지
 
 
+class Suggestion(BaseModel):
+    """사용자에게 권할 다른 검색. 답 본문 끝 안내와 버튼(answer.options)으로 보인다."""
+
+    note: str
+    options: list[str]
+
+
 class ReviewLog(BaseModel):
     rounds: list[ReviewRound] = Field(default_factory=list)
     pending: list[ReviewAction] = Field(default_factory=list)   # 검토가 정하고 아직 실행하지 않은 보강
+    suggestions: list[Suggestion] = Field(default_factory=list)
 
-    def tried(self) -> set[tuple]:
+    def tried(self) -> set[tuple[str, str]]:
         return {a.key() for r in self.rounds for a in r.actions}
 
 
@@ -96,30 +102,19 @@ def plan(decomposition: DecompositionResult, routing: RouteResult | None, answer
         elif o.intent == "supplier_search" and o.status == "empty" and o.id in by_id:
             keys = [k for k in RELAXABLE if getattr(by_id[o.id].entities, k) is not None]
             if keys:
-                actions.append(ReviewAction(kind="relax", sub_query=o.id, reason="검색 결과 0건",
+                actions.append(ReviewAction(kind="suggest", sub_query=o.id, reason="검색 결과 0건",
                                             detail={"relaxable": keys}))
     return actions
 
 
-def follow_ups(critique: Critique, decomposition: DecompositionResult) -> list[ReviewAction]:
-    """검토자의 보충 질문을 보강으로 바꾼다. 하위 질문 자리가 남아 있을 때만."""
-    if critique.complete or len(decomposition.sub_queries) >= MAX_SUB_QUERIES:
-        return []
-    return [ReviewAction(kind="follow_up", sub_query="new", reason="검토자: 답에서 빠진 부분",
-                         detail={"aspect": m.aspect, "question": m.question}) for m in critique.missing]
-
-
 # ---------- 실행 ----------
 
-class Decomposer(Protocol):
-    async def decompose(self, query: str, history: list[dict] | None = None) -> DecompositionResult: ...
-
-
-async def reinforce(router: Router, decomposer: Decomposer | None, decomposition: DecompositionResult,
-                    routing: RouteResult, actions: list[ReviewAction]
-                    ) -> tuple[DecompositionResult, RouteResult, list[ReviewAction], bool]:
-    """보강을 실행한다. (분해, 라우팅, 결과를 적은 actions, 바뀐 것이 있는지)를 돌려준다."""
+async def reinforce(router: Router, decomposition: DecompositionResult, routing: RouteResult,
+                    actions: list[ReviewAction]
+                    ) -> tuple[RouteResult, list[ReviewAction], list[Suggestion], bool]:
+    """보강을 실행한다. (라우팅, 결과를 적은 actions, 사용자에게 권할 검색, 답을 다시 쓸지)를 돌려준다."""
     done: list[ReviewAction] = []
+    suggestions: list[Suggestion] = []
     changed = False
 
     retry = [a for a in actions if a.kind == "retry_error"]
@@ -131,69 +126,69 @@ async def reinforce(router: Router, decomposer: Decomposer | None, decomposition
         # 다시 해도 실패면 답이 그대로이므로 다시 쓰지 않는다 (모델 호출 비용을 아낀다)
         changed = any(a.resolved for a in done)
 
-    for a in (a for a in actions if a.kind == "relax"):
-        decomposition, routing, how = await _relax(router, decomposition, routing, a)
-        done.append(a.model_copy(update={"resolved": how is not None, "detail": a.detail | (how or {})}))
-        changed |= how is not None
+    for a in (a for a in actions if a.kind == "suggest"):
+        found = await _alternatives(router, decomposition, routing, a)
+        if found:
+            suggestions.append(found[0])
+        done.append(a.model_copy(update={"resolved": bool(found), "detail": a.detail | (found[1] if found else {})}))
 
-    for a in (a for a in actions if a.kind == "follow_up"):
-        if decomposer is None:
-            done.append(a.model_copy(update={"resolved": False}))
-            continue
-        decomposition, routing, added = await _follow_up(router, decomposer, decomposition, routing, a)
-        resolved = any(o.status == "ok" for o in routing.outcomes if o.id in added)
-        done.append(a.model_copy(update={"resolved": resolved, "detail": a.detail | {"added": added}}))
-        changed |= resolved
-
-    return decomposition, routing, done, changed
+    return routing, done, suggestions, changed
 
 
-async def _relax(router: Router, decomposition: DecompositionResult, routing: RouteResult,
-                 action: ReviewAction) -> tuple[DecompositionResult, RouteResult, dict[str, Any] | None]:
-    """0건 검색을 넓힌다. 지역이 있으면 인접 지역부터, 그래도 없으면 조건을 앞에서부터 하나씩 더 뺀다.
-
-    결과가 나온 방법을 detail로 돌려준다 ({"nearby": [...]} 또는 {"dropped": [...]}). 끝까지 0건이면 None.
-    """
+async def _alternatives(router: Router, decomposition: DecompositionResult, routing: RouteResult,
+                        action: ReviewAction) -> tuple[Suggestion, dict[str, Any]] | None:
+    """조건을 넓힌 검색을 미리 해 보고, 결과가 있는 검색 문장만 돌려준다. 실제 답과 Routing 결과는 바꾸지 않는다."""
     sq = next(s for s in decomposition.sub_queries if s.id == action.sub_query)
     keys: list[str] = action.detail["relaxable"]
 
+    async def has_results(update: dict[str, Any]) -> bool:
+        result = await router.rerun(_with_entities(decomposition, sq, update), routing, {sq.id})
+        return next(o for o in result.outcomes if o.id == sq.id).status == "ok"
+
     region = sq.entities.region
-    neighbors = ADJACENT.get(_region_abbr(region), []) if isinstance(region, str) else []
-    if neighbors:
-        found = []
-        for name in neighbors:
-            candidate = _with_entities(decomposition, sq, {"region": name})
-            result = await router.rerun(candidate, routing, {sq.id})
-            outcome = next(o for o in result.outcomes if o.id == sq.id)
-            if outcome.status == "ok":
-                found.append((name, outcome))
-        if found:
-            names = [n for n, _ in found]
-            # 지역마다 부른 검색을 한 하위 질문의 결과로 합친다. 분해의 지역 값은 원래대로 두고 가정에 밝힌다
-            merged = found[0][1].model_copy(update={"calls": [c for _, o in found for c in o.calls]})
-            routing = routing.model_copy(update={
-                "outcomes": [merged if o.id == sq.id else o for o in routing.outcomes]})
-            note = (f"'{sq.original_text}' 조건에 맞는 협력사가 {region}에 없어 "
-                    f"인접 지역({', '.join(names)})에서 찾았습니다.")
-            return (decomposition.model_copy(update={"assumptions": [*decomposition.assumptions, note]}), routing,
-                    {"nearby": names})
+    if isinstance(region, str):
+        nearby = [n for n in ADJACENT.get(_region_abbr(region), []) if await has_results({"region": n})]
+        if nearby:
+            nearby = nearby[:MAX_OPTIONS]
+            note = (f"{region}에는 조건에 맞는 협력사가 없습니다. 인접 지역({', '.join(nearby)})에는 있어요. "
+                    "아래에서 골라 다시 찾아볼 수 있습니다.")
+            return (Suggestion(note=note, options=[_search_sentence(sq, {"region": n}) for n in nearby]),
+                    {"nearby": nearby})
 
     for n in range(1, len(keys) + 1):
         dropped = keys[:n]
-        candidate = _with_entities(decomposition, sq, dict.fromkeys(dropped))
-        result = await router.rerun(candidate, routing, {sq.id})
-        if next(o for o in result.outcomes if o.id == sq.id).status == "ok":
+        update = dict.fromkeys(dropped)
+        if await has_results(update):
             removed = ", ".join(f"{RELAXABLE[k]}({_shown(getattr(sq.entities, k))})" for k in dropped)
-            note = f"'{sq.original_text}' 조건에 맞는 협력사가 없어 {removed} 조건을 빼고 다시 찾았습니다."
-            return (candidate.model_copy(update={"assumptions": [*decomposition.assumptions, note]}), result,
-                    {"dropped": dropped})
-    return decomposition, routing, None
+            note = f"조건에 맞는 협력사가 없습니다. {removed} 조건을 빼면 찾을 수 있어요. 아래 문장으로 다시 찾아볼 수 있습니다."
+            return Suggestion(note=note, options=[_search_sentence(sq, update)]), {"dropped": dropped}
+    return None
 
 
 def _with_entities(decomposition: DecompositionResult, sq: SubQuery, update: dict[str, Any]) -> DecompositionResult:
     changed = sq.model_copy(update={"entities": sq.entities.model_copy(update=update)})
     return decomposition.model_copy(update={
         "sub_queries": [changed if s.id == sq.id else s for s in decomposition.sub_queries]})
+
+
+def _search_sentence(sq: SubQuery, update: dict[str, Any]) -> str:
+    """버튼을 누르면 입력창에 들어갈 검색 문장. 분해기가 같은 조건으로 다시 나눌 수 있게 조건을 모두 적는다."""
+    e = sq.entities.model_copy(update=update)
+    parts = [e.region,
+             f"월 생산능력 {e.min_monthly_capacity:,}개 이상" if e.min_monthly_capacity else None,
+             "IATF 인증" if e.iatf_required else None,
+             e.material, e.process]
+    return " ".join(p for p in parts if p) + " 협력사 찾아줘"
+
+
+def with_suggestions(answer: Answer, suggestions: list[Suggestion]) -> Answer:
+    """답 끝에 안내를 붙이고 버튼을 단다. 이미 선택지가 있는 답(기업 선택 되묻기 등)은 건드리지 않는다."""
+    if not suggestions or answer.options or answer.kind in ("clarify", "refusal", "failed"):
+        return answer
+    notes = [s.note for s in suggestions if s.note not in answer.text]
+    options = list(dict.fromkeys(o for s in suggestions for o in s.options))[:MAX_OPTIONS]
+    text = "\n\n".join([answer.text, *notes]) if notes else answer.text
+    return answer.model_copy(update={"text": text, "options": options})
 
 
 def _region_abbr(region: str) -> str:
@@ -206,56 +201,6 @@ def _region_abbr(region: str) -> str:
             name = name[: -len(suffix)]
             break
     return name[:2] if name[:2] in ADJACENT else name
-
-
-async def _follow_up(router: Router, decomposer: Decomposer, decomposition: DecompositionResult,
-                     routing: RouteResult, action: ReviewAction) -> tuple[DecompositionResult, RouteResult, list[str]]:
-    """검토자의 보충 질문을 분해기로 하위 질문으로 바꿔 기존 분해 뒤에 붙이고, 새 하위 질문만 실행한다.
-
-    원래 질문(original_query)과 기존 하위 질문·결과는 그대로 둔다. 이미 있는 하위 질문과 같은 것은 붙이지 않는다.
-    """
-    try:
-        extra = await decomposer.decompose(action.detail["question"])
-    except Exception as error:  # noqa: BLE001 - 보충은 덤이다. 실패해도 원래 답은 그대로 둔다
-        log.warning("보충 질문 분해 실패: %s", type(error).__name__)
-        return decomposition, routing, []
-    if extra.status != "ok":
-        return decomposition, routing, []
-
-    existing = {_signature(s) for s in decomposition.sub_queries}
-    room = MAX_SUB_QUERIES - len(decomposition.sub_queries)
-    next_no = 1 + max(int(s.id[1:]) for s in decomposition.sub_queries)
-    ids: dict[str, str] = {}
-    added: list[SubQuery] = []
-    for s in extra.sub_queries:
-        if len(added) >= room:
-            break
-        # 앞 결과가 필요한 하위 질문은 그 앞 질문도 함께 붙었을 때만 쓴다
-        if (s.intent not in FOLLOW_UP_INTENTS or _signature(s) in existing
-                or any(d not in ids for d in s.depends_on)):
-            continue
-        ids[s.id] = f"q{next_no + len(added)}"
-        added.append(s.model_copy(update={
-            "id": ids[s.id],
-            "depends_on": [ids[d] for d in s.depends_on],
-            "inputs": [i.model_copy(update={"from_": ids[i.from_]}) for i in s.inputs]}))
-        existing.add(_signature(s))
-    if not added:
-        return decomposition, routing, []
-
-    try:
-        extended = DecompositionResult.model_validate(
-            decomposition.model_copy(update={"sub_queries": [*decomposition.sub_queries, *added]})
-            .model_dump(by_alias=True))
-    except ValueError as error:
-        log.warning("보충 하위 질문을 붙이지 못함: %s", error)
-        return decomposition, routing, []
-    new_ids = [s.id for s in added]
-    return extended, await router.rerun(extended, routing, set(new_ids)), new_ids
-
-
-def _signature(sq: SubQuery) -> tuple:
-    return sq.intent, sq.entities.model_dump_json(exclude_none=True)
 
 
 def _shown(value: Any) -> str:
