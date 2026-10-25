@@ -301,3 +301,41 @@ def test_unconfigured_server_refuses(monkeypatch):
     with pytest.raises(ToolError, match="MAIL_NOT_CONFIGURED"):
         server.mailer()
     server.mailer.cache_clear()
+
+
+# ---------- 회신 주소 (Reply-To) ----------
+
+def test_reply_to_is_the_document_sender(mailer):
+    doc = document(sender=SENDER)
+    preview = mailer.preview(doc, attachments())
+    assert preview["reply_to"] == "박구매 <buy@hanbit.example.test>"
+    assert preview["from"].endswith("<purchasing@buyer.example.test>")        # From은 그대로 공용 주소
+    sent = mailer.send(doc, preview["confirmation_token"], "user-42", attachments())
+    assert sent["mail"]["reply_to"] == "박구매 <buy@hanbit.example.test>"
+
+
+def test_reply_to_falls_back_without_a_valid_sender_email(mailer):
+    assert mailer.preview(document(), attachments())["reply_to"] == "reply@buyer.example.test"
+    bad = document(sender=SENDER | {"email": "not-an-email\r\nBcc: x@evil.test"})
+    assert mailer.preview(bad, attachments())["reply_to"] == "reply@buyer.example.test"
+    no_env = om.OfferMailer(FakeContacts(), mailer.confirmations, mailer.log, om.DryRunTransport(),
+                            om.Settings("purchasing@buyer.example.test", "바이어 구매팀", "바이어", None))
+    preview = no_env.preview(document(), attachments())
+    assert preview["reply_to"] is None
+    sent = no_env.send(document(), preview["confirmation_token"], "user-42", attachments())
+    assert sent["mail"]["reply_to"] is None
+
+
+def test_changing_sender_email_invalidates_the_token(mailer):
+    preview = mailer.preview(document(sender=SENDER), attachments())
+    other = document(sender=SENDER | {"email": "attacker@evil.example.test"})
+    with pytest.raises(om.MailError):
+        mailer.send(other, preview["confirmation_token"], "user-42", attachments())
+
+
+def test_built_message_uses_given_reply_to(mailer):
+    contact = FakeContacts().find("SUP-0060", None)
+    msg = om.build_message("제목", "본문", contact, mailer.settings, om.decode_attachments(attachments()),
+                           "박구매 <buy@hanbit.example.test>")
+    assert msg["Reply-To"].addresses[0].addr_spec == "buy@hanbit.example.test"
+    assert b"buy@hanbit.example.test" in msg.as_bytes()
