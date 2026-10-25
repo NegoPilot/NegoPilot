@@ -18,8 +18,9 @@ status별 처리는 Routing 결과 계약(docs/contracts/routing.md) 3절을 따
 import logging
 import os
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import anthropic
 import openai
@@ -33,6 +34,9 @@ from negopilot_agent.generation.backends import Backend, GenerationAnthropicBack
 from negopilot_agent.generation.evidence import build_evidence
 from negopilot_agent.generation.prompt import SYSTEM_PROMPT, build_user_message
 from negopilot_agent.generation.size_answer import render_size_answer
+
+if TYPE_CHECKING:
+    from negopilot_agent.issue_review import LegalIssue
 
 log = logging.getLogger(__name__)
 
@@ -258,7 +262,9 @@ class AnswerGenerator:
             self._backend = make_backend(self.settings, self._client)
         return self._backend
 
-    async def generate(self, decomposition: DecompositionResult, routing: RouteResult) -> Answer:
+    async def generate(self, decomposition: DecompositionResult, routing: RouteResult,
+                       issues: Sequence["LegalIssue"] = ()) -> Answer:
+        """issues: 쟁점 검토 노드가 고른 쟁점. 있으면 답변이 쟁점마다 그 조문 근거를 인용하게 한다."""
         # not_routed면 Routing 결과는 보지 않고 분해 status로 처리한다 (계약 3절)
         if routing.status == "not_routed":
             c = decomposition.clarification
@@ -281,9 +287,10 @@ class AnswerGenerator:
         if p.missing:
             p.notices.append(clarification_text(p))
         evidence = build_evidence(routing, {sq.id: sq.question for sq in decomposition.sub_queries})
-        return await self._write(decomposition, evidence, p)
+        return await self._write(decomposition, evidence, p, issues)
 
-    async def _write(self, decomposition: DecompositionResult, evidence: list[Evidence], p: Plan) -> Answer:
+    async def _write(self, decomposition: DecompositionResult, evidence: list[Evidence], p: Plan,
+                     issues: Sequence["LegalIssue"] = ()) -> Answer:
         if size_requested(decomposition):
             deterministic = render_size_answer(evidence, p.notices, decomposition.original_query)
             if deterministic is not None:
@@ -294,7 +301,7 @@ class AnswerGenerator:
             evidence = [e for e in evidence if e.kind != "company_size"]
         # 질문이나 가정이 법적 결론을 정해 주면, 모델이 그 지시를 따랐는지 아래에서 한 번 더 본다 (#222)
         override = guard.overrides(decomposition.original_query) or any(map(guard.sets_conclusion, decomposition.assumptions))
-        user = build_user_message(decomposition, evidence, p.notices, override)
+        user = build_user_message(decomposition, evidence, p.notices, override, issues)
         allowed = [decomposition.original_query, *(a for a in decomposition.assumptions if not guard.sets_conclusion(a)),
                    *(sq.question for sq in decomposition.sub_queries)]
         extra = ""

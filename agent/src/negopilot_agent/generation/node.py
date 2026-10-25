@@ -18,6 +18,7 @@ class GenerationState(TypedDict):
     decomposition: DecompositionResult
     routing: NotRequired[RouteResult]     # 분해가 clarify/failed면 Routing 결과가 없을 수도 있다
     answer: NotRequired[Answer]
+    issues: NotRequired[list]             # 쟁점 검토 노드가 고른 쟁점 (issue_review, 켰을 때만)
 
 
 def make_generate_node(generator: AnswerGenerator | None = None):
@@ -28,6 +29,9 @@ def make_generate_node(generator: AnswerGenerator | None = None):
         if "g" not in holder:
             holder["g"] = generator or AnswerGenerator()
         routing = state.get("routing") or RouteResult(status="not_routed")
-        return {"answer": await holder["g"].generate(state["decomposition"], routing)}
+        issues = state.get("issues") or []
+        answer = (await holder["g"].generate(state["decomposition"], routing, issues) if issues
+                  else await holder["g"].generate(state["decomposition"], routing))
+        return {"answer": answer}
 
     return generate

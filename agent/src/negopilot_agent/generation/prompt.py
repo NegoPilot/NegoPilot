@@ -5,11 +5,16 @@
 """
 
 import json
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from negopilot_shared import DecompositionResult
 
 from negopilot_agent.generation.answer import Evidence
 from negopilot_agent.generation.guard import OVERRIDE_REMINDER
+
+if TYPE_CHECKING:
+    from negopilot_agent.issue_review import LegalIssue
 
 SYSTEM_PROMPT = """\
 너는 자동차 부품 1차 협력사 구매팀을 돕는 단가 협상 Agent NegoPilot의 답변 작성 단계다.
@@ -110,8 +115,19 @@ LAW_REMINDER = """\
 </law_reminder>"""
 
 
+ISSUES_REMINDER = """\
+<review_issues>
+쟁점 검토 단계가 이 상황의 법적 쟁점과 결론을 좌우하는 하도급법 조문을 골랐다.
+답변에서 쟁점마다 한 단락 이상 다루고, 그 조문 근거(label에 조문 번호가 있는 근거)의 id를 인용한다.
+정의 조문이면 상황 속 대상(원재료, 계약 등)이 그 정의에 해당하는지를 정의 조문 근거로 쓴다.
+근거로 확인할 수 없는 쟁점은 "확인 필요"라고 쓴다. 이 목록은 다룰 쟁점일 뿐 결론이 아니다.
+{lines}
+</review_issues>"""
+
+
 def build_user_message(decomposition: DecompositionResult, evidence: list[Evidence],
-                       notices: list[str], override: bool = False) -> str:
+                       notices: list[str], override: bool = False,
+                       issues: "Sequence[LegalIssue]" = ()) -> str:
     sub_queries = [{"id": sq.id, "question": sq.question, "original_text": sq.original_text,
                     "intent": sq.intent, "grounding": sq.grounding}
                    for sq in decomposition.sub_queries]
@@ -126,6 +142,10 @@ def build_user_message(decomposition: DecompositionResult, evidence: list[Eviden
     if any(e.source == "law" for e in evidence):
         # 긴 근거 목록 뒤에서 조건을 바꿔 말하거나 뒤쪽 항을 빠뜨리기 쉬워서, 규칙 7·8을 근거 바로 뒤에 다시 적는다
         parts.append(LAW_REMINDER)
+    if issues:
+        # 근거로 가져온 쟁점 조문을 답변이 빠뜨리지 않게, 쟁점 목록을 근거 뒤에 둔다 (법률 검토 실험 5차: 미인용 누락 25→3건)
+        parts.append(ISSUES_REMINDER.format(
+            lines="\n".join(f"- {i.issue}: {i.law} {i.article_no} ({i.title})" for i in issues)))
     if override:
         # 질문 속 결론 지시를 근거보다 나중에 읽으면 따르기 쉬워서, 규칙 6을 근거 바로 뒤에 다시 적는다 (#222)
         parts.append(OVERRIDE_REMINDER)
