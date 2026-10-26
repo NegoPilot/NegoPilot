@@ -92,10 +92,17 @@ final class MemoryUploadStore extends LegalReviewUploadStore {
 
     @Override boolean requeue(Key key) {
         ObjectNode row = rows.get(key);
-        if (row == null || !row.get("status").stringValue().equals("FAILED")) return false;
+        if (row == null || !List.of("FAILED", "SKIPPED").contains(row.get("status").stringValue())) return false;
         row.put("status", "QUEUED");
         row.remove(List.of("error_code", "error_retryable", "execution_status", "started_at", "finished_at"));
         return true;
+    }
+
+    @Override void lockOwner(UUID owner) { }
+
+    @Override int pending(UUID owner) {
+        return (int) rows.values().stream().filter(r -> r.get("created_by").stringValue().equals(owner.toString())
+                && List.of("QUEUED", "RUNNING").contains(r.get("status").stringValue())).count();
     }
 
     @Override int expireRunning(boolean all) {

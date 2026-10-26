@@ -33,19 +33,21 @@ class LegalReviewUploadServiceTest {
     NegotiationReviews negotiations;
     List<Runnable> pending;
     LegalReviewUploadService service;
+    LegalReviewRunner runner;
+    TransactionTemplate transactions;
 
     @BeforeEach void setup() {
         store = new MemoryUploadStore(JSON);
         negotiations = mock(NegotiationReviews.class);
         pending = new ArrayList<>();
         var agent = new AgentProperties(URI.create("http://127.0.0.1:9200"), "", Duration.ofSeconds(2), Duration.ofSeconds(35));
-        var runner = new LegalReviewRunner(store, negotiations, agent, pending::add);   // 테스트가 실행 시점을 정한다
-        var transactions = new TransactionTemplate(new PlatformTransactionManager() {
+        runner = new LegalReviewRunner(store, negotiations, agent, pending::add);   // 테스트가 실행 시점을 정한다
+        transactions = new TransactionTemplate(new PlatformTransactionManager() {
             public TransactionStatus getTransaction(TransactionDefinition definition) { return new SimpleTransactionStatus(); }
             public void commit(TransactionStatus status) { }
             public void rollback(TransactionStatus status) { }
         });
-        service = new LegalReviewUploadService(store, runner, transactions, JSON);
+        service = new LegalReviewUploadService(store, runner, transactions, JSON, 30);
         when(negotiations.create(any(), any(), any(), any(), any(), any())).thenAnswer(inv -> UUID.randomUUID());
     }
 
@@ -108,7 +110,7 @@ class LegalReviewUploadServiceTest {
         bad.set(4, "육십일");
         reviewsSucceed("needs_information");
 
-        ObjectNode accepted = service.upload(owner, "조건.xlsx", workbook(row("SUP-0034"), bad, row("SUP-0034")), UUID.randomUUID());
+        ObjectNode accepted = service.upload(owner, "조건.xlsx", workbook(row("SUP-0034"), bad, row("SUP-0034")), null, UUID.randomUUID());
         assertThat(accepted.get("status").stringValue()).isEqualTo("PROCESSING");
         assertThat(accepted.get("counts").get("queued").intValue()).isEqualTo(2);
         assertThat(accepted.get("counts").get("invalid").intValue()).isEqualTo(1);
@@ -165,7 +167,7 @@ class LegalReviewUploadServiceTest {
                 })
                 .thenAnswer(inv -> saveReview(inv.getArgument(1), "ready"));
         UUID id = uploadId(service.upload(owner, "조건.xlsx",
-                workbook(row("SUP-0034"), row("SUP-0060"), row("SUP-0070"), row("SUP-0080")), UUID.randomUUID()));
+                workbook(row("SUP-0034"), row("SUP-0060"), row("SUP-0070"), row("SUP-0080")), null, UUID.randomUUID()));
         runPending();
 
         JsonNode rows = service.get(owner, id, UUID.randomUUID()).get("rows");
@@ -211,7 +213,7 @@ class LegalReviewUploadServiceTest {
         reviewsSucceed("ready");
         List<Object> bad = row("SUP-0034");
         bad.set(6, null);
-        UUID id = uploadId(service.upload(owner, "조건.xlsx", workbook(row("SUP-0034"), bad), UUID.randomUUID()));
+        UUID id = uploadId(service.upload(owner, "조건.xlsx", workbook(row("SUP-0034"), bad), null, UUID.randomUUID()));
         assertError(() -> service.retry(owner, id, 2, UUID.randomUUID()), 409, "REVIEW_IN_PROGRESS");
         runPending();
         assertError(() -> service.retry(owner, id, 2, UUID.randomUUID()), 409, "ROW_ALREADY_REVIEWED");
@@ -227,7 +229,7 @@ class LegalReviewUploadServiceTest {
     }
 
     @Test void expiredRunningRowsBecomeRetryableFailures() {
-        UUID id = uploadId(service.upload(owner, "조건.xlsx", workbook(row("SUP-0034")), UUID.randomUUID()));
+        UUID id = uploadId(service.upload(owner, "조건.xlsx", workbook(row("SUP-0034")), null, UUID.randomUUID()));
         var key = new LegalReviewUploadStore.Key(id, 2);
         store.claim(key, OffsetDateTime.now().minusSeconds(1), UUID.randomUUID());
         JsonNode row = service.get(owner, id, UUID.randomUUID()).get("rows").get(0);
@@ -236,6 +238,56 @@ class LegalReviewUploadServiceTest {
         // 대기열의 실행은 이미 정리된 행을 다시 가져가지 않는다
         runPending();
         verifyNoInteractions(negotiations);
+    }
+
+    @Test void onlyRequestedSupplierRowsAreReviewedAndSkippedRowsCanBeRequested() {
+        reviewsSucceed("ready");
+        List<Object> bad = row("SUP-0060");
+        bad.set(4, "육십일");
+        UUID id = uploadId(service.upload(owner, "조건.xlsx", workbook(row("SUP-0034"), row("SUP-0060"), row("SUP-0034"), bad),
+                "SUP-0034", UUID.randomUUID()));
+        runPending();
+
+        ObjectNode done = service.get(owner, id, UUID.randomUUID());
+        assertThat(done.get("status").stringValue()).isEqualTo("DONE");
+        assertThat(done.get("counts").get("completed").intValue()).isEqualTo(2);
+        assertThat(done.get("counts").get("skipped").intValue()).isEqualTo(1);
+        assertThat(done.get("counts").get("invalid").intValue()).isEqualTo(1);
+        JsonNode skipped = done.get("rows").get(1);
+        assertThat(skipped.get("status").stringValue()).isEqualTo("SKIPPED");
+        assertThat(skipped.get("negotiation_id").isNull()).isTrue();
+        // 다른 협력사 행은 협상 작업도 Agent 검토도 만들지 않는다
+        verify(negotiations, never()).create(any(), eq("SUP-0060"), any(), any(), any(), any());
+        verify(negotiations, times(2)).review(any(), any(), any(), any(), any());
+
+        // 건너뛴 행은 retry로 검토를 요청한다
+        assertThat(service.retry(owner, id, 3, UUID.randomUUID()).get("status").stringValue()).isEqualTo("QUEUED");
+        runPending();
+        assertThat(service.row(owner, id, 3, UUID.randomUUID()).get("status").stringValue()).isEqualTo("COMPLETED");
+        verify(negotiations).create(any(), eq("SUP-0060"), any(), any(), any(), any());
+    }
+
+    @Test void pendingRowsPerUserAreLimited() {
+        reviewsSucceed("ready");
+        service = new LegalReviewUploadService(store, runner, transactions, JSON, 2);
+        UUID first = uploadId(service.upload(owner, "조건.xlsx", workbook(row("SUP-0034"), row("SUP-0060")), "SUP-0034", UUID.randomUUID()));
+        service.upload(owner, "조건.xlsx", workbook(row("SUP-0034")), null, UUID.randomUUID());
+
+        // 대기 2행이 차 있으면 업로드도, 건너뛴 행의 검토 요청도 거절하고 저장하지 않는다
+        assertError(() -> service.upload(owner, "조건.xlsx", workbook(row("SUP-0034")), null, UUID.randomUUID()), 429, "TOO_MANY_PENDING_REVIEWS");
+        assertError(() -> service.retry(owner, first, 3, UUID.randomUUID()), 429, "TOO_MANY_PENDING_REVIEWS");
+        assertThat(store.uploads).hasSize(2);
+        assertThat(service.row(owner, first, 3, UUID.randomUUID()).get("status").stringValue()).isEqualTo("SKIPPED");
+        // 다른 사용자는 영향을 받지 않는다
+        service.upload(UUID.randomUUID(), "조건.xlsx", workbook(row("SUP-0034")), null, UUID.randomUUID());
+        // 대기 행이 없는 업로드(모두 건너뜀)는 한도와 상관없다
+        service.upload(owner, "조건.xlsx", workbook(row("SUP-0060")), "SUP-0034", UUID.randomUUID());
+
+        // 앞선 검토가 끝나면 다시 받는다
+        runPending();
+        service.upload(owner, "조건.xlsx", workbook(row("SUP-0034")), null, UUID.randomUUID());
+        assertThat(service.retry(owner, first, 3, UUID.randomUUID()).get("status").stringValue()).isEqualTo("QUEUED");
+        assertError(() -> service.upload(owner, "조건.xlsx", workbook(row("SUP-0034")), null, UUID.randomUUID()), 429, "TOO_MANY_PENDING_REVIEWS");
     }
 
     private static void assertError(Runnable action, int status, String code) {

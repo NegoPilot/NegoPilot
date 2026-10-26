@@ -55,10 +55,20 @@ class LegalReviewUploadControllerTest {
 
     @Test void uploadIsAcceptedForActiveMembers() throws Exception {
         ObjectNode view = mapper.createObjectNode().put("upload_id", "u-1").put("status", "PROCESSING");
-        when(service.upload(any(), any(), any(), any())).thenReturn(view);
+        when(service.upload(any(), any(), any(), any(), any())).thenReturn(view);
         mvc.perform(multipart(BASE).file(xlsx("c:\\temp\\조건.xlsx")).with(member("ACTIVE")).with(csrf().asHeader()))
                 .andExpect(status().isAccepted()).andExpect(jsonPath("$.upload_id").value("u-1"));
-        verify(service).upload(eq(owner), eq("조건.xlsx"), any(), any());
+        verify(service).upload(eq(owner), eq("조건.xlsx"), any(), isNull(), any());
+
+        // 협력사를 고르면 그 행만 검토한다. 형식이 틀리면 파일을 읽기 전에 거절한다
+        mvc.perform(multipart(BASE).file(xlsx("조건.xlsx")).param("supplier_id", "SUP-0034").with(member("ACTIVE")).with(csrf().asHeader()))
+                .andExpect(status().isAccepted());
+        verify(service).upload(eq(owner), eq("조건.xlsx"), any(), eq("SUP-0034"), any());
+        mvc.perform(multipart(BASE).file(xlsx("조건.xlsx")).param("supplier_id", "sup-34").with(member("ACTIVE")).with(csrf().asHeader()))
+                .andExpect(status().isBadRequest());
+        mvc.perform(multipart(BASE).file(xlsx("조건.xlsx")).param("supplier_id", "SUP-0034", "SUP-0060").with(member("ACTIVE")).with(csrf().asHeader()))
+                .andExpect(status().isBadRequest());
+        verify(service, times(2)).upload(any(), any(), any(), any(), any());
     }
 
     @Test void rejectsBadUploadsBeforeParsing() throws Exception {
