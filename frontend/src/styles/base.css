@@ -344,8 +344,8 @@ input[aria-invalid='true'] {
 }
 
 :root {
-  /* 고정 상단바(관리자 화면) 아래로 스크롤 위치를 맞춘다. 상단바가 없으면 0 */
-  scroll-padding-top: var(--admin-header-height, 0px);
+  /* 고정 상단바(관리자 화면, 업무 화면의 상단 메뉴) 아래로 스크롤 위치를 맞춘다. 상단바가 없으면 0 */
+  scroll-padding-top: var(--admin-header-height, var(--page-header-height, 0px));
 }
 
 :focus-visible {
