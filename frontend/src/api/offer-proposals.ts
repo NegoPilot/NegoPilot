@@ -93,6 +93,8 @@ export interface RenderedOffer {
 export interface MailPreview {
   to: { name: string; email: string; supplier_name: string }
   from: string
+  /** 협력사가 답장하면 가는 주소. mail-mcp가 제안서 발신 담당자로 넣고, 없으면 null (mail.md 2절) */
+  reply_to?: string | null
   subject: string
   body: string
   attachments: Array<{ filename: string; content_type: string; bytes: number }>
@@ -286,7 +288,8 @@ const live = {
         acknowledgements: { check_needed: ref.checkNeeded, unresolved_issue_ids: ref.unresolved } }) }, SLOW)
     return {
       to: { name: mail.to.name, email: mail.to.email, supplier_name: mail.to.supplier_name ?? rendered.document.supplier_name },
-      from: decodeHeader(String(mail.from)), subject: mail.subject, body: mail.body, attachments: mail.attachments,
+      from: decodeHeader(String(mail.from)), reply_to: typeof mail.reply_to === 'string' ? decodeHeader(mail.reply_to) : null,
+      subject: mail.subject, body: mail.body, attachments: mail.attachments,
       expires_at: mail.expires_at, mail_id: mail.mail_id, content_hash: mail.content_hash,
     }
   },
@@ -505,7 +508,7 @@ const mock = {
     const attachment = rendered.attachments.find(a => a.filename.endsWith('.pdf'))!
     return {
       to: { name: '김영업', email: `sales.${d.supplier_id.toLowerCase()}@example.test`, supplier_name: d.supplier_name },
-      from: `${d.sender.contact_name} <${d.sender.email}>`,
+      from: 'NegoPilot 구매팀 <purchasing@negopilot.local>', reply_to: `${d.sender.contact_name} <${d.sender.email}>`,
       ...mockCompose(d, '김영업', message),
       attachments: [{ filename: attachment.filename, content_type: attachment.content_type, bytes: atob(attachment.data_base64).length }],
       confirmation_token: `mock-token-${Date.now()}`, expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
