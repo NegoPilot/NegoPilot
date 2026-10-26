@@ -446,6 +446,9 @@ export function describeOfferError(error: ApiError): string | null {
     REVISION_CONFLICT: '다른 곳에서 먼저 고쳤습니다. 화면을 새로 고친 뒤 다시 수정해 주세요.',
     NOT_XLSX: error.message, SUPPLIER_AMBIGUOUS: error.message, SUPPLIER_NOT_IN_FILE: error.message, ROW_INVALID: error.message,
     REVIEW_TIMEOUT: '법규 검토가 오래 걸리고 있습니다. 잠시 뒤 다시 불러와 주세요.', NO_OFFER: `협상안을 만들 수 없습니다: ${error.message}`,
+    // 업로드 한도 초과는 Spring과 nginx 모두 413 CONTENT_TOO_LARGE다. JSON이 아닌 413(HTTP_413)도 같은 안내로 본다
+    CONTENT_TOO_LARGE: '파일이 1MB를 넘습니다. 1MB 이하로 줄여 다시 올려 주세요.',
+    HTTP_413: '파일이 1MB를 넘습니다. 1MB 이하로 줄여 다시 올려 주세요.',
     VALIDATION_ERROR: Array.isArray(error.details?.errors)
       ? `엑셀 형식 오류 · ${(error.details!.errors as Array<{ column?: string; message?: string }>).map(e => [e.column, e.message].filter(Boolean).join(': ')).join(' / ')}`
       : '입력값을 확인해 주세요.',
