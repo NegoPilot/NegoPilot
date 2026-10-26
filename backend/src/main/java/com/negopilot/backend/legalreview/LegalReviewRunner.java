@@ -4,6 +4,7 @@ import com.negopilot.backend.agent.AgentProperties;
 import com.negopilot.backend.common.api.ApiException;
 import com.negopilot.backend.negotiation.NegotiationReviews;
 import jakarta.annotation.PreDestroy;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -71,13 +72,16 @@ class LegalReviewRunner {
         try {
             ObjectNode row = store.row(key);
             UUID owner = UUID.fromString(row.get("created_by").stringValue());
+            // 실행마다 request_id는 새로 받지만 작업 생성·검토 저장은 행 기준으로 한 번만 일어난다.
+            // 앞선 실행이 연결 전에 멈췄거나 임대가 끝난 뒤 저장했어도, 다시 실행하면 그 작업과 검토를 그대로 받는다
+            UUID source = source(key);
             UUID workspace = row.path("negotiation_id").isString() ? UUID.fromString(row.get("negotiation_id").stringValue()) : null;
             if (workspace == null) {
                 workspace = negotiations.create(owner, row.get("supplier_id").stringValue(), row.get("rfq_id").stringValue(),
-                        title(row), requestId);
+                        title(row), source, requestId);
                 store.attachWorkspace(key, workspace);
             }
-            NegotiationReviews.Outcome outcome = negotiations.review(owner, workspace, (ObjectNode) row.get("offer"), requestId);
+            NegotiationReviews.Outcome outcome = negotiations.review(owner, workspace, (ObjectNode) row.get("offer"), source, requestId);
             JsonNode body = outcome.body();
             if (outcome.status() == 201) {
                 result.put("status", "COMPLETED").put("review_revision", body.get("review_revision").intValue())
@@ -95,6 +99,11 @@ class LegalReviewRunner {
             result.put("status", "FAILED").put("error_code", "INTERNAL_ERROR").put("error_retryable", true);
         }
         if (!store.finish(key, result)) log.info("임대가 끝난 법규 검토 결과는 행에 쓰지 않음: {} {}행", key.uploadId(), key.rowNumber());
+    }
+
+    /** 업로드 행마다 고정된 값. 협상 작업 생성·검토 저장의 멱등 키를 이 값에서 만든다. */
+    static UUID source(LegalReviewUploadStore.Key key) {
+        return UUID.nameUUIDFromBytes(("legal-review-row:" + key.uploadId() + ":" + key.rowNumber()).getBytes(StandardCharsets.UTF_8));
     }
 
     /** 작업 목록에서 업로드 행을 알아볼 수 있게 "파일 이름 N행"을 붙인다. */

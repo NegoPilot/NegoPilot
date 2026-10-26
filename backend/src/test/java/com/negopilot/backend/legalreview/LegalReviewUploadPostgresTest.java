@@ -130,14 +130,92 @@ class LegalReviewUploadPostgresTest {
         // 조건을 바꾼 재검토는 같은 작업에 버전을 쌓는다. 행에는 업로드로 만든 버전과 현재 최신 버전이 함께 보인다
         ObjectNode changed = (ObjectNode) jdbc.queryForObject("SELECT offer::text FROM legal_review_rows WHERE upload_id=? AND row_number=2",
                 (rs, n) -> JSON.readTree(rs.getString(1)), id);
-        changed.put("payment_days", 45);
-        assertThat(negotiations.reviews.review(owner, workspace, changed, UUID.randomUUID()).status()).isEqualTo(201);
+        changed.remove(List.of("supplier", "rfq_id"));
+        changed.put("payment_days", 45).put("base_revision", 1);
+        assertThat(negotiations.review(owner, workspace, changed)).isEqualTo(201);
         JsonNode after = service.row(owner, id, 2, UUID.randomUUID());
         assertThat(after.get("review_revision").intValue()).isEqualTo(1);
         assertThat(after.get("review_head_revision").intValue()).isEqualTo(2);
         assertThat(jdbc.queryForList("SELECT payment_days FROM neg_review_revisions WHERE workspace_id=? ORDER BY revision", Integer.class, workspace))
                 .containsExactly(60, 45);
         assertThat(service.list(UUID.randomUUID(), 20).get("items")).isEmpty();
+    }
+
+    private ObjectNode offer(UUID id, int rowNumber) {
+        return (ObjectNode) jdbc.queryForObject("SELECT offer::text FROM legal_review_rows WHERE upload_id=? AND row_number=?",
+                (rs, n) -> JSON.readTree(rs.getString(1)), id, rowNumber);
+    }
+
+    private int revisions(UUID workspace) {
+        return jdbc.queryForObject("SELECT count(*) FROM neg_review_revisions WHERE workspace_id=?", Integer.class, workspace);
+    }
+
+    @Test void sameRowCreatesOneNegotiationWithTitleInOneInsert() {
+        UUID source = UUID.randomUUID();
+        UUID first = negotiations.reviews.create(owner, "SUP-0034", "RFQ-2026-001", "조건.xlsx 2행", source, UUID.randomUUID());
+        // 연결 전에 멈춘 실행을 다시 돌려도 같은 작업을 받는다
+        UUID again = negotiations.reviews.create(owner, "SUP-0034", "RFQ-2026-001", "조건.xlsx 2행", source, UUID.randomUUID());
+        assertThat(again).isEqualTo(first);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM neg_workspaces WHERE owner_id=?", Integer.class, owner)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT title FROM neg_workspaces WHERE id=?", String.class, first))
+                .isEqualTo("RFQ-2026-001 · 새길다이캐스팅 · 조건.xlsx 2행");
+        assertThat(jdbc.queryForObject("SELECT row_version FROM neg_workspaces WHERE id=?", Long.class, first)).isZero();
+    }
+
+    @Test void reviewSavedAfterLeaseExpiredIsLinkedOnRetryWithoutAnotherAgentCall() {
+        when(gateway.review(any(), any())).thenAnswer(inv -> NegotiationTestSupport.reviewResponseFor(inv.getArgument(0), "ready"));
+        byte[] file = TestXlsx.of(List.of(ReviewWorkbookParserTest.headers(), row("SUP-0034")));
+        UUID id = UUID.fromString(service.upload(owner, "조건.xlsx", file, UUID.randomUUID()).get("upload_id").stringValue());
+        var key = new LegalReviewUploadStore.Key(id, 2);
+        pending.clear();
+
+        // 첫 실행: 임대가 끝나 STALE로 정리된 뒤에야 검토를 저장한다
+        assertThat(store.claim(key, OffsetDateTime.now().minusSeconds(1), UUID.randomUUID())).isTrue();
+        UUID source = LegalReviewRunner.source(key);
+        UUID workspace = negotiations.reviews.create(owner, "SUP-0034", "RFQ-2026-001", "조건.xlsx 2행", source, UUID.randomUUID());
+        store.attachWorkspace(key, workspace);
+        assertThat(store.expireRunning(false)).isEqualTo(1);
+        assertThat(negotiations.reviews.review(owner, workspace, offer(id, 2), source, UUID.randomUUID()).status()).isEqualTo(201);
+
+        // 재시도는 저장된 검토를 연결하고 Agent를 다시 부르지 않는다
+        service.retry(owner, id, 2, UUID.randomUUID());
+        runPending();
+        JsonNode row = service.row(owner, id, 2, UUID.randomUUID());
+        assertThat(row.get("status").stringValue()).isEqualTo("COMPLETED");
+        assertThat(row.get("review_revision").intValue()).isEqualTo(1);
+        assertThat(revisions(workspace)).isEqualTo(1);
+        verify(gateway, times(1)).review(any(), any());
+    }
+
+    @Test void agentFailureRetriesButUserReviewIsNotOverwritten() {
+        ObjectNode failed = (ObjectNode) JSON.readTree("{\"execution_status\":\"FAILED\",\"error\":{\"code\":\"GENERATION_FAILED\",\"retryable\":true}}");
+        when(gateway.review(any(), any())).thenReturn(failed);
+        byte[] file = TestXlsx.of(List.of(ReviewWorkbookParserTest.headers(), row("SUP-0034"), row("SUP-0060")));
+        UUID id = UUID.fromString(service.upload(owner, "조건.xlsx", file, UUID.randomUUID()).get("upload_id").stringValue());
+        runPending();
+        JsonNode rows = service.get(owner, id, UUID.randomUUID()).get("rows");
+        assertThat(rows.get(0).get("error").get("code").stringValue()).isEqualTo("GENERATION_FAILED");
+        UUID userWorkspace = UUID.fromString(rows.get(1).get("negotiation_id").stringValue());
+        when(gateway.review(any(), any())).thenAnswer(inv -> NegotiationTestSupport.reviewResponseFor(inv.getArgument(0), "ready"));
+
+        // Agent 실행 실패는 저장되지 않았으므로 재시도하면 다시 검토한다
+        service.retry(owner, id, 2, UUID.randomUUID());
+        runPending();
+        assertThat(service.row(owner, id, 2, UUID.randomUUID()).get("status").stringValue()).isEqualTo("COMPLETED");
+
+        // 실패한 행의 작업에서 사용자가 조건을 바꿔 재검토했으면 재시도가 그 위에 엑셀 조건을 쌓지 않는다
+        ObjectNode changed = offer(id, 3);
+        changed.remove(List.of("supplier", "rfq_id"));
+        changed.put("payment_days", 45);
+        assertThat(negotiations.review(owner, userWorkspace, changed)).isEqualTo(201);
+        service.retry(owner, id, 3, UUID.randomUUID());
+        runPending();
+        JsonNode row = service.row(owner, id, 3, UUID.randomUUID());
+        assertThat(row.get("status").stringValue()).isEqualTo("FAILED");
+        assertThat(row.get("error").get("code").stringValue()).isEqualTo("REVISION_CONFLICT");
+        assertThat(row.get("error").get("retryable").booleanValue()).isFalse();
+        assertThat(jdbc.queryForList("SELECT payment_days FROM neg_review_revisions WHERE workspace_id=? ORDER BY revision", Integer.class, userWorkspace))
+                .containsExactly(45);
     }
 
     @Test void stateTransitionsAndConstraints() {

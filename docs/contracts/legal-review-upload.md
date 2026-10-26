@@ -186,7 +186,11 @@ COMPLETED 행은 협상 작업 API를 그대로 쓴다.
 | 409 | `ROW_ALREADY_REVIEWED` | 검토를 저장한 행이다. `details.negotiation_id`의 협상 작업 API로 재검토한다 |
 | 422 | `ROW_INVALID` | 입력 오류 행이다. 엑셀을 고쳐 다시 올린다 |
 
-이미 협상 작업을 만든 뒤 검토에 실패한 행은 재시도할 때 같은 작업에 검토를 저장한다.
+재시도해도 한 행의 협상 작업과 엑셀 조건 검토는 한 번만 저장된다. 행마다 고정된 멱등 키로 작업 생성과 검토 저장을 요청하기 때문이다.
+
+- 이미 협상 작업을 만든 뒤 검토에 실패한 행은 재시도할 때 같은 작업에 검토를 저장한다. 작업을 만든 뒤 행에 연결하기 전에 멈췄어도 재시도하면 그 작업을 다시 받는다.
+- 앞선 실행이 `STALE_REVIEW`로 정리된 뒤에 검토를 저장했다면, 재시도는 Agent를 다시 부르지 않고 그 검토를 행에 연결한다.
+- 엑셀 조건은 협상 작업의 첫 검토로만 저장한다. 실패한 행의 작업에서 사용자가 조건을 바꿔 이미 재검토했다면, 재시도는 그 위에 엑셀 조건을 쌓지 않고 `REVISION_CONFLICT`(`retryable` false)로 끝난다. 그 작업은 협상 작업 API로 이어서 쓴다.
 
 ## 5. 실행과 실패
 
@@ -199,7 +203,9 @@ COMPLETED 행은 협상 작업 API를 그대로 쓴다.
 | `SUPPLIER_NOT_FOUND` | 협상 작업을 만들 때 공급자가 없다 | false |
 | `UPSTREAM_TIMEOUT` / `UPSTREAM_UNAVAILABLE` | Agent 응답 시간 초과 / 연결 실패 | true |
 | `UPSTREAM_INVALID_RESPONSE` | Agent 응답이 계약과 다르다 | false |
-| `VALIDATION_ERROR` / `REVISION_CONFLICT` / `ACCOUNT_NOT_ACTIVE` 등 | 협상 작업 생성·검토 API가 돌려준 오류 코드 그대로 | 그 오류의 값 |
+| `REVISION_CONFLICT` | 협상 작업에 이미 다른 검토가 있다(사용자가 조건을 바꿔 재검토함). 엑셀 조건을 쌓지 않았다 | false |
+| `IDEMPOTENCY_CONFLICT` | 같은 행의 앞선 실행이 아직 작업 생성이나 검토를 처리 중이다 | true |
+| `VALIDATION_ERROR` / `ACCOUNT_NOT_ACTIVE` 등 | 협상 작업 생성·검토 API가 돌려준 오류 코드 그대로 | 그 오류의 값 |
 | Agent `error.code` (예: `GENERATION_FAILED`) | `execution_status`가 FAILED다. 협상 작업에는 저장되지 않는다 | true |
 | `STALE_REVIEW` | RUNNING이 Agent 응답 제한 + 60초를 넘겼거나 서버가 다시 시작됐다 | true |
 | `QUEUE_FULL` | 실행기 대기열이 가득 찼다 | true |
@@ -207,7 +213,7 @@ COMPLETED 행은 협상 작업 API를 그대로 쓴다.
 
 - 공식 자료 일부를 조회하지 못한 부분 조회는 실패가 아니다. 검토를 저장하고 `sources_complete: false`, `assessment_status: needs_information`, `missing_fields`의 `official_source_retrieval`로 알린다.
 - 서버가 다시 시작되면 RUNNING 행은 `STALE_REVIEW` 실패로 바꾸고 QUEUED 행은 다시 실행기에 넣는다. 백엔드 한 대 실행을 전제로 한다.
-- 임대가 끝나 STALE로 정리된 행에 늦게 도착한 결과는 행에 쓰지 않는다. 그 사이 협상 작업에 검토가 저장됐다면 재시도할 때 그 위에 새 버전을 쌓는다.
+- 임대가 끝나 STALE로 정리된 행에 늦게 도착한 결과는 행에 쓰지 않는다. 그 사이 협상 작업에 검토가 저장됐다면 재시도할 때 새 버전을 쌓지 않고 그 검토를 연결한다(4절).
 
 ## 6. 저장
 
