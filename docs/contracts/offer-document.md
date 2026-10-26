@@ -79,6 +79,12 @@ content_hash = "sha256:" + hashlib.sha256(payload).hexdigest()
 
 - `files`: `pdf` \| `docx` \| `both`(기본). 메일에 붙일 첨부를 고르고, `content_hash`도 이 파일들로 계산한다.
 - 고친 조건으로 `check_offer`를 다시 부른다(같은 `as_of`).
+- **인사말 다시 검사(#293)**: 조건을 고치면 처음 생성 때 쓴 `cover_letter`의 숫자가 표와 달라질 수 있다. 처음 생성 때와 같은 협력사 문장 검사(숫자는 제안 조건에 있는 값만, 조문 번호 금지, 내부 협상 용어 금지)를 고친 문서로 다시 한다.
+  - 통과하면 담당자가 쓴 문장을 그대로 둔다(`kept`).
+  - 걸리면 검사를 거치는 모델로 인사말만 다시 쓰고(`model`, 1회 재시도), 그래도 걸리면 숫자 없는 코드 인사말로 바꾼다(`fallback`). 인사말이 바뀌므로 `content_hash`도 바뀐다.
+  - 결과는 응답 헤더 `X-Cover-Letter: kept|model|fallback`로 알린다. JSON에는 `?include_cover_status=true`일 때만 `cover_letter: {regenerated, source, problems}`를 넣는다. Spring `OfferResponseValidator`가 최상위 키 4개를 정확히 검사하기 때문이다.
+  - 모델 문구를 끈 경우(`?writing=false`, `NEGOPILOT_OFFER_WRITING=0`)에는 바로 코드 인사말로 바꾼다.
+  - 내부 브리핑의 제안 멘트(opening_message)는 `/render`에 오지 않으므로 다시 검사하지 않는다(협력사에 보내지 않는 내부 문서).
   - violation이 있으면 **422 `OFFER_VIOLATION`**, 본문에 `findings`(code, message, law_refs). 제안서를 만들지 않는다
   - warning은 통과시키고 `check.warnings`에만 담는다(문서와 첨부에는 넣지 않는다)
 - `?format=json`(기본) 응답:
