@@ -89,6 +89,11 @@ class NegotiationRequests {
                 claim.user(), claim.key(), claim.lease());
     }
 
+    /** 저장하지 않은 200 응답(Agent 실행 실패)의 기록을 지워 같은 키로 다시 실행할 수 있게 한다. */
+    void forgetUnsaved(UUID user, UUID key) {
+        repository.execute("DELETE FROM neg_requests WHERE user_id=? AND idempotency_key=? AND state='DONE' AND response_status=200", user, key);
+    }
+
     private String canonical(JsonNode value) {
         if (value.isObject()) {
             ObjectNode sorted = mapper.createObjectNode();

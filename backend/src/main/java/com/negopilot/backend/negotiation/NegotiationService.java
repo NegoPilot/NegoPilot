@@ -43,7 +43,10 @@ class NegotiationService {
         leaseSeconds = properties.responseTimeout().toSeconds() + 30;
     }
 
-    Result create(UUID owner, ObjectNode body, UUID key, UUID requestId) {
+    Result create(UUID owner, ObjectNode body, UUID key, UUID requestId) { return create(owner, body, null, key, requestId); }
+
+    /** titleSuffix가 있으면 기본 제목 뒤에 붙이고 100자에 맞춰 줄인다(엑셀 업로드 행). 제목까지 한 번에 저장한다. */
+    Result create(UUID owner, ObjectNode body, String titleSuffix, UUID key, UUID requestId) {
         return requests.run(owner, key, "CREATE", "/negotiations", body, requestId, () -> {
             JsonNode supplier;
             try { supplier = suppliers.detail(body.path("supplier_id").asText(), requestId); }
@@ -51,8 +54,9 @@ class NegotiationService {
                 if ("SUPPLIER_NOT_FOUND".equals(failure.code)) throw error(requestId, 422, failure.code);
                 throw failure;
             }
-            String title = body.has("title") ? body.path("title").asText()
+            String named = body.has("title") ? body.path("title").asText()
                     : body.path("rfq_id").asText() + " · " + supplier.path("data").path("name").asText();
+            String title = titleSuffix == null ? named : fit(named + " · " + titleSuffix);
             if (title.codePointCount(0, title.length()) > 100) throw ApiException.validation(requestId);
             return transaction.execute(tx -> {
                 member(owner, requestId);
@@ -587,5 +591,9 @@ class NegotiationService {
     }
     private static String now() { return OffsetDateTime.now(ZoneOffset.UTC).toString(); }
     private static UUID uuid(ObjectNode row, String field) { return UUID.fromString(row.path(field).asText()); }
+    private static String fit(String title) {
+        if (title.codePointCount(0, title.length()) <= 100) return title;
+        return title.substring(0, title.offsetByCodePoints(0, 99)) + "…";
+    }
     private record ExportClaim(ObjectNode bundle, ObjectNode document, Result cached) {}
 }
