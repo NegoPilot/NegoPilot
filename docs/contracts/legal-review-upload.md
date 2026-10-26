@@ -31,9 +31,19 @@
 
 모든 행에 똑같이 해당하므로 행별로 나누지 않는다. `error.details.errors[]`에 `{column, message}`를 모두 담는다.
 
-- `.xlsx`가 아니거나 열 수 없는 파일, 1MB 초과
+- `.xlsx`가 아니거나 열 수 없는 파일
 - 모르는 머리글, 같은 항목의 머리글 중복, 필수 열(아래 `*`)이 없음
 - 조건 행이 없거나 행 수 제한 초과
+
+### 파일이 1MB를 넘는 경우 (413)
+
+`error.code`는 `CONTENT_TOO_LARGE`, `retryable`은 false다. `details`는 없다. 파일을 읽기 전에 거절하므로 `request_id`는 null이다.
+
+```json
+{"request_id": null, "error": {"code": "CONTENT_TOO_LARGE", "message": "Content Too Large", "retryable": false}}
+```
+
+Spring 업로드 한도(`max-file-size` 1MB, `max-request-size` 2MB)에서 거절한다. 화면 주소의 nginx도 요청 본문을 2MB까지 넘기고, 그보다 큰 요청은 nginx가 같은 형식으로 413을 돌려준다.
 
 ### 행만 INVALID로 두는 경우
 
