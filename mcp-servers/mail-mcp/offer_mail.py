@@ -23,6 +23,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from email.headerregistry import Address
 from email.message import EmailMessage
 from email.utils import formataddr, make_msgid
 from pathlib import Path
@@ -38,6 +39,7 @@ ALLOWED_TYPES = {
 REQUIRED_FIELDS = ("document_id", "version", "status", "supplier_id", "rfq_id", "content_hash")
 PLACEHOLDER = re.compile(r"^\s*\[[^\]]*\]\s*$")   # 설정하지 않은 발신 정보 자리표시 (예: [구매사명])
 CLIENT_REF = re.compile(r"[A-Za-z0-9_-]{1,64}")
+EMAIL = re.compile(r"[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,63}")
 
 
 class MailError(Exception):
@@ -200,14 +202,23 @@ def compose(document: dict, contact: Contact, settings: Settings, message: str |
     return subject, "\n".join(lines)
 
 
+def reply_to_of(document: dict, settings: Settings) -> str | None:
+    """협력사 회신을 받을 주소: 제안서 발신 담당자(로그인한 회원) 이메일, 없으면 MAIL_REPLY_TO."""
+    sender = document.get("sender") if isinstance(document.get("sender"), dict) else {}
+    email = str(sender.get("email") or "").strip()
+    if EMAIL.fullmatch(email):
+        return str(Address(str(sender.get("contact_name") or "").strip(), addr_spec=email))
+    return settings.reply_to
+
+
 def build_message(subject: str, body: str, contact: Contact, settings: Settings,
-                  attachments: list[Attachment]) -> EmailMessage:
+                  attachments: list[Attachment], reply_to: str | None = None) -> EmailMessage:
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = formataddr((settings.sender_name, settings.sender))
     msg["To"] = formataddr((contact.name, contact.email))
-    if settings.reply_to:
-        msg["Reply-To"] = settings.reply_to
+    if reply_to := reply_to or settings.reply_to:
+        msg["Reply-To"] = reply_to
     msg["Message-ID"] = make_msgid(domain=settings.sender.split("@")[-1])
     msg.set_content(body)
     for a in attachments:
@@ -391,6 +402,7 @@ class OfferMailer:
         actual = check_document(document, files)
         contact = self.contacts.find(document["supplier_id"], contact_id)
         subject, body = compose(document, contact, self.settings, message)
+        # Reply-To는 해시에 들어간 document.sender에서 나오므로 토큰의 content_hash가 이미 묶는다
         claims = {"document_id": str(document["document_id"]), "version": str(document["version"]),
                   "content_hash": actual, "contact_id": contact.contact_id, "recipient": contact.email,
                   "subject_sha256": digest(subject), "body_sha256": digest(body)}
@@ -403,7 +415,7 @@ class OfferMailer:
         return {"to": {"contact_id": contact.contact_id, "name": contact.name, "email": contact.email,
                        "supplier_id": contact.supplier_id, "supplier_name": contact.supplier_name},
                 "from": formataddr((self.settings.sender_name, self.settings.sender)),
-                "reply_to": self.settings.reply_to, "subject": subject, "body": body,
+                "reply_to": reply_to_of(document, self.settings), "subject": subject, "body": body,
                 "attachments": [{"filename": a.filename, "content_type": a.content_type, "bytes": len(a.data),
                                  "sha256": a.sha256} for a in files],
                 "content_hash": claims["content_hash"], "dry_run": self.transport.dry_run,
@@ -419,7 +431,7 @@ class OfferMailer:
         verified = self.confirmations.verify(confirmation_token, claims)
         if client_ref is not None and (not isinstance(client_ref, str) or CLIENT_REF.fullmatch(client_ref) is None):
             raise MailError("INVALID_CLIENT_REF", "client_ref는 영문자와 숫자 및 _ 또는 -로 구성한 1~64자여야 한다")
-        msg = build_message(subject, body, contact, self.settings, files)
+        msg = build_message(subject, body, contact, self.settings, files, reply_to_of(document, self.settings))
         send_id = self.log.reserve(verified["nonce"], {
             "document_id": claims["document_id"], "version": claims["version"], "content_hash": claims["content_hash"],
             "supplier_id": contact.supplier_id, "contact_id": contact.contact_id, "recipient": contact.email,

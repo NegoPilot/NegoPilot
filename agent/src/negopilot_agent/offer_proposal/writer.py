@@ -159,10 +159,23 @@ def fallback(proposal: Proposal, document: OfferDocument) -> NegotiationDraft:
 
 class NegotiationWriter:
     def __init__(self, backend: Backend | None = None, max_attempts: int = 2, cover_backend: Backend | None = None):
-        self.backend = backend or default_backend()
+        given = backend
+        if backend is None:
+            try:
+                backend = default_backend()
+            except openai.OpenAIError as exc:   # 키가 없으면(stub 테스트 스택 등) 모델 없이 대체 문구로 만든다
+                log.warning('협상 문구 모델을 만들지 못함: %s', type(exc).__name__)
+        self.backend = backend
         self.max_attempts = max_attempts
         # 고친 제안서의 인사말만 다시 쓰는 모델(/render). 백엔드를 넘기면(시험) 같은 백엔드를 쓴다
-        self.cover_backend = cover_backend or (backend if backend is not None else default_cover_backend())
+        if cover_backend is None and given is not None:
+            cover_backend = given
+        if cover_backend is None and backend is not None:
+            try:
+                cover_backend = default_cover_backend()
+            except openai.OpenAIError as exc:   # 키가 없으면 인사말은 숫자 없는 코드 인사말로 바꾼다
+                log.warning('인사말 모델을 만들지 못함: %s', type(exc).__name__)
+        self.cover_backend = cover_backend
 
     async def write(self, proposal: Proposal, document: OfferDocument) -> Writing:
         o = proposal.offer
@@ -174,7 +187,7 @@ class NegotiationWriter:
             prompt = user if not problems else (
                 user + '\n\n이전 출력이 검사에 걸렸다. 아래를 고쳐 다시 써라:\n- ' + '\n- '.join(problems))
             try:
-                raw = await self.backend.generate(SYSTEM, prompt)
+                raw = await self.backend.generate(SYSTEM, prompt) if self.backend else None
                 draft = NegotiationDraft.model_validate_json(raw) if raw else None
             except (ValidationError, openai.OpenAIError, ValueError) as exc:
                 log.warning('협상 문구 생성 실패: %s', type(exc).__name__)

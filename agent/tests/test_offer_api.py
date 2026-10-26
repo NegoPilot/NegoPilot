@@ -157,7 +157,7 @@ async def test_batch_rejects_bad_uploads():
     assert (await upload(FakeCaller(bench()), b'x', 'a.exe')).status_code == 400
 
 
-async def test_tool_input_errors_are_reported_with_their_code():
+async def test_tool_input_errors_are_reported_with_their_code(caplog):
     class Missing(FakeCaller):
         async def __call__(self, server, tool, args):
             raise ToolError('[SUPPLIER_NOT_FOUND] 활성 협력사가 없다')
@@ -169,6 +169,8 @@ async def test_tool_input_errors_are_reported_with_their_code():
             raise RuntimeError('db password=secret')
     response = await post(Broken(bench()), body())
     assert response.status_code == 500 and 'secret' not in response.text
+    # 원인을 찾을 수 있게 예외 종류와 위치는 남기되, 예외 내용(비밀값)은 남기지 않는다
+    assert 'RuntimeError' in caplog.text and 'secret' not in caplog.text
 
 
 async def test_no_offer_has_no_supplier_document():

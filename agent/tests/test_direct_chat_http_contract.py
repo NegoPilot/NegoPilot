@@ -310,6 +310,8 @@ async def test_ambiguous_name_returns_candidates_then_resumes_selection(monkeypa
     ("없는기업에 대해 알려줘", "find_suppliers"), ("제주 협력사 찾아줘", "search_suppliers"),
 ])
 async def test_no_match_is_empty_no_result_without_clarification_options(monkeypatch, query, tool):
+    # 검토 루프를 끈 한 번 실행의 계약. 루프가 켜지면 결과가 있는 인접 지역 검색을 options로 권한다 (test_review_loop.py)
+    monkeypatch.setenv("NEGOPILOT_REVIEW_ROUNDS", "0")
     harness = DirectChatHarness(monkeypatch)
     data = await harness.turn(query)
     assert data["execution_status"] == "COMPLETED"

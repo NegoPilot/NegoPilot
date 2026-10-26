@@ -7,8 +7,11 @@ import asyncio
 import base64
 import hashlib
 import json
+import logging
 import re
+import traceback
 from datetime import datetime
+from pathlib import Path
 from typing import Literal
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
@@ -23,6 +26,8 @@ from negopilot_agent.offer_proposal.pdf import briefing_filename, render_briefin
 from negopilot_agent.offer_proposal.request import OfferProposalRequest
 from negopilot_agent.offer_proposal.service import OfferViolation, build_package, package_files, recheck
 from negopilot_agent.offer_proposal.writer import NegotiationWriter, refresh_cover, writing_enabled
+
+log = logging.getLogger(__name__)
 
 # business-mcp input errors that the user can fix; other tool errors stay internal.
 INPUT_ERRORS = {"RFQ_NOT_FOUND", "SUPPLIER_NOT_FOUND", "VALUE_OUT_OF_RANGE"}
@@ -87,6 +92,10 @@ def add_offer_routes(app, settings, authenticate, error_response, caller=None, w
         code = re.match(r"\[([A-Z_]+)\]", str(exc))
         if code and code.group(1) in INPUT_ERRORS:
             return error_response(422, request_id, code.group(1), "Offer input was rejected.")
+        # 예외 내용에는 비밀값이 섞일 수 있어 종류와 발생 위치만 서버 로그에 남긴다 (#179)
+        frame = traceback.extract_tb(exc.__traceback__)[-1]
+        log.error("offer request %s failed with %s at %s:%d (%s)", request_id, type(exc).__name__,
+                  Path(frame.filename).name, frame.lineno, frame.name)
         return error_response(500, request_id, "INTERNAL_ERROR", "Unexpected server error.")
 
     @app.post("/internal/offer-proposals", dependencies=[Depends(authenticate)])

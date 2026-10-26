@@ -49,17 +49,11 @@ const standalone = computed(() => route.meta.standalone === true)
         </svg>
         협력사
       </RouterLink>
-      <RouterLink to="/review" class="nav-item" active-class="on">
-        <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M8 2.5v11M5.5 13.5h5M3.5 4.5h9M3.5 4.5L2 9M3.5 4.5L5 9M12.5 4.5L11 9M12.5 4.5L14 9M2 9h3a1.5 1.5 0 0 1-3 0zM11 9h3a1.5 1.5 0 0 1-3 0z" />
-        </svg>
-        법규 검토
-      </RouterLink>
       <RouterLink to="/review/offer" class="nav-item" active-class="on">
         <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
           <path d="M4 1.5h5.5L12.5 4.5v10h-8.5zM9.5 1.5v3h3M6 8h4.5M6 10.5h4.5" />
         </svg>
-        협상안
+        협상안 검토
       </RouterLink>
       <div v-if="session" class="account">
         <span class="account-email" :title="session.email">{{ session.email }}</span>

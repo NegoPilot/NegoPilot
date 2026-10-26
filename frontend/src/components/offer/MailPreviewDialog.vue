@@ -29,6 +29,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
         <dl class="fields">
           <dt>받는 사람</dt><dd>{{ preview.to.supplier_name }} {{ preview.to.name }} &lt;{{ preview.to.email }}&gt;</dd>
           <dt>보내는 사람</dt><dd>{{ preview.from }}</dd>
+          <template v-if="preview.reply_to"><dt>회신 받는 사람</dt><dd>{{ preview.reply_to }}</dd></template>
           <dt>제목</dt><dd class="subject">{{ preview.subject }}</dd>
           <dt>첨부</dt><dd><span v-for="a in preview.attachments" :key="a.filename" class="chip">📎 {{ a.filename }} · {{ kb(a.bytes) }}</span></dd>
         </dl>
