@@ -2,6 +2,7 @@
 import asyncio
 from datetime import date
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import Depends
 from fastapi.responses import JSONResponse
@@ -16,6 +17,7 @@ from negopilot_agent.legal_assessment import assess_transaction
 from .review_snapshot import sign_review
 from .review_caller import ReviewedToolCaller
 from .generation_stubs import GenerationStubToolCaller
+from negopilot_agent.routing.mcp_client import McpToolCaller
 
 
 class ReviewCompanyFacts(CompanySizeFacts):
@@ -45,6 +47,16 @@ class ReviewRequest(GenerationExecutionRequest):
     offer: ReviewOffer
 
 
+FILE_REVIEW_TIMEOUT_SECONDS = 240
+
+
+class FileReviewRequest(BaseModel):
+    """엑셀 파일 하나의 행 전체. 행 번호는 offers 순서(1부터)다."""
+    model_config = ConfigDict(extra="forbid")
+    request_id: UUID | None = None
+    offers: list[ReviewOffer] = Field(min_length=1, max_length=100)
+
+
 class ReviewDecomposer:
     def __init__(self, offer: ReviewOffer):
         self.offer = offer
@@ -71,7 +83,30 @@ class ReviewDecomposer:
         return DecompositionResult(status="ok", original_query=query, sub_queries=questions)
 
 
-def add_review_routes(app, settings, authenticate, error_response, caller=None):
+def add_review_routes(app, settings, authenticate, error_response, caller=None, file_review_client=None):
+    @app.post("/internal/legal-reviews/file", dependencies=[Depends(authenticate)])
+    async def review_file(body: FileReviewRequest):
+        """파일 단위 검토 에이전트 (negopilot_agent.file_review). 행 판정은 규칙 결과 그대로다."""
+        from negopilot_agent.file_review import FileReviewAgent
+        try:
+            # 모델이 도구를 여러 번 부르므로 행 검토(request_timeout_seconds)보다 길게 둔다
+            async with asyncio.timeout(max(settings.request_timeout_seconds, FILE_REVIEW_TIMEOUT_SECONDS)):
+                actual_caller = caller or (GenerationStubToolCaller() if settings.mode == "stub" else McpToolCaller())
+                offers = [o.model_dump(mode="json") for o in body.offers]
+                by_row = {id(o): ReviewedToolCaller(m, actual_caller) for o, m in zip(offers, body.offers)}
+                agent = FileReviewAgent(actual_caller, client=file_review_client)
+                session = getattr(actual_caller, "session", None)
+                if session:
+                    async with session():
+                        result = await agent.run(offers, lambda o: by_row[id(o)])
+                else:
+                    result = await agent.run(offers, lambda o: by_row[id(o)])
+                return JSONResponse({"request_id": str(body.request_id) if body.request_id else None, **result})
+        except TimeoutError:
+            return error_response(504, body.request_id, "UPSTREAM_TIMEOUT", "Execution timed out.", True)
+        except Exception:
+            return error_response(500, body.request_id, "INTERNAL_ERROR", "Unexpected server error.")
+
     @app.post("/internal/legal-reviews", dependencies=[Depends(authenticate)])
     async def review(body: ReviewRequest):
         try:
