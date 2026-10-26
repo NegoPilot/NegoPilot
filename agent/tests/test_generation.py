@@ -416,11 +416,41 @@ async def test_company_size_never_calls_generation_model():
 
 
 def test_supplier_detail_evidence_puts_flags_first():
-    """get_supplier의 기존 계약 점검 결과가 잘리지 않게 근거 본문 앞에 온다 (#180)."""
+    """get_supplier의 기존 계약 점검 결과가 잘리지 않게 근거 JSON 맨 앞에 온다 (#180, #312)."""
     from negopilot_agent.generation.evidence import from_get_supplier
     flag = {"code": "PAYMENT_DAYS_OVER_60", "severity": "violation", "message": "지급 기한 90일",
             "law_refs": [{"law": "subcontract_act", "article_no": "제13조"}]}
     [d] = from_get_supplier({"supplier_id": "SUP-0001", "name": "한빛정밀", "payment_days": 90,
                              "notes": "x" * 5000, "flags": [flag], "law_refs": flag["law_refs"]})
-    assert d["text"].startswith("flags: [violation] 지급 기한 90일")
+    value = json.loads(d["text"])                 # 근거 화면이 JSON으로 읽는다 (#312)
+    assert next(iter(value)) == "flags"           # 점검 결과가 맨 앞 키
+    assert value["flags"][0]["message"] == "지급 기한 90일" and value["flags"][0]["law_refs"] == "하도급법 제13조"
+    assert len(d["text"]) <= 3000 + 20 and value["notes"].endswith("…(생략)")
     assert d["meta"]["flags"] == [flag]
+
+
+def test_supplier_and_ranking_evidence_are_json_with_sources():
+    """근거 화면(parseSupplierEvidence·parseEvidenceFields)이 읽을 수 있게 협력사 근거 본문은 올바른 JSON이다 (#312)."""
+    from negopilot_agent.generation.evidence import from_get_supplier, from_rank_suppliers
+    flag = {"code": "PAYMENT_DAYS_OVER_60", "severity": "violation", "message": "지급 기한 75일", "law_refs": []}
+    sources = {"source": "MOCK", "certification_source": "MANUAL", "capability_source": "MOCK", "quality_source": "DART"}
+    [detail] = from_get_supplier({"supplier_id": "SUP-0004", "name": "화승", **sources, "flags": [flag], "law_refs": []})
+    _, ranked = from_rank_suppliers({"rfq": {"rfq_id": "RFQ-2026-003"},
+                                     "ranked": [{"supplier_id": "SUP-0004", "name": "화승", **sources, "flags": [flag]}]})
+    for d in (detail, ranked):
+        value = json.loads(d["text"])
+        assert value["supplier_id"] == "SUP-0004" and next(iter(value)) == "flags"
+        assert {k: value[k] for k in sources} == sources
+
+
+def test_long_lists_are_trimmed_without_breaking_json():
+    """길이 제한을 넘으면 긴 목록을 줄이고 줄인 개수를 남긴다. flags는 그대로다."""
+    from negopilot_agent.generation.evidence import MAX_TEXT, from_get_supplier
+    quotes = [{"quote_id": i, "process": "사출", "material": "PA66", "unit_price": 1000 + i, "quoted_at": "2026-01-01"}
+              for i in range(60)]
+    flag = {"code": "PAYMENT_DAYS_OVER_60", "severity": "violation", "message": "지급 기한 90일", "law_refs": []}
+    [d] = from_get_supplier({"supplier_id": "SUP-0001", "name": "한빛", "recent_quotes": quotes, "flags": [flag]})
+    value = json.loads(d["text"])
+    assert len(d["text"]) <= MAX_TEXT
+    assert value["omitted"]["recent_quotes"] == 60 - len(value["recent_quotes"]) and value["recent_quotes"]
+    assert value["flags"][0]["message"] == "지급 기한 90일"

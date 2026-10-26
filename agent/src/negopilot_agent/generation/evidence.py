@@ -49,6 +49,40 @@ def clip(text: str) -> str:
     return text if len(text) <= MAX_TEXT else text[:MAX_TEXT] + " …(생략)"
 
 
+KEEP_WHOLE = {"supplier_id", "name", "source", "rfq_id"}
+CUT_MARK = " …(생략)"
+
+
+def clip_json(value: dict) -> str:
+    """JSON 근거의 길이 제한. 글자 수로 자르면 JSON이 깨져 근거 화면이 항목별 출처를 못 읽는다 (#312).
+    넘치면 긴 목록(재무·견적 등)을 뒤에서부터 줄이고 줄인 개수를 `omitted`에 남긴다. flags는 줄이지 않는다."""
+    value = dict(value)
+    omitted: dict[str, int] = {}
+    lists = sorted((k for k, v in value.items() if isinstance(v, list) and k != "flags"),
+                   key=lambda k: len(compact(value[k])), reverse=True)
+    while len(compact(value)) > MAX_TEXT:
+        key = next((k for k in lists if value[k]), None)
+        if key is None:
+            break
+        value[key] = value[key][:-1]
+        omitted[key] = omitted.get(key, 0) + 1
+        value["omitted"] = omitted
+    # 목록을 다 줄여도 넘치면 긴 문자열 값(메모 등)을 줄인다. 식별 값은 그대로 둔다
+    for key in sorted((k for k, v in value.items() if isinstance(v, str) and k not in KEEP_WHOLE),
+                      key=lambda k: len(value[k]), reverse=True):
+        over = len(compact(value)) - MAX_TEXT
+        if over <= 0:
+            break
+        value[key] = value[key][:max(0, len(value[key]) - over - len(CUT_MARK))] + CUT_MARK
+    return compact(value)
+
+
+def flag_items(flags: Iterable[dict]) -> list[dict]:
+    """법규 점검 결과(flags)를 근거 JSON에 넣을 형태로. 조문은 모델이 읽기 쉬운 이름으로 적는다."""
+    return [{"severity": f.get("severity"), "code": f.get("code"), "message": f.get("message"),
+             "law_refs": law_refs_text(f.get("law_refs", [])).removeprefix(" 관련 조문: ")} for f in flags]
+
+
 def law_refs_text(refs: Iterable[dict]) -> str:
     names = [f"{LAW_NAMES.get(r.get('law'), r.get('law'))} {r.get('article_no')}" for r in refs]
     return f" 관련 조문: {', '.join(names)}" if names else ""
@@ -154,9 +188,9 @@ def from_check_offer(r: dict) -> list[Draft]:
     return out
 
 
-RANK_FIELDS = ("supplier_id", "name", "source", "region", "total_score", "scores", "last_price",
-               "gap_to_target_pct", "defect_ppm", "on_time_rate", "audit_grade", "monthly_capacity",
-               "payment_days", "price_linkage", "notes")
+RANK_FIELDS = ("supplier_id", "name", "source", "certification_source", "capability_source", "quality_source",
+               "region", "total_score", "scores", "last_price", "gap_to_target_pct", "defect_ppm", "on_time_rate",
+               "audit_grade", "monthly_capacity", "payment_days", "price_linkage", "notes")
 
 
 def from_rank_suppliers(r: dict) -> list[Draft]:
@@ -170,27 +204,25 @@ def from_rank_suppliers(r: dict) -> list[Draft]:
             "meta": {"rfq_id": rid}}]
     for rank, c in enumerate(r.get("ranked", []), start=1):
         flags = c.get("flags", [])
-        text = compact({"rank": rank, **{k: c[k] for k in RANK_FIELDS if k in c}})
-        if flags:
-            text += " flags: " + "; ".join(f"[{f.get('severity')}] {f.get('message')}{law_refs_text(f.get('law_refs', []))}"
-                                           for f in flags)
+        # 근거 화면이 JSON으로 읽어 항목별 출처를 보여 준다. flags도 JSON 안에 둔다 (#312)
+        value = {**({"flags": flag_items(flags)} if flags else {}), "rank": rank,
+                 **{k: c[k] for k in RANK_FIELDS if k in c}}
         out.append({"source": "business", "kind": "ranked_supplier",
                     "label": f"{rid} 순위 {rank}위 {c.get('name')}({c.get('supplier_id')})",
-                    "text": clip(text), "meta": {"rfq_id": rid, "rank": rank, "supplier_id": c.get("supplier_id"),
-                                                 "flags": flags}})
+                    "text": clip_json(value), "meta": {"rfq_id": rid, "rank": rank, "supplier_id": c.get("supplier_id"),
+                                                       "flags": flags}})
     return out
 
 
 def from_get_supplier(r: dict) -> list[Draft]:
-    # 점검 결과는 잘리지 않게 본문 앞에 둔다. 잘리면 위반 소지가 있는 계약 조건을 "양호"로 쓸 수 있다 (#180)
+    # 점검 결과는 JSON 맨 앞 키에 두고 길이를 줄일 때도 남긴다. 빠지면 위반 소지가 있는 계약 조건을 "양호"로 쓸 수 있다 (#180).
+    # 본문은 올바른 JSON이어야 근거 화면이 항목별 출처를 보여 준다 (#312)
     flags = r.get("flags") or []
-    text = compact({k: v for k, v in r.items() if k not in ("flags", "law_refs")})
-    if flags:
-        text = "flags: " + "; ".join(f"[{f.get('severity')}] {f.get('message')}{law_refs_text(f.get('law_refs', []))}"
-                                     for f in flags) + " " + text
+    value = {**({"flags": flag_items(flags)} if flags else {}),
+             **{k: v for k, v in r.items() if k not in ("flags", "law_refs")}}
     return [{"source": "business", "kind": "supplier", "label": f"협력사 정보 {r.get('name')}({r.get('supplier_id')})",
-             "text": clip(text), "meta": {"supplier_id": r.get("supplier_id"), "data_source": r.get("source"),
-                                          "flags": flags}}]
+             "text": clip_json(value), "meta": {"supplier_id": r.get("supplier_id"), "data_source": r.get("source"),
+                                                "flags": flags}}]
 
 
 def from_list_rfqs(rows: list[dict]) -> list[Draft]:
