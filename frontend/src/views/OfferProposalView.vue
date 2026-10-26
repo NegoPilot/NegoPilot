@@ -208,7 +208,8 @@ async function sendMail(note: string) {
           <input id="supplier-name" v-model="supplierName" type="text" placeholder="회사 이름을 입력하세요" maxlength="100" :disabled="busy === 'review'" />
         </div>
         <button type="button" class="btn" :disabled="!supplierName.trim() || busy === 'review'" @click="pickFile">
-          {{ busy === 'review' ? '법규 검토 중… (1~2분)' : '⇪ 엑셀 파일 불러오기' }}
+          <template v-if="busy === 'review'"><span class="spinner" aria-hidden="true"></span>법규 검토 중… (1~2분)</template>
+          <template v-else>⇪ 엑셀 파일 불러오기</template>
         </button>
         <input ref="fileInput" type="file" accept=".xlsx" class="sr-only" tabindex="-1" @change="onFile" />
         <span v-if="review" class="muted file">✓ {{ review.file_name }}</span>
@@ -226,6 +227,15 @@ async function sendMail(note: string) {
       <div v-if="errors.review" class="error-row">
         <p role="alert" class="field-error">{{ errors.review }}</p>
         <button v-if="canRetry && selectedRow !== null" type="button" class="btn" :disabled="busy === 'review'" @click="pickRow(selectedRow, true)">다시 검토</button>
+      </div>
+    </section>
+
+    <!-- 검토를 기다리는 동안 ② 자리에 진행 중임을 보여 준다 -->
+    <section v-if="!review && busy === 'review'" class="panel panel-pad progress" role="status">
+      <span class="spinner" aria-hidden="true"></span>
+      <div>
+        <p class="strong">법규 검토 중입니다</p>
+        <p class="muted">항목마다 하도급법 조문과 협력사 정보를 확인하고 있어요. 1~2분 걸릴 수 있습니다.</p>
       </div>
     </section>
 
@@ -248,7 +258,8 @@ async function sendMail(note: string) {
           <p class="muted">반려 항목이 하나라도 있으면 [협상안 만들기] 버튼이 비활성화됩니다.</p>
         </div>
         <button type="button" class="btn btn-primary wide" :disabled="!allApproved || busy === 'create'" @click="createProposal">
-          {{ busy === 'create' ? '협상안 만드는 중…' : proposal ? '협상안 다시 만들기' : '협상안 만들기' }}
+          <template v-if="busy === 'create'"><span class="spinner" aria-hidden="true"></span>협상안 만드는 중…</template>
+          <template v-else>{{ proposal ? '협상안 다시 만들기' : '협상안 만들기' }}</template>
         </button>
       </div>
       <p v-if="errors.create" role="alert" class="field-error">{{ errors.create }}</p>
@@ -268,7 +279,10 @@ async function sendMail(note: string) {
       <div class="confirm-row">
         <p class="muted">{{ rendered ? '확정한 제안서로 저장·발송합니다. 고치려면 [다시 수정]을 누르세요.' : '고친 조건은 확정할 때 법규 검사를 다시 거칩니다.' }}</p>
         <button v-if="rendered" type="button" class="btn" @click="editAgain">다시 수정</button>
-        <button v-else type="button" class="btn btn-primary wide" :disabled="busy === 'render'" @click="confirmDocument">{{ busy === 'render' ? '검사하는 중…' : '제안서 확정' }}</button>
+        <button v-else type="button" class="btn btn-primary wide" :disabled="busy === 'render'" @click="confirmDocument">
+          <template v-if="busy === 'render'"><span class="spinner" aria-hidden="true"></span>검사하는 중…</template>
+          <template v-else>제안서 확정</template>
+        </button>
       </div>
       <p v-if="errors.render" role="alert" class="field-error">{{ errors.render }}</p>
     </section>
@@ -300,7 +314,9 @@ async function sendMail(note: string) {
 .input-row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px}.name{width:min(360px,100%)}.file{align-self:center}
 .hint{margin:8px 0 0}.row-pick{margin:12px 0 0}.row-pick p{margin:0 0 8px}
 .row-pick-list{display:flex;flex-wrap:wrap;gap:8px}.row-pick-list .active{border-color:var(--primary);color:var(--primary);font-weight:600}
-.error-row{display:flex;flex-wrap:wrap;align-items:center;gap:12px}.notice{margin:0 0 12px}.counts{margin:0;display:flex;gap:10px;font-size:12px}
+.error-row{display:flex;flex-wrap:wrap;align-items:center;gap:12px}.notice{margin:0 0 12px}
+.progress{display:flex;align-items:center;gap:14px;color:var(--primary)}.progress .spinner{width:22px;height:22px;border-width:3px}
+.progress p{margin:0}.progress .muted{font-size:12px}.counts{margin:0;display:flex;gap:10px;font-size:12px}
 .ok{color:var(--success)}.ng{color:var(--danger)}.strong{margin:0 0 4px;font-weight:600;font-size:13px}
 .create-row,.confirm-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin:18px 0 10px}
 .confirm-row p{margin:0}.wide{min-width:170px}
