@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ApiError } from '@/api/client'
 import {
   createOfferProposal, describeOfferError, previewOfferMail, renderOfferDocument, reviewOfferExcel, saveAttachment, sendOfferMail,
@@ -51,6 +51,12 @@ function resetFrom(step: 1 | 2 | 3 | 4) {
   closeMail()
 }
 
+// 검토 결과 조회는 화면을 떠나거나 새로 올리면 멈춘다
+let controller: AbortController | null = null
+function restart() { controller?.abort(); controller = new AbortController(); return controller.signal }
+onBeforeUnmount(() => controller?.abort())
+const cancelled = (e: unknown) => e instanceof ApiError && e.code === 'REQUEST_CANCELLED'
+
 // ① 협력사 이름이 바뀌면 이전 검토 결과는 쓰지 않는다
 watch(supplierName, name => { if (review.value && name.trim() !== review.value.supplier_name) resetFrom(1) })
 
@@ -61,9 +67,10 @@ async function onFile(event: Event) {
   input.value = ''
   if (!file || busy.value) return
   resetFrom(1)
+  const signal = restart()
   busy.value = 'review'; errors.value.review = ''
-  try { review.value = await reviewOfferExcel(supplierName.value.trim(), file) }
-  catch (e) { errors.value.review = message(e, '엑셀을 검토하지 못했습니다. 파일 형식을 확인해 주세요.') }
+  try { review.value = await reviewOfferExcel(supplierName.value.trim(), file, signal) }
+  catch (e) { if (!cancelled(e)) errors.value.review = message(e, '엑셀을 검토하지 못했습니다. 파일 형식을 확인해 주세요.') }
   finally { busy.value = '' }
 }
 

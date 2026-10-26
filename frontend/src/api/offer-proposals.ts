@@ -112,9 +112,9 @@ export type FileFormat = 'pdf' | 'docx'
 
 // ── 공개 함수 ──
 
-/** ① 엑셀을 올려 ② 항목별 승인·반려를 받는다 */
-export function reviewOfferExcel(supplierName: string, file: File): Promise<OfferReview> {
-  return LIVE ? live.review(supplierName, file) : mock.review(supplierName, file)
+/** ① 엑셀을 올려 ② 항목별 승인·반려를 받는다. signal이 끊기면(화면 이탈, 새 업로드) 조회를 멈춘다 */
+export function reviewOfferExcel(supplierName: string, file: File, signal?: AbortSignal): Promise<OfferReview> {
+  return LIVE ? live.review(supplierName, file, signal) : mock.review(supplierName, file, signal)
 }
 
 /** ② 모든 항목이 승인된 검토로 협상안을 만든다. 발신 정보는 서버가 로그인 회원으로 채운다 */
@@ -182,14 +182,14 @@ const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 
 const live = {
   // ① 엑셀을 #284 업로드 API로 올리고, 행별 검토가 끝날 때까지 기다린 뒤 이 회사의 행을 ② 표로 바꾼다
-  async review(supplierName: string, file: File): Promise<OfferReview> {
+  async review(supplierName: string, file: File, signal?: AbortSignal): Promise<OfferReview> {
     if (!/\.xlsx$/i.test(file.name)) throw new ApiError(400, 'NOT_XLSX', '엑셀(.xlsx) 파일만 불러올 수 있습니다.', false)
-    const supplierId = await resolveSupplier(supplierName)
+    const supplierId = await resolveSupplier(supplierName, signal)
     const form = new FormData()
     form.append('file', file)
     // 이 회사의 행만 검토를 요청한다. 다른 회사 행은 SKIPPED로 남고 Agent를 부르지 않는다
     form.append('supplier_id', supplierId)
-    let upload = await request<Json>(API_PATHS.legalReviewUploads, { method: 'POST', body: form }, SLOW)
+    let upload = await request<Json>(API_PATHS.legalReviewUploads, { method: 'POST', body: form, signal }, SLOW)
     const mine = (rows: Json[]) => rows.filter(r => r.supplier_id === supplierId)
     if (!mine(upload.rows ?? []).length) {
       throw new ApiError(422, 'SUPPLIER_NOT_IN_FILE', `엑셀에 ${supplierName}(${supplierId}) 행이 없습니다. 공급자 ID 열을 확인해 주세요.`, false)
@@ -198,8 +198,8 @@ const live = {
     const deadline = Date.now() + SLOW
     while (mine(upload.rows ?? []).some(r => r.status === 'QUEUED' || r.status === 'RUNNING')) {
       if (Date.now() > deadline) throw new ApiError(504, 'REVIEW_TIMEOUT', 'Legal review is taking too long.', true)
-      await wait(POLL_MS)
-      upload = await request<Json>(uploadPath)
+      await wait(POLL_MS, signal)
+      upload = await request<Json>(uploadPath, { signal })
     }
     // 같은 회사 행이 여러 개면 엑셀 순서대로 첫 행을 쓴다
     const row = mine(upload.rows ?? [])[0]
@@ -209,7 +209,7 @@ const live = {
       throw new ApiError(400, 'ROW_INVALID', `엑셀 ${row.row_number}행 입력 오류 · ${found}`, false)
     }
     if (row.status === 'FAILED') throw new ApiError(502, 'REVIEW_FAILED', String(row.error?.code ?? 'Legal review failed.'), !!row.error?.retryable)
-    const detail = await request<Json>(`${uploadPath}/rows/${row.row_number}`)
+    const detail = await request<Json>(`${uploadPath}/rows/${row.row_number}`, { signal })
     const stored: Json = detail.response ?? {}
     const id = String(row.negotiation_id)
     const findings: Json[] = stored.legal_review?.assessment?.findings ?? []
@@ -415,9 +415,9 @@ function decodeHeader(value: string) {
   return value.replace(/=\?utf-8\?b\?([^?]+)\?=/gi, (_, b64: string) => new TextDecoder().decode(Uint8Array.from(atob(b64), c => c.charCodeAt(0))))
 }
 
-async function resolveSupplier(name: string) {
+async function resolveSupplier(name: string, signal?: AbortSignal) {
   const list = await request<{ data: { items: Array<{ supplier_id: string; name: string }> } }>(
-    `${API_PATHS.suppliers}?${new URLSearchParams({ q: name, limit: '10' })}`)
+    `${API_PATHS.suppliers}?${new URLSearchParams({ q: name, limit: '10' })}`, { signal })
   const exact = list.data.items.filter(s => s.name === name)
   const found = exact.length === 1 ? exact[0] : list.data.items.length === 1 ? list.data.items[0] : null
   if (!found) throw new ApiError(422, 'SUPPLIER_AMBIGUOUS', exact.length > 1 || list.data.items.length > 1
@@ -461,7 +461,13 @@ export function describeOfferError(error: ApiError): string | null {
 
 // ── mock: 피그마 08-2 시안 값 ──
 
-const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+// signal이 끊기면 request와 같은 REQUEST_CANCELLED로 멈춘다
+const wait = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
+  const cancel = () => { clearTimeout(timer); reject(new ApiError(0, 'REQUEST_CANCELLED', 'Request was cancelled.', false)) }
+  const timer = setTimeout(() => { signal?.removeEventListener('abort', cancel); resolve() }, ms)
+  if (signal?.aborted) cancel()
+  else signal?.addEventListener('abort', cancel, { once: true })
+})
 const today = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' })
 function addDays(date: string, days: number) {
   const d = new Date(`${date}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10)
@@ -469,8 +475,8 @@ function addDays(date: string, days: number) {
 const LAW = (article: string) => `https://www.law.go.kr/법령/하도급거래공정화에관한법률/${article}`
 
 const mock = {
-  async review(supplierName: string, file: File): Promise<OfferReview> {
-    await wait(600)
+  async review(supplierName: string, file: File, signal?: AbortSignal): Promise<OfferReview> {
+    await wait(600, signal)
     // 파일 이름에 "반려"가 있으면 반려 화면을 확인할 수 있게 지급기한을 75일로 본다
     const reject = /반려|reject/i.test(file.name)
     const rows: ReviewRow[] = [
