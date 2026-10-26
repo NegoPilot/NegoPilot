@@ -50,7 +50,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       <p v-if="error" role="alert" class="field-error">{{ error }}</p>
       <footer class="foot">
         <button type="button" class="btn" :disabled="sending" @click="emit('close')">취소</button>
-        <button type="button" class="btn btn-primary" :disabled="!canSend" @click="emit('send', message)">{{ sending ? '발송 중…' : '발송' }}</button>
+        <button type="button" class="btn btn-primary" :disabled="!canSend" @click="emit('send', message)">
+          <template v-if="sending"><span class="spinner" aria-hidden="true"></span>발송 중…</template>
+          <template v-else>발송</template>
+        </button>
       </footer>
     </section>
   </div>

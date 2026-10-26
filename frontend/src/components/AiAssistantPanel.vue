@@ -431,7 +431,11 @@ function supplierSummary(res: GenerationResponse) {
         </li>
       </template>
 
-      <li v-if="sending" class="muted">답변을 만드는 중입니다… 실제 모델은 수십 초 걸릴 수 있습니다.</li>
+      <li v-if="sending" class="answer pending" role="status">
+        <div class="who"><span aria-hidden="true">✦</span> NegoPilot</div>
+        <div class="typing-bubble"><span class="typing" aria-hidden="true"><i></i><i></i><i></i></span></div>
+        <p class="muted pending-text">답변을 만드는 중입니다… 실제 모델은 수십 초 걸릴 수 있습니다.</p>
+      </li>
     </ol>
 
     <div v-if="suggestions.length" class="suggestions" role="group" aria-label="예시 질문">
@@ -671,6 +675,21 @@ function supplierSummary(res: GenerationResponse) {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+/* 답변 대기: 답변이 들어올 자리에 점 3개를 띄운다 */
+.pending {
+  gap: 6px;
+}
+.typing-bubble {
+  align-self: flex-start;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  color: var(--text-3);
+}
+.pending-text {
+  margin: 0;
+  font-size: 11px;
 }
 .who {
   display: flex;

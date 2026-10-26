@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 
 import AiAssistantPanel from '@/components/AiAssistantPanel.vue'
@@ -25,6 +25,26 @@ async function logout() {
 }
 // 근거 자료 상세는 새 탭에서 단독으로 열리는 화면이라 사이드바를 그리지 않는다
 const standalone = computed(() => route.meta.standalone === true)
+
+// 사이드바와 각 화면의 상단 메뉴(.page-header)는 관리자 화면처럼 고정한다. 상단 메뉴 높이를 CSS 변수로 알려
+// 화면 안 이동(scrollIntoView)이 상단 메뉴에 가리지 않게 한다. 화면이 바뀌면 새 화면의 상단 메뉴를 다시 잰다
+const content = ref<HTMLElement | null>(null)
+const setHeaderHeight = (px: number | null) => px === null
+  ? document.documentElement.style.removeProperty('--page-header-height')
+  : document.documentElement.style.setProperty('--page-header-height', `${px}px`)
+const headerSize = new ResizeObserver(([entry]) => setHeaderHeight(entry?.borderBoxSize[0]?.blockSize ?? 0))
+function observeHeader() {
+  headerSize.disconnect()
+  const header = content.value?.querySelector(':scope > .page-header')
+  if (header) headerSize.observe(header)
+  else setHeaderHeight(null)
+}
+const contentChanges = new MutationObserver(observeHeader)
+watch(content, el => {
+  contentChanges.disconnect()
+  if (el) contentChanges.observe(el, { childList: true })
+  observeHeader()
+})
 </script>
 
 <template>
@@ -62,7 +82,7 @@ const standalone = computed(() => route.meta.standalone === true)
         <button class="btn account-btn" type="button" @click="logout">로그아웃</button>
       </div>
     </nav>
-    <div class="content">
+    <div ref="content" class="content">
       <RouterView />
     </div>
     <div v-if="assistantOpen" class="ai-drawer">
@@ -95,6 +115,11 @@ const standalone = computed(() => route.meta.standalone === true)
   min-height: 100vh;
 }
 .sidebar {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  overflow-y: auto;
   flex: 0 0 196px;
   background: var(--sidebar);
   border-right: 1px solid var(--border);
@@ -167,6 +192,11 @@ const standalone = computed(() => route.meta.standalone === true)
   min-width: 0;
   background: var(--bg);
 }
+.content > :deep(.page-header) {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
 /* 보고 있는 화면 위 오른쪽에 띄운다. 페이지는 그대로 둔다 */
 .ai-drawer {
   position: fixed;
@@ -189,6 +219,9 @@ const standalone = computed(() => route.meta.standalone === true)
 }
 @media (max-width: 760px) {
   .sidebar {
+    position: static;
+    height: auto;
+    overflow-y: visible;
     flex: 1 1 100%;
     flex-direction: row;
     flex-wrap: wrap;

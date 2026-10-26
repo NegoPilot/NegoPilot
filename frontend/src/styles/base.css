@@ -16,7 +16,8 @@
   --warning: #b55a00;
   --success: #2f7d3a;
   --radius: 6px;
-  font-family: 'Noto Sans KR', 'Apple SD Gothic Neo', 'Pretendard', system-ui, sans-serif;
+  /* Pretendard는 main.ts에서 npm 패키지(동적 서브셋)로 불러온다 */
+  font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
   color: var(--text);
   background: var(--bg);
   font-size: 14px;
@@ -343,8 +344,62 @@ input[aria-invalid='true'] {
 }
 
 :root {
-  /* 고정 상단바(관리자 화면) 아래로 스크롤 위치를 맞춘다. 상단바가 없으면 0 */
-  scroll-padding-top: var(--admin-header-height, 0px);
+  /* 고정 상단바(관리자 화면, 업무 화면의 상단 메뉴) 아래로 스크롤 위치를 맞춘다. 상단바가 없으면 0 */
+  scroll-padding-top: var(--admin-header-height, var(--page-header-height, 0px));
+}
+
+/* 처리 중 표시. 스피너는 서버 작업(검토·생성·확정·발송)에, 점 3개는 챗봇 답변 대기에 쓴다. 색은 글자 색을 따른다 */
+.spinner {
+  flex: none;
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.typing i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: typing 1.2s ease-in-out infinite;
+}
+.typing i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typing i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes typing {
+  0%, 60%, 100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2.4s;
+  }
+  .typing i {
+    animation: none;
+    opacity: 0.6;
+  }
 }
 
 :focus-visible {
