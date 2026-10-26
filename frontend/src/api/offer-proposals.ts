@@ -230,13 +230,15 @@ const live = {
       throw new ApiError(400, 'ROW_INVALID', `엑셀 ${row.row_number}행 입력 오류 · ${found}`, false)
     }
     if (row.status === 'FAILED') throw new ApiError(502, 'REVIEW_FAILED', String(row.error?.code ?? 'Legal review failed.'), !!row.error?.retryable)
-    const stored: Json = row.response ?? {}
     const id = String(row.negotiation_id)
-    const eligibility = row.eligibility ?? stored.eligibility
+    const revision = Number(row.review_revision)
+    const head = Number(row.review_head_revision ?? revision)
+    // 협상안은 최신 검토 버전으로만 만들 수 있다. 업로드 뒤 재검토가 쌓였으면 표도 그 버전으로 그려 둘을 맞춘다
+    const stored: Json = head > revision ? await request<Json>(`${nego(id)}/reviews/${head}`, { signal }) : row.response ?? {}
+    const eligibility = head > revision ? stored.eligibility : row.eligibility ?? stored.eligibility
     const findings: Json[] = stored.legal_review?.assessment?.findings ?? []
     const summaries = Object.fromEntries(findings.map(f => [String(f.id), String(f.summary ?? f.id)]))
-    // 협상안은 그 작업의 최신 검토 버전으로만 만들 수 있다
-    reviewRefs.set(id, { negotiationId: id, revision: Number(row.review_head_revision ?? row.review_revision), summaries })
+    reviewRefs.set(id, { negotiationId: id, revision: head, summaries })
     const rows = reviewRows(stored)
     // check_offer가 조건 자체를 거절했거나(공급자·RFQ 없음, 값 범위) 서버 판정이 생성 불가면 화면도 반려로 둔다
     const blocked = row.check_error_code
@@ -245,7 +247,8 @@ const live = {
     if (blocked && !rows.some(r => r.verdict === 'rejected') && rows[0]) {
       rows[0] = { ...rows[0], verdict: 'rejected', reason: rows[0].reason ?? blocked }
     }
-    return { review_id: id, supplier_name: upload.supplier_name, file_name: `${upload.file_name} · ${rowNumber}행`, row_number: rowNumber, rows }
+    const label = `${upload.file_name} · ${rowNumber}행${head > revision ? ` · 재검토 v${head} 기준` : ''}`
+    return { review_id: id, supplier_name: upload.supplier_name, file_name: label, row_number: rowNumber, rows }
   },
 
   async create(review: OfferReview): Promise<OfferProposal> {
