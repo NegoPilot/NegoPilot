@@ -127,7 +127,7 @@ Docker 시작기는 MODEL 값이 미설정이거나 빈 문자열이면 기존 �
 | `/suppliers` | 협력사 조회 API로 검색과 상세 조회를 실행함. 일부 연결 준비 문구는 화면에 남아 있음 |
 | `/admin`과 `/admin/members` 및 `/admin/approvals` | 실제 회원 현황과 목록 및 가입 승인과 반려를 제공함 |
 | 나머지 관리자 메뉴 | 접근 이력과 데이터 관리 및 등록 화면은 연결 준비 안내를 표시함 |
-| `/overview`의 RFQ와 수치 및 `/review` | 화면용 예시 자료이며 실시간 업무 결과가 아님 |
+| `/overview`의 RFQ와 수치 | 화면용 예시 자료이며 실시간 업무 결과가 아님 |
 
 회원과 로그인 세션 및 개인 대화는 실제 PostgreSQL에 저장합니다. 협력사 조회 API는 business MCP를 거쳐 별도 business DB를 조회합니다. 이 조회는 채팅 모드와 무관하게 동작하며 모델을 호출하지 않습니다. 승인된 계정으로 로그인한 상태에서 `/api/business/catalog`를 열면 MCP 카탈로그 응답을 확인할 수 있습니다. 검색 조건과 상세 경로는 [협력사 조회 계약](contracts/supplier-lookup.md)를 참고합니다.
 
