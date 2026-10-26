@@ -37,6 +37,8 @@ export interface OfferReview {
   file_name: string
   row_number: number
   rows: ReviewRow[]
+  /** 어느 항목에 붙일 수 없는 반려 사유(조건 검사 오류, 생성 불가 판정). 있으면 협상안을 만들 수 없다 */
+  notice: string | null
 }
 
 // ── ③ 협상안 ──
@@ -239,16 +241,9 @@ const live = {
     const findings: Json[] = stored.legal_review?.assessment?.findings ?? []
     const summaries = Object.fromEntries(findings.map(f => [String(f.id), String(f.summary ?? f.id)]))
     reviewRefs.set(id, { negotiationId: id, revision: head, summaries })
-    const rows = reviewRows(stored)
-    // check_offer가 조건 자체를 거절했거나(공급자·RFQ 없음, 값 범위) 서버 판정이 생성 불가면 화면도 반려로 둔다
-    const blocked = row.check_error_code
-      ? `조건을 검사하지 못했습니다 (${row.check_error_code}). 공급자 ID·RFQ ID·값 범위를 확인해 주세요.`
-      : eligibility === 'blocked' ? '법규 검토에서 협상안 생성이 막혔습니다. 조건을 확인해 주세요.' : null
-    if (blocked && !rows.some(r => r.verdict === 'rejected') && rows[0]) {
-      rows[0] = { ...rows[0], verdict: 'rejected', reason: rows[0].reason ?? blocked }
-    }
+    const { rows, notice } = reviewView(stored, eligibility)
     const label = `${upload.file_name} · ${rowNumber}행${head > revision ? ` · 재검토 v${head} 기준` : ''}`
-    return { review_id: id, supplier_name: upload.supplier_name, file_name: label, row_number: rowNumber, rows }
+    return { review_id: id, supplier_name: upload.supplier_name, file_name: label, row_number: rowNumber, rows, notice }
   },
 
   async create(review: OfferReview): Promise<OfferProposal> {
@@ -424,6 +419,37 @@ function reviewRows(stored: Json): ReviewRow[] {
   })
 }
 
+// check_offer가 조건 자체를 거절한 오류 코드마다 검사하지 못한 항목. 없는 코드(VALUE_OUT_OF_RANGE 등)는 표 위 안내로 보여 준다
+const CHECK_ERRORS: Record<string, { rows: string[]; reason: string }> = {
+  RFQ_NOT_FOUND: { rows: ['market', 'capability'], reason: 'RFQ를 찾지 못해 검사하지 못했습니다. 엑셀의 RFQ ID를 확인해 주세요.' },
+  SUPPLIER_NOT_FOUND: { rows: ['size', 'capability'], reason: '협력사를 찾지 못해 검사하지 못했습니다. 엑셀의 공급자 ID를 확인해 주세요.' },
+}
+
+// 행 요약의 check_error_code와 같은 규칙(LegalReviewRowView.checkError)으로, 화면에 그리는 검토에서 직접 읽는다
+function checkOfferError(stored: Json): string | null {
+  for (const outcome of stored.routing?.outcomes ?? []) {
+    for (const call of outcome.calls ?? []) if (call.tool === 'check_offer' && typeof call.error_code === 'string') return call.error_code
+  }
+  return null
+}
+
+// 표와 표 위 안내. 조건 검사 오류는 그 오류로 검사하지 못한 항목에 반려로 붙이고, 붙일 항목이 없거나
+// 서버 판정만 생성 불가(blocked)이고 반려 항목이 없으면 다른 행을 빌리지 않고 안내로 둔다
+function reviewView(stored: Json, eligibility: unknown): { rows: ReviewRow[]; notice: string | null } {
+  const code = checkOfferError(stored)
+  const known = code ? CHECK_ERRORS[code] : undefined
+  const rows = reviewRows(stored).map(row => known?.rows.includes(row.id)
+    ? { ...row, verdict: 'rejected' as const, result: `검사하지 못함 (${code})`, reason: known.reason } : row)
+  const notice = code && !known
+    ? code === 'VALUE_OUT_OF_RANGE'
+      ? '조건을 검사하지 못했습니다 (VALUE_OUT_OF_RANGE). 단가·일수는 0보다 크게, 비중은 0~1, 날짜는 YYYY-MM-DD로 고친 엑셀을 다시 불러와 주세요.'
+      : `조건을 검사하지 못했습니다 (${code}). 엑셀의 공급자 ID·RFQ ID·값 범위를 확인해 주세요.`
+    : eligibility === 'blocked' && !rows.some(r => r.verdict === 'rejected')
+      ? '법규 검토에서 협상안 생성이 막혔습니다. 항목별 결과와 추가 확인 사항을 보고 조건을 고친 엑셀을 다시 불러와 주세요.'
+      : null
+  return { rows, notice }
+}
+
 const warningsOf = (raw: unknown): OfferWarning[] =>
   Array.isArray(raw) ? raw.map((w: Json) => ({ code: String(w.code ?? ''), message: String(w.message ?? w.code ?? '') })) : []
 
@@ -522,7 +548,7 @@ const mock = {
       { id: 'capability', verdict: 'approved', item: '생산능력 / 인증', result: '월 25,000 EA · IATF 16949 · RFQ 필수조건 충족', basis: 'business-mcp', reason: null, action: { label: '정보 조회', url: null } },
     ]
     return { review_id: `mock-${Date.now()}`, supplier_name: upload.supplier_name, file_name: `${upload.file_name} · ${rowNumber}행`,
-      row_number: rowNumber, rows }
+      row_number: rowNumber, rows, notice: null }
   },
 
   async create(review: OfferReview, member: Member | null): Promise<OfferProposal> {

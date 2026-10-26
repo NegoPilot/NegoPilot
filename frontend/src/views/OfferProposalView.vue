@@ -29,7 +29,7 @@ const errors = ref({ review: '', create: '', render: '', save: '' })
 
 const approved = computed(() => review.value?.rows.filter(r => r.verdict === 'approved').length ?? 0)
 const rejected = computed(() => review.value?.rows.filter(r => r.verdict === 'rejected').length ?? 0)
-const allApproved = computed(() => !!review.value && review.value.rows.length > 0 && rejected.value === 0)
+const allApproved = computed(() => !!review.value && review.value.rows.length > 0 && rejected.value === 0 && !review.value.notice)
 
 const steps = computed(() => {
   const done = [!!review.value, !!proposal.value, !!rendered.value, !!sent.value]
@@ -230,10 +230,12 @@ async function sendMail(note: string) {
         </div>
         <p class="counts"><span class="ok">승인 {{ approved }}</span><span class="ng">반려 {{ rejected }}</span></p>
       </div>
+      <p v-if="review.notice" role="alert" class="notice ng strong">⚠ {{ review.notice }}</p>
       <OfferReviewTable :rows="review.rows" />
       <div class="create-row">
         <div>
           <p v-if="allApproved" class="ok strong">✓ 모든 항목이 승인되었습니다. 협상안을 만들 수 있어요.</p>
+          <p v-else-if="rejected === 0" class="ng strong">표 위 안내 사유로 협상안을 만들 수 없어요. 조건을 고친 엑셀을 다시 불러와 주세요.</p>
           <p v-else class="ng strong">반려 {{ rejected }}건이 있어 협상안을 만들 수 없어요. 조건을 고친 엑셀을 다시 불러와 주세요.</p>
           <p class="muted">반려 항목이 하나라도 있으면 [협상안 만들기] 버튼이 비활성화됩니다.</p>
         </div>
@@ -289,7 +291,8 @@ async function sendMail(note: string) {
 .step.current{background:var(--primary-soft);color:var(--primary);font-weight:600}.sep{color:var(--text-3)}
 .input-row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px}.name{width:min(360px,100%)}.file{align-self:center}
 .hint{margin:8px 0 0}.row-pick{margin:12px 0 0}.row-pick p{margin:0 0 8px}
-.row-pick-list{display:flex;flex-wrap:wrap;gap:8px}.row-pick-list .active{border-color:var(--primary);color:var(--primary);font-weight:600}.counts{margin:0;display:flex;gap:10px;font-size:12px}
+.row-pick-list{display:flex;flex-wrap:wrap;gap:8px}.row-pick-list .active{border-color:var(--primary);color:var(--primary);font-weight:600}
+.notice{margin:0 0 12px}.counts{margin:0;display:flex;gap:10px;font-size:12px}
 .ok{color:var(--success)}.ng{color:var(--danger)}.strong{margin:0 0 4px;font-weight:600;font-size:13px}
 .create-row,.confirm-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin:18px 0 10px}
 .confirm-row p{margin:0}.wide{min-width:170px}
