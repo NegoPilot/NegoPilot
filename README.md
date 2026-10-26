@@ -214,10 +214,11 @@ uv run python scripts/ask.py "RFQ-2026-001 협력사 추천해줘"
 NegoPilot/
 ├── agent/                     LangGraph Agent와 내부 HTTP API (Python)
 │   ├── src/negopilot_agent/
-│   │   ├── graph.py           그래프 (decompose_query → route → generate)
+│   │   ├── graph.py           그래프 (decompose_query → route → generate → review ⇄ research)
 │   │   ├── decomposition/     쿼리 분해 (프롬프트, 모델 백엔드, 결과 정리)
 │   │   ├── routing/           하위 질문을 MCP 도구 호출로 바꾸고 실행
 │   │   ├── generation/        답변 생성과 근거 검사
+│   │   ├── review/            검토 루프 (답을 보고 근거 보강 후 다시 생성)
 │   │   ├── api/               Spring이 부르는 내부 HTTP API (FastAPI)
 │   │   └── timing.py          단계별 시간, 토큰, 비용 기록
 │   ├── scripts/               ask.py, 분해·생성·전체 그래프 평가, 지연 측정

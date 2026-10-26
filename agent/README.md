@@ -1,9 +1,11 @@
 # agent
 
-NegoPilot의 LangGraph Agent입니다. **쿼리 분해**, **Routing**, **Generation** 노드와 세 노드를 잇는 그래프가 들어 있습니다.
+NegoPilot의 LangGraph Agent입니다. **쿼리 분해**, **Routing**, **Generation**, **검토** 노드와 이를 잇는 그래프가 들어 있습니다.
 
 ```
-[사용자 질문] → decompose_query → route → (MCP 병렬·순차 호출) → generate
+[사용자 질문] → decompose_query → route → (MCP 병렬·순차 호출) → generate → review ─(보강할 것 없음)→ 끝
+                                                                    ↑               │
+                                                                    └── research ←──┘ (근거 보강, 최대 NEGOPILOT_REVIEW_ROUNDS회)
 ```
 
 ## 전체 그래프 (`negopilot_agent.graph`)
@@ -18,11 +20,26 @@ state["answer"]                                       # Answer (kind, text, cita
 
 | 동작 | 내용 |
 | --- | --- |
-| 상태 | `query`, `history` → `decomposition` → `routing` → `answer` ([`graph.py`](src/negopilot_agent/graph.py)의 `AgentState`) |
+| 상태 | `query`, `history` → `decomposition` → `routing` → `answer` → `review` ([`graph.py`](src/negopilot_agent/graph.py)의 `AgentState`) |
 | 분기 | 분해가 `clarify`·`failed`면 `route`를 건너뛰고 `generate`로 간다 (되묻기·실패 안내) |
+| 검토 루프 | `review`가 답과 도구 결과를 보고 보강할 거리가 있으면 `research`가 도구를 더 부른 뒤 `generate`로 돌아간다 (아래 검토 루프) |
 | 부품 교체 | `build_graph(decomposer=..., caller=..., generator=...)`. 테스트는 가짜 분해·가짜 MCP·가짜 생성으로 세 단계를 한 번에 돈다 ([`tests/test_graph.py`](tests/test_graph.py)) |
 
 질문 하나를 처음부터 끝까지 돌려 보려면 MCP 서버 두 개를 띄우고 `scripts/ask.py`를 씁니다 (아래 실행).
+
+## 검토 루프 (`negopilot_agent.review`)
+
+답을 만든 뒤 한 번 더 보고, 규칙에 걸리는 경우에만 도구를 더 부릅니다.
+판단은 모델 없이 규칙으로 해서 비용이 없고 같은 상황에 늘 같은 판단을 합니다. 보강할 것이 없으면 모델 호출도 도구 호출도 늘지 않습니다.
+
+| 보강 | 언제 | 무엇을 |
+| --- | --- | --- |
+| `retry_error` | 도구 호출이 일시 오류로 실패 (공개 오류 코드가 붙은 입력 오류는 제외) | 그 하위 질문과, 그 결과가 없어 건너뛴 뒤 질문을 다시 실행해 답을 다시 쓴다. 다시 해도 실패면 다시 쓰지 않는다 |
+| `suggest` | 협력사 검색(`supplier_search`)이 0건 | 조건을 넓힌 검색을 미리 해 보고, 결과가 있는 검색만 답 끝 안내와 버튼(`answer.options`)으로 권한다. 지역이 있으면 맞닿은 시·도부터(제주 → 전남·부산), 없으면 지역 → 최소 월 생산능력 → IATF 인증 순으로 조건을 뺀다. 공정·소재는 빼지 않는다. 답·분해 조건은 바꾸지 않고 모델도 부르지 않는다. 버튼은 입력창에 "부산 프레스 협력사 찾아줘" 같은 문장을 넣고, 보낼지는 사용자가 정한다 |
+
+- 라운드 수: `build_graph(review_rounds=...)` 또는 `NEGOPILOT_REVIEW_ROUNDS` (기본 1). `0`이면 보강하지 않아 예전 일직선 그래프와 같은 결과다
+- 기록: `state["review"]`(`ReviewLog`)에 라운드별 보강과 결과(`resolved`)가 남는다. LangSmith 트레이스에서는 `review`·`research` 노드로 보인다
+- 테스트: [`tests/test_review_loop.py`](tests/test_review_loop.py)
 
 ## 쿼리 분해 (`negopilot_agent.decomposition`)
 

@@ -21,7 +21,7 @@ async def test_graph_records_nodes_and_tool_calls():
         await app.ainvoke({"query": query})
 
     nodes = [s.name for s in t.spans if s.kind == "node"]
-    assert nodes == ["decompose_query", "route", "generate"]
+    assert nodes == ["decompose_query", "route", "generate", "review"]   # 보강할 거리가 없으면 검토 후 끝난다
     tools = [s for s in t.spans if s.kind == "tool"]
     assert len(tools) == len(caller.calls) > 0
     # 도구 호출은 route 노드 안에서 일어난 것으로 기록된다
