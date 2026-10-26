@@ -5,7 +5,7 @@
 
 **검토 결과는 협상 작업에 저장한다.** 정상 행마다 새 협상 작업을 만들고(`POST /api/negotiations`와 같은 규칙), 그 작업에 검토를 저장한다(`POST /api/negotiations/{id}/reviews`와 같은 규칙, `neg_review_revisions`). 그래서 행의 `negotiation_id`와 `review_revision`으로 바로 협상안을 만들 수 있다(`POST /api/negotiations/{id}/proposals`, [negotiation-workspace.md](negotiation-workspace.md)). 업로드 테이블에는 업로드 건, 엑셀 행 번호, 원본 칸 값, 그리고 협상 작업에 저장되지 않는 입력 오류·실행 실패 상태만 둔다.
 
-흐름: 엑셀 업로드 → 행별 해석·입력 검증 → 행 저장(QUEUED / INVALID) → 백그라운드에서 행마다 협상 작업 생성 + 검토 저장 → 행별 결과 조회 → 협상안 생성 또는 조건을 바꾼 재검토(협상 작업 API)
+흐름: 엑셀 업로드 → 행별 해석·입력 검증 → 행 저장(QUEUED / SKIPPED / INVALID) → 백그라운드에서 행마다 협상 작업 생성 + 검토 저장 → 행별 결과 조회 → 협상안 생성 또는 조건을 바꾼 재검토(협상 작업 API)
 
 | 파일 | 내용 |
 | --- | --- |
@@ -120,15 +120,23 @@ Spring 업로드 한도(`max-file-size` 1MB, `max-request-size` 2MB)에서 거�
 
 | 메서드와 경로 | 요청 | 응답 |
 | --- | --- | --- |
-| `POST /api/legal-review-uploads` | multipart `file` | 202 업로드 (행 해석 결과 포함) |
+| `POST /api/legal-review-uploads` | multipart `file`, 선택 `supplier_id` | 202 업로드 (행 해석 결과 포함) |
 | `GET /api/legal-review-uploads?limit=20` | limit 1~50, 기본 20 | 200 `{items:[업로드 요약]}`. 최근 업로드순 |
 | `GET /api/legal-review-uploads/{upload_id}` | 없음 | 200 업로드와 행 요약 |
 | `GET /api/legal-review-uploads/{upload_id}/rows/{row_number}` | 없음 | 200 행 상세 |
-| `POST /api/legal-review-uploads/{upload_id}/rows/{row_number}/retry` | 본문 없음 또는 `{}` | 202 행 상세. 실행에 실패한 행을 같은 입력으로 다시 검토 |
+| `POST /api/legal-review-uploads/{upload_id}/rows/{row_number}/retry` | 본문 없음 또는 `{}` | 202 행 상세. 실행에 실패한 행을 같은 입력으로 다시 검토하거나 건너뛴 행의 검토를 시작 |
 
 검토는 비동기다. 업로드 응답은 해석 결과만 담고, 검토 결과는 업로드 조회로 받는다. 업로드 `status`가 `PROCESSING`인 동안 다시 조회한다.
 
 ### 업로드
+
+`supplier_id`(`SUP-0000` 형식)를 주면 그 협력사의 정상 행만 검토한다. 다른 협력사의 정상 행은 협상 작업을 만들지 않고 Agent도 부르지 않은 채 `SKIPPED`로 저장한다. 필요하면 `retry`로 검토를 시작한다. 주지 않으면 모든 정상 행을 검토한다. 08-2 화면은 고른 협력사의 `supplier_id`를 보낸다. 형식이 틀리거나 두 번 보내면 400 `VALIDATION_ERROR`다.
+
+한 회원의 QUEUED + RUNNING 행은 `LEGAL_REVIEW_UPLOAD_MAX_PENDING_PER_USER`행(기본 30, 거래조건 시트 최대 행 수와 같음)까지다. 이번 업로드로 대기열에 넣을 행까지 더해 한도를 넘으면 업로드 전체를 저장하지 않고 429로 거절한다. 대기열에 넣을 행이 없는 업로드(모두 INVALID 또는 SKIPPED)는 한도와 상관없다. 한 사람이 대기열을 채워 다른 사람의 검토가 밀리지 않게 하기 위해서다.
+
+| 상태 | 코드 | 언제 |
+| --- | --- | --- |
+| 429 | `TOO_MANY_PENDING_REVIEWS` | 대기 행 한도를 넘는다. `details`는 `{pending, limit}`, `retryable` true. 앞선 검토가 끝난 뒤 다시 올린다 |
 
 ```json
 {
@@ -137,7 +145,7 @@ Spring 업로드 한도(`max-file-size` 1MB, `max-request-size` 2MB)에서 거�
   "row_count": 2,
   "created_at": "2026-10-23T11:00:00+00:00",
   "status": "PROCESSING",
-  "counts": {"invalid": 1, "queued": 1, "running": 0, "completed": 0, "failed": 0},
+  "counts": {"invalid": 1, "skipped": 0, "queued": 1, "running": 0, "completed": 0, "failed": 0},
   "sheet_errors": [],
   "rows": [행 요약, ...]
 }
@@ -150,7 +158,7 @@ Spring 업로드 한도(`max-file-size` 1MB, `max-request-size` 2MB)에서 거�
 | 필드 | 뜻 |
 | --- | --- |
 | `row_number` | 엑셀 행 번호(머리글이 1행) |
-| `status` | `INVALID` 입력 오류 / `QUEUED` 대기 / `RUNNING` 검토 중 / `COMPLETED` 검토 저장 / `FAILED` 실패 |
+| `status` | `INVALID` 입력 오류 / `SKIPPED` 검토 안 함(업로드 `supplier_id`와 다른 협력사) / `QUEUED` 대기 / `RUNNING` 검토 중 / `COMPLETED` 검토 저장 / `FAILED` 실패 |
 | `supplier_id`, `rfq_id` | 형식이 맞을 때만 채운다 |
 | `input_errors` | INVALID일 때 `[{column, message}]` |
 | `negotiation_id` | 이 행으로 만든 협상 작업. 작업을 만들기 전에 실패했으면 null |
@@ -188,11 +196,12 @@ COMPLETED 행은 협상 작업 API를 그대로 쓴다.
 
 같은 공급자 + RFQ의 열린 협상 작업이 이미 있어도 업로드 행마다 새 작업을 만든다. 진행 중인 협상안을 업로드가 "재검토 필요"로 만들지 않게 하기 위해서다. 작업 제목은 기본 제목 뒤에 `· {파일 이름} {행}행`을 붙인다(100자를 넘으면 줄인다).
 
-`retry`는 실행에 실패한 행만 받는다.
+`retry`는 실행에 실패한 행(FAILED)과 건너뛴 행(SKIPPED)만 받는다. 업로드와 같은 대기 행 한도를 적용한다.
 
 | 상태 | 코드 | 언제 |
 | --- | --- | --- |
 | 409 | `REVIEW_IN_PROGRESS` | 행이 QUEUED 또는 RUNNING이다. `retryable` true |
+| 429 | `TOO_MANY_PENDING_REVIEWS` | 대기 행 한도를 넘는다(3절 업로드). 행은 그대로 남는다. `retryable` true |
 | 409 | `ROW_ALREADY_REVIEWED` | 검토를 저장한 행이다. `details.negotiation_id`의 협상 작업 API로 재검토한다 |
 | 422 | `ROW_INVALID` | 입력 오류 행이다. 엑셀을 고쳐 다시 올린다 |
 
@@ -228,7 +237,7 @@ COMPLETED 행은 협상 작업 API를 그대로 쓴다.
 
 ## 6. 저장
 
-원본 파일은 저장하지 않는다. `legal_review_uploads`에 업로드 건(파일 이름, SHA-256, 행 수, `sheet_errors`)을, `legal_review_rows`에 엑셀 행(원본 칸 값, 입력 오류, 변환한 조건, 연결한 협상 작업과 검토 버전, 마지막 request_id, 실패 상태)을 둔다. Agent 응답과 `review_token`은 `neg_review_revisions`에만 있다. 테이블과 제약은 [V5 마이그레이션](../../backend/src/main/resources/db/migration/V5__legal_review_uploads.sql)에 있다.
+원본 파일은 저장하지 않는다. `legal_review_uploads`에 업로드 건(파일 이름, SHA-256, 행 수, `sheet_errors`)을, `legal_review_rows`에 엑셀 행(원본 칸 값, 입력 오류, 변환한 조건, 연결한 협상 작업과 검토 버전, 마지막 request_id, 실패 상태)을 둔다. Agent 응답과 `review_token`은 `neg_review_revisions`에만 있다. 테이블과 제약은 [V5 마이그레이션](../../backend/src/main/resources/db/migration/V5__legal_review_uploads.sql)에, SKIPPED 상태와 대기 행 수 인덱스는 [V7 마이그레이션](../../backend/src/main/resources/db/migration/V7__legal_review_skipped_rows.sql)에 있다.
 
 ## 7. 범위
 

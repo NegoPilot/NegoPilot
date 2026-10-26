@@ -77,11 +77,22 @@ class LegalReviewUploadStore {
                 mapper.writeValueAsString(result), key.uploadId(), key.rowNumber()) == 1;
     }
 
-    /** FAILED → QUEUED. 실패한 행을 같은 입력으로 다시 시도한다. */
+    /** FAILED·SKIPPED → QUEUED. 실패한 행은 같은 입력으로 다시 시도하고, 건너뛴 행은 검토를 시작한다. */
     boolean requeue(Key key) {
         return jdbc.update("UPDATE legal_review_rows SET status='QUEUED', error_code=NULL, error_retryable=NULL,"
-                + " execution_status=NULL, started_at=NULL, finished_at=NULL WHERE " + KEY + " AND status='FAILED'",
+                + " execution_status=NULL, started_at=NULL, finished_at=NULL WHERE " + KEY + " AND status IN ('FAILED', 'SKIPPED')",
                 key.uploadId(), key.rowNumber()) == 1;
+    }
+
+    /** 트랜잭션이 끝날 때까지 이 사용자의 대기 행 수 확인과 추가를 한 줄로 세운다. */
+    void lockOwner(UUID owner) {
+        jdbc.queryForList("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", "legal-review-upload:" + owner);
+    }
+
+    /** 이 사용자의 QUEUED + RUNNING 행 수. */
+    int pending(UUID owner) {
+        return jdbc.queryForObject("SELECT count(*) FROM legal_review_rows WHERE created_by=? AND status IN ('QUEUED', 'RUNNING')",
+                Integer.class, owner);
     }
 
     /** 임대가 끝난 RUNNING을 다시 시도할 수 있는 실패로 정리한다. 임대가 남은 행은 다른 서버가 처리 중일 수 있어 그대로 둔다. */
