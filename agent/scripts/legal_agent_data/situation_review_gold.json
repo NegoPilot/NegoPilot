@@ -1,0 +1,613 @@
+{
+ "schema_version": 1,
+ "as_of": "2026-10-23",
+ "description": "상황별 법률 검토(legal_review/situation.py) 평가 세트 초안. 정답 쟁점은 공정위 심사지침·연동제 운영지침의 예시와 하도급법 조문에서 뽑았다. 정답 확정 전 사람 검토 필요. dev는 오답 보고 고쳐도 되는 문항, test는 점수만 본다.",
+ "topics": {
+  "price_setting": "신규 위탁 대금 결정(제4조)",
+  "price_reduction": "기존 위탁 대금 감액(제11조)",
+  "cost_adjustment": "공급원가 변동 조정 협의(제16조의2)",
+  "price_linkage": "연동 약정·예외(제3조, 정의 제2조)"
+ },
+ "items": [
+  {
+   "id": "s01",
+   "split": "dev",
+   "query": "올해 경영이 어려워서 모든 협력사의 다음 분기 신규 발주 단가를 일괄 5%씩 낮춰 정하려고 합니다.",
+   "gold_topics": [
+    "price_setting"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": "new_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제4조"
+   ],
+   "source": "부당한 하도급대금 결정 및 감액행위에 대한 심사지침(공정위 예규 제411호) IV.2.가 법위반 예시①",
+   "note": "일률적 비율 인하"
+  },
+  {
+   "id": "s02",
+   "split": "test",
+   "query": "원가절감 목표액을 협력사별로 나눠 할당하고, 그 금액만큼 빼고 새 계약 단가를 정해도 되나요?",
+   "gold_topics": [
+    "price_setting"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": "new_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제4조"
+   ],
+   "source": "부당한 하도급대금 결정 및 감액행위에 대한 심사지침(공정위 예규 제411호) IV.2.나 법위반 예시①",
+   "note": "일방적 금액 할당"
+  },
+  {
+   "id": "s03",
+   "split": "test",
+   "query": "환율 때문에 수출 경쟁이 심해져서, 협의 없이 다음 달 발주분부터 단가를 낮춘다고 협력사에 통보하려 해요.",
+   "gold_topics": [
+    "price_setting"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": "new_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제4조"
+   ],
+   "source": "부당한 하도급대금 결정 및 감액행위에 대한 심사지침(공정위 예규 제411호) IV.2.아 법위반 예시③",
+   "note": "계속적 거래 중 일방적 결정"
+  },
+  {
+   "id": "s04",
+   "split": "dev",
+   "query": "최저가 입찰로 협력사를 정했는데, 업계 관행대로 낙찰된 업체와 한 번 더 가격을 깎는 협상을 해도 될까요?",
+   "gold_topics": [
+    "price_setting"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": "new_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제4조"
+   ],
+   "source": "부당한 하도급대금 결정 및 감액행위에 대한 심사지침(공정위 예규 제411호) IV.2.사 법위반 예시①",
+   "note": "최저가보다 낮은 결정"
+  },
+  {
+   "id": "s05",
+   "split": "test",
+   "query": "신규 개발 부품을 임시 단가로 먼저 발주했고 첫 납품 뒤 정식 단가를 정하기로 했는데, 임시 단가보다 낮게 확정하려고 합니다.",
+   "gold_topics": [
+    "price_setting"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": null,
+   "out_of_scope": false,
+   "must_articles": [
+    "제4조"
+   ],
+   "source": "부당한 하도급대금 결정 및 감액행위에 대한 심사지침(공정위 예규 제411호) III.3, IV.2.마 법위반 예시④",
+   "note": "임시단가 확정은 감액이 아니라 결정"
+  },
+  {
+   "id": "s06",
+   "split": "test",
+   "query": "원자재 가격과 인건비가 올랐는데도, 계속 거래하는 협력사의 새 계약 단가를 작년보다 낮게 정하려 합니다.",
+   "gold_topics": [
+    "price_setting"
+   ],
+   "acceptable_extra": [
+    "price_linkage"
+   ],
+   "gold_stage": "new_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제4조"
+   ],
+   "source": "부당한 하도급대금 결정 및 감액행위에 대한 심사지침(공정위 예규 제411호) IV.1.나(3)",
+   "note": "원가 상승에도 단가 인하 = 낮은 수준. 신규 계약이라 연동 서면도 볼 수 있음"
+  },
+  {
+   "id": "s07",
+   "split": "dev",
+   "query": "다른 업체 견적서를 조금 고쳐서 협력사에게 보여 주고 그걸 근거로 단가를 낮춰 계약하려고 합니다.",
+   "gold_topics": [
+    "price_setting"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": "new_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제4조"
+   ],
+   "source": "부당한 하도급대금 결정 및 감액행위에 대한 심사지침(공정위 예규 제411호) IV.2.라 법위반 예시②",
+   "note": "거짓 견적"
+  },
+  {
+   "id": "r01",
+   "split": "test",
+   "query": "협력사와 단가 인하에 합의했는데, 합의 전에 이미 발주한 물량에도 인하된 단가를 적용해서 지급하려고 해요.",
+   "gold_topics": [
+    "price_reduction"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": "existing_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제11조"
+   ],
+   "source": "부당한 하도급대금 결정 및 감액행위에 대한 심사지침(공정위 예규 제411호) V.2.나 법위반 예시①",
+   "note": "소급 적용 감액"
+  },
+  {
+   "id": "r02",
+   "split": "test",
+   "query": "발주할 때는 원자재 가격이 그대로였는데 납품 뒤에 원자재값이 떨어졌어요. 대금 줄 때 그만큼 빼도 되나요?",
+   "gold_topics": [
+    "price_reduction"
+   ],
+   "acceptable_extra": [
+    "price_linkage"
+   ],
+   "gold_stage": "existing_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제11조"
+   ],
+   "source": "부당한 하도급대금 결정 및 감액행위에 대한 심사지침(공정위 예규 제411호) V.2.바 법위반 예시①; 하도급대금 연동제 운영지침(공정위 예규 제484호) IV.5.나(2)",
+   "note": "납품 후 가격 하락 이유 감액. 연동 약정이 있으면 그에 따른 감액은 정당"
+  },
+  {
+   "id": "r03",
+   "split": "dev",
+   "query": "납품받은 부품을 우리 창고에 보관하다가 폭우로 일부가 유실됐는데, 그 수량만큼 대금에서 빼려고 합니다.",
+   "gold_topics": [
+    "price_reduction"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": "existing_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제11조"
+   ],
+   "source": "부당한 하도급대금 결정 및 감액행위에 대한 심사지침(공정위 예규 제411호) V.1 법위반 예시①",
+   "note": "원사업자 보관 중 손실 공제"
+  },
+  {
+   "id": "r04",
+   "split": "test",
+   "query": "작년 임금 인상과 판매 부진으로 적자가 커져서, 이미 계약한 하도급대금을 일부 깎아서 지급하려고 합니다.",
+   "gold_topics": [
+    "price_reduction"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": "existing_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제11조"
+   ],
+   "source": "부당한 하도급대금 결정 및 감액행위에 대한 심사지침(공정위 예규 제411호) V.2.사 법위반 예시①",
+   "note": "경영적자 이유 감액"
+  },
+  {
+   "id": "r05",
+   "split": "test",
+   "query": "60일 뒤 현금으로 주기로 한 대금을 30일 앞당겨 주는 대신, 은행 금리보다 훨씬 많이 할인해서 주려고 합니다.",
+   "gold_topics": [
+    "price_reduction"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": "existing_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제11조"
+   ],
+   "source": "부당한 하도급대금 결정 및 감액행위에 대한 심사지침(공정위 예규 제411호) V.2.다 법위반 예시②",
+   "note": "조기 지급 이유 과다 감액"
+  },
+  {
+   "id": "r06",
+   "split": "dev",
+   "query": "수량 없이 단가만 먼저 정해 두고 발주했는데, 발주한 뒤에 그 단가를 내리려고 합니다.",
+   "gold_topics": [
+    "price_reduction"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": "existing_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제11조"
+   ],
+   "source": "부당한 하도급대금 결정 및 감액행위에 대한 심사지침(공정위 예규 제411호) III.2",
+   "note": "단가만 확정 후 발주 이후 인하 = 감액"
+  },
+  {
+   "id": "r07",
+   "split": "test",
+   "query": "협력사가 불량품을 납품해서 반품했는데, 반품한 물량의 대금은 빼고 줘도 되죠?",
+   "gold_topics": [
+    "price_reduction"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": "existing_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제11조"
+   ],
+   "source": "부당한 하도급대금 결정 및 감액행위에 대한 심사지침(공정위 예규 제411호) V.1 정당한 사유 예시②",
+   "note": "정당한 사유 있는 감액(반대 사례)"
+  },
+  {
+   "id": "a01",
+   "split": "test",
+   "query": "계속 거래하는 협력사 부품 단가를 다음 달부터 3% 내리려고 하는데 확인할 게 뭐가 있나요?",
+   "gold_topics": [
+    "price_setting",
+    "price_reduction"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": "unknown",
+   "out_of_scope": false,
+   "must_articles": [
+    "제11조",
+    "제4조"
+   ],
+   "source": "부당한 하도급대금 결정 및 감액행위에 대한 심사지침(공정위 예규 제411호) III.2",
+   "note": "새 발주분이면 결정, 이미 발주한 물량이면 감액"
+  },
+  {
+   "id": "a02",
+   "split": "dev",
+   "query": "장기 거래 중인 협력사에 주는 대금을 줄이고 싶은데 어떻게 해야 문제가 없을까요?",
+   "gold_topics": [
+    "price_setting",
+    "price_reduction"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": "unknown",
+   "out_of_scope": false,
+   "must_articles": [
+    "제11조",
+    "제4조"
+   ],
+   "source": "부당한 하도급대금 결정 및 감액행위에 대한 심사지침(공정위 예규 제411호) III.1~2",
+   "note": "대상 물량·시점 불명확"
+  },
+  {
+   "id": "a03",
+   "split": "test",
+   "query": "우리 제품 판매가격을 내리게 돼서 협력사 납품가도 거기에 맞춰 낮추려고 합니다.",
+   "gold_topics": [
+    "price_setting",
+    "price_reduction"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": "unknown",
+   "out_of_scope": false,
+   "must_articles": [
+    "제11조",
+    "제4조"
+   ],
+   "source": "부당한 하도급대금 결정 및 감액행위에 대한 심사지침(공정위 예규 제411호) IV.2.아, V.2.사",
+   "note": "판매가격 인하: 새 결정(제4조②8)과 감액(제11조②7) 양쪽"
+  },
+  {
+   "id": "c01",
+   "split": "test",
+   "query": "연동 계약서를 이미 썼는데, 협력사가 인건비 상승을 이유로 단가 조정 협의를 신청했어요. 연동 계약이 있으니 협의 안 해도 되죠?",
+   "gold_topics": [
+    "cost_adjustment",
+    "price_linkage"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": "existing_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제16조의2",
+    "제2조",
+    "제3조"
+   ],
+   "source": "하도급대금 연동제 운영지침(공정위 예규 제484호) IV.6.가",
+   "note": "연동 서면이 있어도 조정협의 응할 의무"
+  },
+  {
+   "id": "c02",
+   "split": "dev",
+   "query": "우리 쪽 사정으로 납기가 석 달 밀리면서 협력사 관리비가 늘었다며 대금 조정을 요청해 왔습니다.",
+   "gold_topics": [
+    "cost_adjustment"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": "existing_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제16조의2"
+   ],
+   "source": "하도급법 제16조의2①2호",
+   "note": "원재료가 아닌 비용 변동이라 연동은 쟁점 아님"
+  },
+  {
+   "id": "c03",
+   "split": "test",
+   "query": "협력사가 공급원가 상승으로 조정을 신청한 지 2주가 지났는데 아직 협의를 시작하지 않았어요. 괜찮나요?",
+   "gold_topics": [
+    "cost_adjustment"
+   ],
+   "acceptable_extra": [
+    "price_linkage"
+   ],
+   "gold_stage": "existing_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제16조의2"
+   ],
+   "source": "하도급법 제16조의2⑩",
+   "note": "10일 내 협의 개시 의무"
+  },
+  {
+   "id": "c04",
+   "split": "test",
+   "query": "중소기업협동조합이 회원사 대신 우리에게 하도급대금 조정 협의를 신청했는데 응해야 하나요?",
+   "gold_topics": [
+    "cost_adjustment"
+   ],
+   "acceptable_extra": [
+    "price_linkage"
+   ],
+   "gold_stage": "existing_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제16조의2"
+   ],
+   "source": "하도급법 제16조의2②③⑩",
+   "note": "조합 조정협의"
+  },
+  {
+   "id": "c05",
+   "split": "dev",
+   "query": "전기요금이 크게 올라서 협력사가 납품 단가를 올려 달라고 합니다.",
+   "gold_topics": [
+    "cost_adjustment",
+    "price_linkage"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": null,
+   "out_of_scope": false,
+   "must_articles": [
+    "제16조의2",
+    "제2조",
+    "제3조"
+   ],
+   "source": "하도급법 제16조의2①1호, 제2조⑰, 제3조②3호",
+   "note": "공급원가(에너지) 변동: 조정협의와 에너지 연동"
+  },
+  {
+   "id": "l01",
+   "split": "test",
+   "query": "철판 제조를 맡기는데 계약금액 10억 원 중 철 비용이 2억 원쯤 됩니다. 계약서에 따로 넣어야 할 게 있나요?",
+   "gold_topics": [
+    "price_linkage"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": "new_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제2조",
+    "제3조"
+   ],
+   "source": "하도급대금 연동제 운영지침(공정위 예규 제484호) III.1.나 예시",
+   "note": "주요 원재료(20%) → 연동 서면"
+  },
+  {
+   "id": "l02",
+   "split": "test",
+   "query": "연동 대상이 안 되게 계약 기간을 80일씩 나눠서 계속 갱신하려고 합니다.",
+   "gold_topics": [
+    "price_linkage"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": "new_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제2조",
+    "제3조"
+   ],
+   "source": "하도급대금 연동제 운영지침(공정위 예규 제484호) IV.4.마",
+   "note": "90일 분할 탈법"
+  },
+  {
+   "id": "l03",
+   "split": "dev",
+   "query": "연동을 넣으면 거래를 끊겠다고 하고 협력사에게 미연동 합의서에 서명받으려 합니다.",
+   "gold_topics": [
+    "price_linkage"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": "new_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제2조",
+    "제3조"
+   ],
+   "source": "하도급대금 연동제 운영지침(공정위 예규 제484호) IV.4.가",
+   "note": "미연동 합의 강요"
+  },
+  {
+   "id": "l04",
+   "split": "test",
+   "query": "하도급대금이 8천만 원인 단발 계약인데 원재료 연동 조항을 꼭 넣어야 하나요?",
+   "gold_topics": [
+    "price_linkage"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": "new_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제2조",
+    "제3조"
+   ],
+   "source": "하도급대금 연동제 운영지침(공정위 예규 제484호) III.2.다",
+   "note": "1억 원 이하 적용 제외"
+  },
+  {
+   "id": "l05",
+   "split": "test",
+   "query": "협력사와 연동하지 않기로 말로만 합의했는데 서류로 남겨야 할 게 있나요?",
+   "gold_topics": [
+    "price_linkage"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": null,
+   "out_of_scope": false,
+   "must_articles": [
+    "제2조",
+    "제3조"
+   ],
+   "source": "하도급대금 연동제 운영지침(공정위 예규 제484호) IV.3.가",
+   "note": "미연동 합의는 취지·사유를 서면에"
+  },
+  {
+   "id": "l06",
+   "split": "dev",
+   "query": "원자재 가격이 내릴 때만 단가를 연동하는 조건으로 연동 계약서를 쓰려고 합니다.",
+   "gold_topics": [
+    "price_linkage"
+   ],
+   "acceptable_extra": [
+    "price_setting"
+   ],
+   "gold_stage": "new_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제2조",
+    "제3조"
+   ],
+   "source": "하도급대금 연동제 운영지침(공정위 예규 제484호) IV.1.다(1)",
+   "note": "하락 시에만 연동 = 연동계약으로 보지 않음"
+  },
+  {
+   "id": "l07",
+   "split": "test",
+   "query": "모터, 축, 케이싱 비용이 각각 대금의 10%가 넘는데, 축만 연동 대상에서 빼도 되나요?",
+   "gold_topics": [
+    "price_linkage"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": null,
+   "out_of_scope": false,
+   "must_articles": [
+    "제2조",
+    "제3조"
+   ],
+   "source": "하도급대금 연동제 운영지침(공정위 예규 제484호) IV.3.나 예시",
+   "note": "복수 주요 원재료 일부 미연동"
+  },
+  {
+   "id": "l08",
+   "split": "test",
+   "query": "연동 조건대로라면 단가를 올려 줘야 하는데, 협력사가 조정 신청을 안 했으니 기존 단가로 지급해도 되죠?",
+   "gold_topics": [
+    "price_linkage"
+   ],
+   "acceptable_extra": [
+    "cost_adjustment"
+   ],
+   "gold_stage": "existing_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제2조",
+    "제3조"
+   ],
+   "source": "하도급대금 연동제 운영지침(공정위 예규 제484호) IV.5.다(1)②",
+   "note": "연동 조정분 미지급(제13조와도 관련)"
+  },
+  {
+   "id": "m01",
+   "split": "dev",
+   "query": "원자재값이 급등해서 협력사가 단가 인상과 함께 연동 계약을 새로 맺자고 요구합니다.",
+   "gold_topics": [
+    "cost_adjustment",
+    "price_linkage"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": "existing_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제16조의2",
+    "제2조",
+    "제3조"
+   ],
+   "source": "하도급법 제16조의2①1호, 제3조②3호",
+   "note": "조정협의 + 연동"
+  },
+  {
+   "id": "m02",
+   "split": "test",
+   "query": "작년 계약 때 연동 조항을 빼먹었는데, 이제 와서 원자재 가격이 올랐다고 협력사가 대금 조정을 요청했어요.",
+   "gold_topics": [
+    "cost_adjustment",
+    "price_linkage"
+   ],
+   "acceptable_extra": [],
+   "gold_stage": "existing_order",
+   "out_of_scope": false,
+   "must_articles": [
+    "제16조의2",
+    "제2조",
+    "제3조"
+   ],
+   "source": "하도급법 제3조②3호, 제16조의2①",
+   "note": "연동 서면 누락 + 조정협의"
+  },
+  {
+   "id": "o01",
+   "split": "test",
+   "query": "하도급대금을 납품받고 90일 뒤에 어음으로 줘도 되나요?",
+   "gold_topics": [],
+   "acceptable_extra": [],
+   "gold_stage": null,
+   "out_of_scope": true,
+   "must_articles": [],
+   "source": "하도급법 제13조",
+   "note": "지급 기한·어음: 4쟁점 밖"
+  },
+  {
+   "id": "o02",
+   "split": "dev",
+   "query": "협력사에게 금형 설계 도면을 넘겨 달라고 해도 되나요?",
+   "gold_topics": [],
+   "acceptable_extra": [],
+   "gold_stage": null,
+   "out_of_scope": true,
+   "must_articles": [],
+   "source": "하도급법 제12조의3",
+   "note": "기술자료 요구: 4쟁점 밖"
+  },
+  {
+   "id": "o03",
+   "split": "test",
+   "query": "다음 주 협력사 미팅 일정을 잡아 주세요.",
+   "gold_topics": [],
+   "acceptable_extra": [],
+   "gold_stage": null,
+   "out_of_scope": true,
+   "must_articles": [],
+   "source": "-",
+   "note": "법률 무관"
+  },
+  {
+   "id": "o04",
+   "split": "test",
+   "query": "협력사가 납품한 제품을 검사 기간이 지난 뒤에 반품해도 되나요?",
+   "gold_topics": [],
+   "acceptable_extra": [
+    "price_reduction"
+   ],
+   "gold_stage": null,
+   "out_of_scope": true,
+   "must_articles": [],
+   "source": "하도급법 제10조; 부당한 하도급대금 결정 및 감액행위에 대한 심사지침(공정위 예규 제411호) V.1 법위반 예시④",
+   "note": "부당반품: 4쟁점 밖(감액 동반 시 제11조)"
+  }
+ ]
+}

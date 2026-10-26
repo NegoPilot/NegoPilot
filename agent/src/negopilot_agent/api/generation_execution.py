@@ -91,17 +91,19 @@ class SafeGenerator:
     def __init__(self, generator: AnswerGenerator) -> None:
         self.generator = generator
 
-    async def generate(self, decomposition: DecompositionResult, routing: RouteResult) -> Answer:
-        return await self.generator.generate(decomposition, public_routing(routing))
+    async def generate(self, decomposition: DecompositionResult, routing: RouteResult, *issues) -> Answer:
+        return await self.generator.generate(decomposition, public_routing(routing), *issues)
 
 
 class GenerationExecutor:
     def __init__(self, settings: ApiSettings, decomposer: ContextDecomposer | None = None,
-                 caller: ToolCaller | None = None, backend: Backend | None = None) -> None:
+                 caller: ToolCaller | None = None, backend: Backend | None = None,
+                 issue_review: bool | None = None) -> None:
         self.settings = settings
         self.decomposer = decomposer
         self.caller = caller
         self.backend = backend
+        self.issue_review = issue_review   # None이면 NEGOPILOT_ISSUE_REVIEW를 따른다. stub 모드에서는 늘 끈다
 
     async def execute(self, request: GenerationExecutionRequest) -> GenerationExecutionResponse:
         owned: list[LazyModelBackend] = []
@@ -129,7 +131,8 @@ class GenerationExecutor:
             if caller is None:
                 caller = GenerationStubToolCaller() if self.settings.mode == "stub" else McpToolCaller()
             graph = build_graph(decomposer=decomposer, caller=SafeToolCaller(caller),
-                                generator=SafeGenerator(AnswerGenerator(backend=backend)))
+                                generator=SafeGenerator(AnswerGenerator(backend=backend)),
+                                issue_review=False if self.settings.mode == "stub" else self.issue_review)
             with timing.collect() as timings:
                 state = await graph.ainvoke({
                     "query": request.query,

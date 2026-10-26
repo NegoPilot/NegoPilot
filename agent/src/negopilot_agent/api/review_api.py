@@ -78,7 +78,8 @@ def add_review_routes(app, settings, authenticate, error_response, caller=None):
             async with asyncio.timeout(settings.request_timeout_seconds):
                 actual_caller = caller or (GenerationStubToolCaller() if settings.mode == "stub" else None)
                 reviewed = ReviewedToolCaller(body.offer, actual_caller)
-                executor = GenerationExecutor(settings, decomposer=ReviewDecomposer(body.offer), caller=reviewed)
+                executor = GenerationExecutor(settings, decomposer=ReviewDecomposer(body.offer), caller=reviewed,
+                                              issue_review=False)   # 08-2는 고정 하위 질문과 룰 판정을 그대로 쓴다
                 result = await executor.execute(GenerationExecutionRequest(
                     request_id=body.request_id, query=body.query, context=body.context))
                 content = result.model_dump(mode="json", by_alias=True)

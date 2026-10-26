@@ -23,6 +23,7 @@
 | --- | --- | --- |
 | Tool | `list_laws(as_of?)` | 법령 목록, 기준일에 시행 중인 판, 시행 예정 판 |
 | Tool | `get_article(law, article_no, as_of?)` | 조문 전문(항 단위), 인용 문구, 시행 예정 개정 여부 |
+| Tool | `list_articles(law, as_of?)` | 조문 목차(번호·제목·장). 삭제된 조문 제외. Agent 쟁점 검토 노드가 씀 |
 | Tool | `search_regulation(query, laws?, as_of?, top_k?, include_addenda?)` | 항 단위 검색 결과와 인용 문구. 결과에 나온 정의 용어의 정의 항을 뒤에 붙임 |
 | Resource | `law://catalog` | 법령 목록 |
 | Resource | `law://{law_key}/{article_no}` | 조문 전문 텍스트 (예: `law://subcontract_act/제4조`) |

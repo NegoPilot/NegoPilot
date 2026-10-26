@@ -358,6 +358,21 @@ def get_article(law: str, article_no: str, as_of: str | None = None) -> dict:
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
+def list_articles(law: str, as_of: str | None = None) -> dict:
+    """법령의 조문 목차(조문 번호·제목·장)를 반환한다. 삭제된 조문과 제목 없는 조문은 뺀다.
+
+    Agent의 쟁점 검토 단계가 상황에 맞는 조문을 목차에서 고를 때 쓴다 (검색어로 잘 안 걸리는 조문 보완).
+    law: law_key 또는 별칭(하도급법 등). as_of: 기준일(YYYY-MM-DD). 생략하면 오늘 시행 중인 판
+    """
+    law_data = resolve_law(law)
+    day = parse_as_of(as_of)
+    v = version_in_force(law_data, day)
+    return {"law_key": law_data["law_key"], "law_name": v["law_name"], "effective_date": v["effective_date"],
+            "as_of": day, "articles": [{"article_no": a["no"], "title": a["title"], "chapter": a["chapter"]}
+                                       for a in v["articles"] if a["title"] and not a["deleted"]]}
+
+
+@mcp.tool(annotations={"readOnlyHint": True})
 def search_regulation(query: str, laws: list[str] | None = None, as_of: str | None = None,
                       top_k: int = 5, include_addenda: bool = False) -> list[dict]:
     """질문과 관련된 조문을 항 단위로 찾아 인용 정보와 함께 반환한다.

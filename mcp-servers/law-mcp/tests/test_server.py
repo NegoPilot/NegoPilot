@@ -28,7 +28,7 @@ def test_tools_are_listed():
     async def go():
         async with Client(mcp) as client:
             return {t.name for t in await client.list_tools()}
-    assert {"list_laws", "get_article", "search_regulation"} <= run(go())
+    assert {"list_laws", "get_article", "search_regulation", "list_articles"} <= run(go())
 
 
 def test_list_laws_picks_version_in_force():
@@ -38,6 +38,14 @@ def test_list_laws_picks_version_in_force():
     assert sub["in_force_effective_date"] <= "2026-10-20"
     # 2027-09-09 시행 예정 개정이 시행 예정으로 잡혀야 한다
     assert any(u["effective_date"] == "2027-09-09" for u in sub["upcoming"])
+
+
+def test_list_articles_is_toc_of_version_in_force():
+    toc = run(call("list_articles", {"law": "하도급법", "as_of": "2026-10-20"}))
+    assert toc["law_key"] == "subcontract_act" and toc["effective_date"] <= "2026-10-20"
+    by_no = {a["article_no"]: a["title"] for a in toc["articles"]}
+    assert "제16조의2" in by_no and by_no["제4조"]
+    assert all(a["title"] for a in toc["articles"])
 
 
 def test_get_article_with_alias_and_loose_number():
