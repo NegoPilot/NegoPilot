@@ -2,8 +2,10 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ApiError } from '@/api/client'
 import {
-  createOfferProposal, describeOfferError, previewOfferMail, renderOfferDocument, reviewOfferExcel, saveAttachment, sendOfferMail,
-  type FileFormat, type MailPreview, type MailSendResult, type OfferDocument, type OfferProposal, type OfferReview, type RenderedOffer,
+  createOfferProposal, describeOfferError, loadOfferReview, previewOfferMail, renderOfferDocument, saveAttachment,
+  sendOfferMail, uploadOfferExcel,
+  type FileFormat, type MailPreview, type MailSendResult, type OfferDocument, type OfferProposal, type OfferReview, type OfferUpload,
+  type RenderedOffer,
 } from '@/api/offer-proposals'
 import MailPreviewDialog from '@/components/offer/MailPreviewDialog.vue'
 import OfferDocumentEditor from '@/components/offer/OfferDocumentEditor.vue'
@@ -16,6 +18,8 @@ const MOCK = import.meta.env.VITE_OFFER_API === 'mock'
 
 const supplierName = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
+const upload = ref<OfferUpload | null>(null)
+const selectedRow = ref<number | null>(null)
 const review = ref<OfferReview | null>(null)
 const proposal = ref<OfferProposal | null>(null)
 const rendered = ref<RenderedOffer | null>(null)
@@ -57,8 +61,13 @@ function restart() { controller?.abort(); controller = new AbortController(); re
 onBeforeUnmount(() => controller?.abort())
 const cancelled = (e: unknown) => e instanceof ApiError && e.code === 'REQUEST_CANCELLED'
 
-// ① 협력사 이름이 바뀌면 이전 검토 결과는 쓰지 않는다
-watch(supplierName, name => { if (review.value && name.trim() !== review.value.supplier_name) resetFrom(1) })
+// ① 협력사 이름이 바뀌면 이전 업로드와 검토 결과는 쓰지 않는다
+watch(supplierName, name => {
+  if (!upload.value || name.trim() === upload.value.supplier_name) return
+  controller?.abort()
+  upload.value = null; selectedRow.value = null; errors.value.review = ''
+  resetFrom(1)
+})
 
 function pickFile() { if (supplierName.value.trim()) fileInput.value?.click() }
 async function onFile(event: Event) {
@@ -67,10 +76,31 @@ async function onFile(event: Event) {
   input.value = ''
   if (!file || busy.value) return
   resetFrom(1)
+  upload.value = null; selectedRow.value = null
   const signal = restart()
   busy.value = 'review'; errors.value.review = ''
-  try { review.value = await reviewOfferExcel(supplierName.value.trim(), file, signal) }
-  catch (e) { if (!cancelled(e)) errors.value.review = message(e, '엑셀을 검토하지 못했습니다. 파일 형식을 확인해 주세요.') }
+  let uploaded: OfferUpload
+  try { uploaded = await uploadOfferExcel(supplierName.value.trim(), file, signal) }
+  catch (e) {
+    if (!cancelled(e)) errors.value.review = message(e, '엑셀을 올리지 못했습니다. 파일 형식을 확인해 주세요.')
+    return
+  }
+  finally { busy.value = '' }
+  upload.value = uploaded
+  // 같은 협력사 행이 여러 개면 화면에서 고를 때까지 기다린다
+  const [only] = uploaded.rows
+  if (only && uploaded.rows.length === 1) await pickRow(only.row_number)
+}
+
+// 고른 행의 검토 결과를 받는다
+async function pickRow(rowNumber: number) {
+  if (!upload.value || busy.value) return
+  resetFrom(1)
+  selectedRow.value = rowNumber
+  const signal = restart()
+  busy.value = 'review'; errors.value.review = ''
+  try { review.value = await loadOfferReview(upload.value, rowNumber, signal) }
+  catch (e) { if (!cancelled(e)) errors.value.review = message(e, '엑셀을 검토하지 못했습니다.') }
   finally { busy.value = '' }
 }
 
@@ -179,6 +209,15 @@ async function sendMail(note: string) {
         <span v-if="review" class="muted file">✓ {{ review.file_name }}</span>
       </div>
       <p v-if="!supplierName.trim()" class="muted hint">회사명을 먼저 입력하면 엑셀을 불러올 수 있어요. 엑셀에 여러 협력사가 있으면 이 회사의 행만 검토 결과로 보여 줘요.</p>
+      <div v-if="upload && upload.rows.length > 1" class="row-pick" role="group" aria-labelledby="row-pick-title">
+        <p id="row-pick-title" class="muted">엑셀에 {{ upload.supplier_name }} 행이 {{ upload.rows.length }}개 있습니다. 검토 결과를 볼 행을 고르세요.</p>
+        <div class="row-pick-list">
+          <button v-for="row in upload.rows" :key="row.row_number" type="button" class="btn" :class="{ active: row.row_number === selectedRow }"
+            :aria-pressed="row.row_number === selectedRow" :disabled="busy === 'review'" @click="pickRow(row.row_number)">
+            {{ row.row_number }}행 · {{ row.rfq_id ?? 'RFQ ID 없음' }}
+          </button>
+        </div>
+      </div>
       <p v-if="errors.review" role="alert" class="field-error">{{ errors.review }}</p>
     </section>
 
@@ -249,7 +288,8 @@ async function sendMail(note: string) {
 .step{padding:3px 10px;border-radius:10px;color:var(--text-3)}.step.done{background:#e8f4ea;color:var(--success)}
 .step.current{background:var(--primary-soft);color:var(--primary);font-weight:600}.sep{color:var(--text-3)}
 .input-row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px}.name{width:min(360px,100%)}.file{align-self:center}
-.hint{margin:8px 0 0}.counts{margin:0;display:flex;gap:10px;font-size:12px}
+.hint{margin:8px 0 0}.row-pick{margin:12px 0 0}.row-pick p{margin:0 0 8px}
+.row-pick-list{display:flex;flex-wrap:wrap;gap:8px}.row-pick-list .active{border-color:var(--primary);color:var(--primary);font-weight:600}.counts{margin:0;display:flex;gap:10px;font-size:12px}
 .ok{color:var(--success)}.ng{color:var(--danger)}.strong{margin:0 0 4px;font-weight:600;font-size:13px}
 .create-row,.confirm-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin:18px 0 10px}
 .confirm-row p{margin:0}.wide{min-width:170px}
