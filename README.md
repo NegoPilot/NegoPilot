@@ -36,8 +36,10 @@ NegoPilot은 이 조회와 점검을 Agent가 맡고, 답변마다 근거를 붙
 | 협력사 검색·비교 | 공정, 소재, 지역, 인증 조건으로 협력사를 찾고, RFQ별로 단가·품질·납기 가중 점수 순위를 계산합니다 |
 | 법령 근거 조회 | 하도급법, 상생협력법, 중소기업기본법과 각 시행령을 시행일 기준으로 조회·검색하고 조문과 항을 인용합니다 |
 | 협상안 검사 | 단가, 결제 기간, 연동 약정 여부를 받아 지급 기한 초과나 연동 약정 누락 같은 위반 소지를 근거 조문과 함께 알려 줍니다 |
+| 협상안 검토·제안서 | 거래 조건 엑셀을 올리면 행마다 법규 검토(승인·반려)를 하고, 통과한 조건으로 협상안과 협력사 발송용 제안서(Word·PDF), 내부 협상 브리핑(대외비)을 만듭니다 |
+| 제안서 메일 발송 | 확정한 제안서만 미리보기를 거쳐 협력사 담당자에게 PDF로 보냅니다. 위반 소지가 있으면 막고, 확인 필요 항목은 담당자가 확인해야 보낼 수 있습니다. 챗봇은 메일을 보내지 않습니다 |
 | 근거 검사 | 답변의 숫자, 금액, 조문 번호, 인용 번호가 실제 조회 결과에 있는지 코드로 확인하고, 없으면 다시 생성하거나 가립니다 |
-| 회원과 관리자 | 회원가입 후 관리자 승인을 받아야 쓸 수 있고, 관리자는 회원 승인, 협력사 데이터, 법령 데이터를 관리합니다 |
+| 회원과 관리자 | 회원가입 후 관리자 승인을 받아야 쓸 수 있고, 관리자는 회원 가입 승인과 협력사 등록·수정을 맡습니다 |
 | 개인 대화 기록 | 대화와 근거 상세를 PostgreSQL에 저장하고, 사용자 본인만 볼 수 있습니다 |
 
 ## 기술 스택
@@ -133,14 +135,16 @@ API 형식은 [회원 계약](docs/contracts/membership.md)과 [직접 질문 �
 
 ## 품질 평가
 
-평가 질문은 프롬프트를 고칠 때 보는 **개발용**과, 점수만 확인하는 **검증용**으로 나눴습니다. 검증용 오답을 보고 프롬프트를 고치지 않습니다. 아래는 gpt-4.1-mini 기준 측정값입니다.
+평가 질문은 프롬프트를 고칠 때 보는 **개발용**과, 점수만 확인하는 **검증용**으로 나눴습니다. 검증용 오답을 보고 프롬프트를 고치지 않습니다. 아래는 gpt-4.1-mini(분해·생성·채점) 기준 측정값이며, 검증결과서·발표자료와 같은 값입니다.
 
 | 항목 | 결과 | 측정 방법 |
 | --- | --- | --- |
-| 쿼리 분해 완전 일치 | 검증용 50개 92% | `eval_decomposition.py --set validation` (#114) |
-| 분해 시간, 출력 토큰 | 2.58초 → 1.66초, 518 → 344 | 간결한 출력 형식 도입 전후 (#98) |
-| 최종 답변 정답 포인트 커버 | 검증용 91% | 실제 분해·MCP 조회·생성 후 채점 (`eval_pipeline.py`) |
-| 질문당 모델 비용 | 약 $0.0026 | `bench_latency.py` (#109) |
+| 검증 세트 충족률 | 15건 중 9건 → 12건 (60% → 80%) | 답 가능 12건 + 답 불가·실패 유도 3건, 개선 전 3회·후 6회. 모든 회차 답변 종류 일치 + 정답 포인트 80% 이상 (`eval_pipeline.py`) |
+| 최종 답변 정답 포인트 커버 | 공통 12건 85.8% → 93.3% | 실제 분해·MCP 조회·생성 후 LLM 채점 (`eval_pipeline.py`) |
+| 검증 세트 13문항 × 3회 | Coverage 91.5% → 94.6%, 근거 표시 97.4% → 100% | LangSmith 실험, R1(`ddd2940`) → R4(`f1c4725`) (`eval_langsmith.py`) |
+| 질문 유형별 18문항 × 2회 | 전체 통과 66.7% → 86.1%, 인용 표시 64.3% → 92.9% | 다중 기업·기업 미특정·multi-hop·개방형 질문 자동 대조, R1 → R4 |
+| 메일 생성 (협상안 16건 × 3회) | 3개 기준 모두 48/48 | 문구 숫자 근거 일치, 제안서에 내부 정보 없음, 조건 일치·위반 0건 (`eval_offer_proposal.py`) |
+| 질문당 모델 비용 | 약 $0.004 | 질문 유형별 평가 1,000건당 4.04 USD (R4) |
 
 같은 답변을 다른 모델로 한 번 더 채점하는 교차 채점(`--cross-judge`)도 지원합니다. 평가 방법과 보고서는 [Agent README](agent/README.md)와 [`agent/eval_reports`](agent/eval_reports)에 있습니다.
 
@@ -167,9 +171,29 @@ DB와 테이블 및 로컬 계정을 자동으로 준비합니다. [http://local
 | 승인된 일반 회원 | `user@negopilot.local` | `LocalUser2026!` |
 | 관리자 | `admin@negopilot.local` | `LocalAdmin2026!` |
 
+> **질문하면 "AI 서버 또는 모델을 사용할 수 없습니다"가 나올 때:** 터미널에 예전 `OPENAI_API_KEY` 환경변수가 남아 있으면 Docker Compose는 `.env`보다 그 값을 먼저 씁니다. 시작기는 키의 유효성을 확인하지 않아 서비스는 정상으로 뜹니다. `unset OPENAI_API_KEY` 후 `docker compose up -d`로 다시 시작합니다.
+>
+> **같은 PC에서 처음 상태로 확인할 때:** Compose 프로젝트 이름이 `negopilot-local`로 고정이라, 새 폴더에 clone해도 예전 실행의 DB volume을 그대로 씁니다. 빈 DB로 보려면 `docker compose -p negopilot-fresh up --build -d`처럼 프로젝트 이름을 바꿉니다. 예전 데이터를 지워도 되면 `docker compose down -v` 후 다시 시작합니다.
+
 기본 Compose는 `live` 모드로 질문 해석부터 MCP 조회와 최종 답변 생성까지 실행합니다. 실제 질문에는 모델 API 호출 비용이 발생할 수 있습니다. Docker 시작기는 모델과 필수 키 설정만 검사하며 네트워크로 키의 유효성을 확인하지 않습니다. live 실패를 stub 답변으로 바꾸지 않습니다.
 
 회원과 대화 기록은 PostgreSQL volume에 저장되어 컨테이너를 다시 만들어도 유지됩니다. 기존 계정과 비밀번호도 덮어쓰지 않습니다. `live`는 모든 자료가 실데이터라는 뜻은 아닙니다. 초기 business DB에는 DART 공시 스냅샷과 가상 기업 및 가상 운영 데이터가 함께 들어갑니다. 모델 공급자 변경과 필드별 출처 및 화면 연결 상태는 [Docker 실행 안내](docs/LOCAL_DOCKER.md)를 참고합니다.
+
+### 제안서 메일 수신 확인 (Mailpit)
+
+기본값(`MAIL_TRANSPORT=dry_run`)은 메일을 실제로 보내지 않습니다. 로컬에서 받은 메일을 보려면 `.env`를 아래처럼 바꾸고 Mailpit을 함께 띄웁니다. 받은 메일은 [http://localhost:8025](http://localhost:8025)에서 확인합니다. 협력사 담당자 주소는 `example.test` 가상 주소입니다.
+
+```sh
+# .env
+MAIL_TRANSPORT=smtp
+SMTP_HOST=mailpit
+SMTP_PORT=1025
+SMTP_SECURITY=none
+```
+
+```sh
+docker compose --profile mailpit up --build -d
+```
 
 ### 모델 키 없는 테스트 실행
 
@@ -190,18 +214,22 @@ docker compose -f compose.yaml -f compose.test.yaml down
 
 ### Agent 개별 실행
 
-Python 3.12 이상과 [uv](https://docs.astral.sh/uv/)가 필요합니다. `agent/.env`에 `OPENAI_API_KEY`를 넣고, MCP 서버 두 개를 먼저 띄웁니다.
+Python 3.12 이상과 [uv](https://docs.astral.sh/uv/)가 필요합니다. `agent/.env`에 `OPENAI_API_KEY`를 넣고, MCP 서버 두 개를 먼저 띄웁니다. 세 블록은 각각 **저장소 루트에서 새 터미널**을 열어 실행합니다(서버가 계속 실행됩니다).
 
 ```bash
-# law-mcp
+# 터미널 1: law-mcp
 cd mcp-servers/law-mcp && uv sync && uv run python server.py --http 9103
+```
 
-# business-mcp (PostgreSQL 컨테이너와 seed 포함)
+```bash
+# 터미널 2: business-mcp (PostgreSQL 컨테이너와 seed 포함)
 cd mcp-servers/business-mcp && docker compose up -d && uv sync
 uv run python scripts/seed.py
 uv run python server.py --http 9102
+```
 
-# Agent: 질문 하나를 끝까지 실행
+```bash
+# 터미널 3: Agent로 질문 하나를 끝까지 실행
 cd agent && uv sync
 uv run python scripts/ask.py "RFQ-2026-001 협력사 추천해줘"
 ```
