@@ -82,7 +82,7 @@ class LegalReviewUploadPostgresTest {
         negotiations = new NegotiationTestSupport(jdbc, datasource, gateway, suppliers, agent, directory);
         store = new LegalReviewUploadStore(jdbc, JSON);
         var runner = new LegalReviewRunner(store, negotiations.reviews, agent, pending::add);
-        service = new LegalReviewUploadService(store, runner, new TransactionTemplate(new DataSourceTransactionManager(datasource)), JSON);
+        service = new LegalReviewUploadService(store, runner, new TransactionTemplate(new DataSourceTransactionManager(datasource)), JSON, 30);
     }
 
     private void runPending() {
@@ -104,7 +104,7 @@ class LegalReviewUploadPostgresTest {
         when(gateway.review(any(), any())).thenAnswer(inv -> NegotiationTestSupport.reviewResponseFor(inv.getArgument(0), "ready"));
         when(gateway.propose(any(), any())).thenAnswer(inv -> NegotiationTestSupport.proposalResponseFor(inv.getArgument(0)));
 
-        UUID id = UUID.fromString(service.upload(owner, "조건.xlsx", file, UUID.randomUUID()).get("upload_id").stringValue());
+        UUID id = UUID.fromString(service.upload(owner, "조건.xlsx", file, null, UUID.randomUUID()).get("upload_id").stringValue());
         assertThat(jdbc.queryForObject("SELECT status FROM legal_review_rows WHERE upload_id=? AND row_number=3", String.class, id)).isEqualTo("INVALID");
         runPending();
 
@@ -165,7 +165,7 @@ class LegalReviewUploadPostgresTest {
     @Test void reviewSavedAfterLeaseExpiredIsLinkedOnRetryWithoutAnotherAgentCall() {
         when(gateway.review(any(), any())).thenAnswer(inv -> NegotiationTestSupport.reviewResponseFor(inv.getArgument(0), "ready"));
         byte[] file = TestXlsx.of(List.of(ReviewWorkbookParserTest.headers(), row("SUP-0034")));
-        UUID id = UUID.fromString(service.upload(owner, "조건.xlsx", file, UUID.randomUUID()).get("upload_id").stringValue());
+        UUID id = UUID.fromString(service.upload(owner, "조건.xlsx", file, null, UUID.randomUUID()).get("upload_id").stringValue());
         var key = new LegalReviewUploadStore.Key(id, 2);
         pending.clear();
 
@@ -191,7 +191,7 @@ class LegalReviewUploadPostgresTest {
         ObjectNode failed = (ObjectNode) JSON.readTree("{\"execution_status\":\"FAILED\",\"error\":{\"code\":\"GENERATION_FAILED\",\"retryable\":true}}");
         when(gateway.review(any(), any())).thenReturn(failed);
         byte[] file = TestXlsx.of(List.of(ReviewWorkbookParserTest.headers(), row("SUP-0034"), row("SUP-0060")));
-        UUID id = UUID.fromString(service.upload(owner, "조건.xlsx", file, UUID.randomUUID()).get("upload_id").stringValue());
+        UUID id = UUID.fromString(service.upload(owner, "조건.xlsx", file, null, UUID.randomUUID()).get("upload_id").stringValue());
         runPending();
         JsonNode rows = service.get(owner, id, UUID.randomUUID()).get("rows");
         assertThat(rows.get(0).get("error").get("code").stringValue()).isEqualTo("GENERATION_FAILED");
@@ -218,10 +218,29 @@ class LegalReviewUploadPostgresTest {
                 .containsExactly(45);
     }
 
+    @Test void skippedRowsAreStoredAndCountedOnlyWhenRequested() {
+        when(gateway.review(any(), any())).thenAnswer(inv -> NegotiationTestSupport.reviewResponseFor(inv.getArgument(0), "ready"));
+        byte[] file = TestXlsx.of(List.of(ReviewWorkbookParserTest.headers(), row("SUP-0034"), row("SUP-0060")));
+        UUID id = UUID.fromString(service.upload(owner, "조건.xlsx", file, "SUP-0034", UUID.randomUUID()).get("upload_id").stringValue());
+        assertThat(jdbc.queryForList("SELECT status FROM legal_review_rows WHERE upload_id=? ORDER BY row_number", String.class, id))
+                .containsExactly("QUEUED", "SKIPPED");
+        assertThat(store.pending(owner)).isEqualTo(1);
+        runPending();
+        assertThat(store.pending(owner)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM neg_workspaces WHERE owner_id=?", Integer.class, owner)).isEqualTo(1);
+
+        service.retry(owner, id, 3, UUID.randomUUID());
+        assertThat(store.pending(owner)).isEqualTo(1);
+        runPending();
+        assertThat(service.row(owner, id, 3, UUID.randomUUID()).get("status").stringValue()).isEqualTo("COMPLETED");
+        assertThatThrownBy(() -> jdbc.update("UPDATE legal_review_rows SET status='PAUSED' WHERE upload_id=?", id))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
     @Test void stateTransitionsAndConstraints() {
         when(gateway.review(any(), any())).thenAnswer(inv -> NegotiationTestSupport.reviewResponseFor(inv.getArgument(0), "needs_information"));
         byte[] file = TestXlsx.of(List.of(ReviewWorkbookParserTest.headers(), row("SUP-0034")));
-        UUID id = UUID.fromString(service.upload(owner, "조건.xlsx", file, UUID.randomUUID()).get("upload_id").stringValue());
+        UUID id = UUID.fromString(service.upload(owner, "조건.xlsx", file, null, UUID.randomUUID()).get("upload_id").stringValue());
         var key = new LegalReviewUploadStore.Key(id, 2);
 
         assertThat(store.claim(key, OffsetDateTime.now().minusSeconds(1), UUID.randomUUID())).isTrue();
