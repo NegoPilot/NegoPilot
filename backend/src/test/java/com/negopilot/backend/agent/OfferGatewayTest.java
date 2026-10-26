@@ -76,11 +76,36 @@ class OfferGatewayTest {
         ObjectNode response = rendered(files);
         stub(200, response);
         ObjectNode document = mapper.createObjectNode().put("version", 2).put("unit_price", 1948);
-        assertThat(gateway.render(ID, document, files)).isEqualTo(response);
-        ObjectNode sent = sent("/internal/offer-proposals/render?format=json");
+        assertThat(gateway.render(ID, document, files, true)).isEqualTo(response);
+        ObjectNode sent = sent("/internal/offer-proposals/render?format=json&include_cover_status=true");
         assertThat(sent.propertyNames()).containsExactlyInAnyOrder("request_id", "document", "files");
         assertThat(sent.get("document")).isEqualTo(document);
         assertThat(sent.get("files").stringValue()).isEqualTo(files);
+    }
+
+    @Test
+    void renderWithoutCoverRewriteTurnsModelWritingOff() {
+        ObjectNode response = rendered("pdf");
+        response.putObject("cover_letter").put("regenerated", true).put("source", "fallback").putArray("problems").add("입력에 없는 숫자 60");
+        stub(200, response);
+        assertThat(gateway.render(ID, mapper.createObjectNode(), "pdf", false)).isEqualTo(response);
+        sent("/internal/offer-proposals/render?format=json&include_cover_status=true&writing=false");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"missing", "extra", "source", "mismatch", "problem"})
+    void renderRejectsInvalidCoverLetterStatus(String defect) {
+        ObjectNode response = rendered("pdf");
+        ObjectNode cover = (ObjectNode) response.get("cover_letter");
+        switch (defect) {
+            case "missing" -> response.remove("cover_letter");
+            case "extra" -> cover.put("text", "인사말");
+            case "source" -> cover.put("source", "llm");
+            case "mismatch" -> cover.put("regenerated", true);
+            case "problem" -> cover.withArray("problems").add(1);
+        }
+        stub(200, response);
+        assertInvalid(() -> gateway.render(ID, mapper.createObjectNode(), "pdf", true));
     }
 
     @ParameterizedTest
@@ -99,14 +124,14 @@ class OfferGatewayTest {
             case "duplicate" -> response.withArray("attachments").add(attachment.deepCopy());
         }
         stub(200, response);
-        assertInvalid(() -> gateway.render(ID, mapper.createObjectNode(), "pdf"));
+        assertInvalid(() -> gateway.render(ID, mapper.createObjectNode(), "pdf", true));
     }
 
     @Test
     void renderRejectsDifferentFileSetAndInvalidRequestedFormat() {
         stub(200, rendered("docx"));
-        assertInvalid(() -> gateway.render(ID, mapper.createObjectNode(), "pdf"));
-        assertThatThrownBy(() -> gateway.render(ID, mapper.createObjectNode(), "xlsx"))
+        assertInvalid(() -> gateway.render(ID, mapper.createObjectNode(), "pdf", true));
+        assertThatThrownBy(() -> gateway.render(ID, mapper.createObjectNode(), "xlsx", true))
                 .isInstanceOfSatisfying(ApiException.class, ex -> assertThat(ex.code).isEqualTo("VALIDATION_ERROR"));
     }
 
@@ -128,14 +153,14 @@ class OfferGatewayTest {
         response.putArray("findings").addObject().put("code", "PAYMENT_DAYS_OVER_60")
                 .put("message", "지급 기간 확인").putArray("law_refs");
         stub(422, response);
-        assertThatThrownBy(() -> gateway.render(ID, mapper.createObjectNode(), "pdf"))
+        assertThatThrownBy(() -> gateway.render(ID, mapper.createObjectNode(), "pdf", true))
                 .isInstanceOfSatisfying(ApiException.class, ex -> {
                     assertThat(ex.code).isEqualTo("OFFER_VIOLATION");
                     assertThat(ex.details).isInstanceOf(Map.class);
                     assertThat(((Map<?, ?>) ex.details).get("findings")).isEqualTo(response.get("findings"));
                 });
         response.remove("findings");
-        assertInvalid(() -> gateway.render(ID, mapper.createObjectNode(), "pdf"));
+        assertInvalid(() -> gateway.render(ID, mapper.createObjectNode(), "pdf", true));
         stub(422, error("INTERNAL_DIAGNOSTIC", false));
         assertInvalid(() -> gateway.propose(ID, mapper.createObjectNode()));
     }
@@ -192,6 +217,7 @@ class OfferGatewayTest {
         ObjectNode response = mapper.createObjectNode().put("request_id", ID.toString());
         response.putObject("document").put("content_hash", "sha256:" + "a".repeat(64));
         response.putObject("check").put("verdict_code", "OK").putArray("warnings");
+        response.putObject("cover_letter").put("regenerated", false).put("source", "kept").putArray("problems");
         var attachments = response.putArray("attachments");
         for (String extension : files.equals("both") ? Set.of("pdf", "docx") : Set.of(files)) {
             attachments.addObject().put("filename", "제안서." + extension)

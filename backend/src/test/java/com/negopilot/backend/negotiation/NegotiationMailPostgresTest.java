@@ -76,7 +76,7 @@ class NegotiationMailPostgresTest {
         when(suppliers.detail(anyString(), any())).thenReturn(object("{\"data\":{\"supplier_id\":\"SUP-0060\",\"name\":\"온새프레스\"}}"));
         when(gateway.review(any(), any())).thenAnswer(call -> reviewResponse(call.getArgument(0), "ready"));
         when(gateway.propose(any(), any())).thenAnswer(call -> proposalResponse(call.getArgument(0)));
-        when(gateway.render(any(), any(), anyString())).thenAnswer(call -> renderResponse(call.getArgument(0), call.getArgument(1), call.getArgument(2)));
+        when(gateway.render(any(), any(), anyString(), anyBoolean())).thenAnswer(call -> renderResponse(call.getArgument(0), call.getArgument(1), call.getArgument(2)));
         var requests = new NegotiationRequests(repository, transaction, JSON, properties);
         var store = new LocalNegotiationExportStore(directory);
         service = new NegotiationService(repository, transaction, gateway, suppliers, new LegalReviewRequestFactory(JSON), JSON, requests, store, properties);

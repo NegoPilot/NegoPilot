@@ -255,15 +255,21 @@ const live = {
       : await request<Json>(path)
     ref.head = Number(view.head_revision)
     let validation: Json = view.validation
-    if (validation.status !== 'checked') {
-      validation = (await request<Json>(`${path}/revisions/${ref.head}/validations`, { method: 'POST', headers: idempotent(), body: '{}' }, SLOW)).validation
-    }
+    if (validation.status !== 'checked') validation = await recheck(ref, path)
     if (validation.status !== 'checked') throw new ApiError(503, 'VALIDATION_FAILED', 'Validation did not finish.', true)
     if (validation.conclusion === 'risk_identified') {
       const found = (validation.violations ?? []).map((v: Json) => v.message ?? v.code).join(' / ')
       throw new ApiError(422, 'OFFER_VIOLATION', found || 'Offer violates a rule.', false)
     }
-    const bundle = await exportFinal(ref, ['docx', 'pdf'])
+    let bundle: Json
+    try { bundle = await exportFinal(ref, ['docx', 'pdf']) }
+    catch (e) {
+      // 검사는 끝났지만 인사말이 조건과 맞지 않는 버전(예: #306 이전에 검사한 버전)은 재검사로 인사말을 맞춘다
+      if (!(e instanceof ApiError && e.code === 'EXPORT_NOT_ALLOWED'
+        && (e.details?.reasons as string[] | undefined)?.includes('COVER_LETTER_STALE'))) throw e
+      await recheck(ref, path)
+      throw e
+    }
     const attachments = await Promise.all((bundle.files as Json[]).map(async file => ({
       filename: String(file.file_name), content_type: String(file.content_type), data_base64: await downloadBase64(String(file.download_url)),
     })))
@@ -303,6 +309,21 @@ const live = {
     return { status: sent.status, to: String(sent.to?.email ?? '').replace(/^(..).*@/, '$1***@'), subject: sent.subject,
       sent_at: sent.finished_at ?? new Date().toISOString() }
   },
+}
+
+// 재검사한다. 고친 조건과 맞지 않아 서버가 인사말을 다시 써서 새 버전으로 저장했으면
+// 바뀐 인사말을 보여 주고 다시 확정받도록 COVER_LETTER_REFRESHED를 던진다 (#306)
+async function recheck(ref: ProposalRef, path: string): Promise<Json> {
+  const checked = await request<Json>(`${path}/revisions/${ref.head}/validations`, { method: 'POST', headers: idempotent(), body: '{}' }, SLOW)
+  const validation: Json = checked.validation
+  if (checked.cover_letter?.refreshed && validation.status === 'checked' && validation.conclusion !== 'risk_identified') {
+    ref.head = Number(checked.cover_letter.revision)
+    const external = await request<Json>(`${path}/external`)
+    const refreshed = external.external_document as OfferDocument
+    ref.base = { ...ref.base, document: clone(refreshed) }
+    throw new ApiError(409, 'COVER_LETTER_REFRESHED', 'The cover letter was rewritten.', false, null, { document: refreshed })
+  }
+  return validation
 }
 
 async function exportFinal(ref: ProposalRef, formats: FileFormat[]) {
@@ -408,10 +429,13 @@ export function describeOfferError(error: ApiError): string | null {
   const REASONS: Record<string, string> = {
     BUNDLE_NOT_FINAL: '확정본이 아닙니다', BUNDLE_STALE: '확정 이후 조건이 바뀌었습니다', PROPOSAL_SUPERSEDED: '새 협상안이 만들어졌습니다',
     REVIEW_RECHECK_REQUIRED: '법규 검토를 다시 해야 합니다', VALIDATION_REQUIRED: '제안서를 다시 확정해 주세요', RISK_IDENTIFIED: '위반 소지가 있습니다',
+    COVER_LETTER_STALE: '인사말이 지금 조건과 맞지 않습니다. 제안서를 다시 확정해 주세요',
     OFFER_VIOLATION: '위반 소지가 있습니다', CHECK_NEEDED_NOT_ACKNOWLEDGED: '확인 필요 항목을 체크해 주세요', UNRESOLVED_NOT_ACKNOWLEDGED: '확인 필요 항목을 체크해 주세요',
   }
   const known: Record<string, string> = {
     SEND_NOT_ALLOWED: `발송할 수 없습니다: ${[...new Set(reasons.map(r => REASONS[r] ?? r))].join(' / ')}`,
+    EXPORT_NOT_ALLOWED: `확정할 수 없습니다: ${[...new Set(reasons.map(r => REASONS[r] ?? r))].join(' / ')}`,
+    COVER_LETTER_REFRESHED: '고친 조건에 맞게 인사말을 바꿨습니다. 인사말을 확인한 뒤 [제안서 확정]을 다시 눌러 주세요.',
     MESSAGE_INTERNAL_INFO: '추가 문구에 내부 협상 정보(대외비·목표 합의가·최대 수용가·내부 가격 등)가 있습니다.',
     ALREADY_SENT: '같은 제안서 버전을 이 담당자에게 이미 보냈습니다.',
     PREVIEW_EXPIRED: '미리보기 확인 시간(15분)이 지났습니다. 미리보기를 다시 열어 주세요.',

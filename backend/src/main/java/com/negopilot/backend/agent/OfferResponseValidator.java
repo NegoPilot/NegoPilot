@@ -27,7 +27,8 @@ final class OfferResponseValidator {
     }
 
     static void render(JsonNode body, UUID requestId, String files) {
-        envelope(body, requestId, Set.of("request_id", "document", "attachments", "check"));
+        envelope(body, requestId, Set.of("request_id", "document", "attachments", "check", "cover_letter"));
+        coverLetter(body.get("cover_letter"));
         JsonNode document = body.get("document");
         require(document.isObject() && document.path("content_hash").isString()
                 && document.path("content_hash").stringValue().matches("sha256:[0-9a-f]{64}"));
@@ -58,6 +59,16 @@ final class OfferResponseValidator {
             require(bytes.length > 0 && bytes.length <= MAX_ATTACHMENT_BYTES);
         }
         require(actual.equals(expected));
+    }
+
+    /** /render?include_cover_status=true의 인사말 다시 쓰기 결과 {regenerated, source, problems}. */
+    private static void coverLetter(JsonNode cover) {
+        keys(cover, Set.of("regenerated", "source", "problems"));
+        require(cover.get("regenerated").isBoolean() && cover.get("source").isString() && cover.get("problems").isArray());
+        String source = cover.get("source").stringValue();
+        require(Set.of("kept", "model", "fallback").contains(source)
+                && cover.get("regenerated").booleanValue() == !source.equals("kept"));
+        for (JsonNode problem : cover.get("problems")) require(problem.isString());
     }
 
     static ApiException businessError(JsonNode body, UUID requestId) {

@@ -38,17 +38,26 @@ public final class GenerationGateway {
         return offerExchange(requestId, body, InternalPaths.OFFER_PROPOSALS, null);
     }
 
-    public JsonNode render(UUID requestId, ObjectNode document, String files) {
+    /**
+     * 고친 문서를 다시 검사하고 파일을 만든다. 응답의 cover_letter는 인사말을 다시 썼는지 알려 준다 (#293, #306).
+     * rewriteCover가 true면 맞지 않는 인사말을 모델로 다시 쓰고, false면 모델 없이 코드 인사말로만 바꾼다.
+     */
+    public JsonNode render(UUID requestId, ObjectNode document, String files, boolean rewriteCover) {
         if (files == null || !Set.of("pdf", "docx", "both").contains(files)) throw ApiException.validation(requestId);
         ObjectNode body = JsonNodeFactory.instance.objectNode();
         body.put("request_id", requestId.toString());
         body.set("document", document);
         body.put("files", files);
-        return offerExchange(requestId, body, InternalPaths.OFFER_RENDER, files);
+        String query = "&include_cover_status=true" + (rewriteCover ? "" : "&writing=false");
+        return offerExchange(requestId, body, InternalPaths.OFFER_RENDER, files, query);
     }
 
     private JsonNode offerExchange(UUID requestId, ObjectNode body, String path, String files) {
-        return transport.exchange(HttpMethod.POST, transport.uri(path + "?format=json"), body, requestId,
+        return offerExchange(requestId, body, path, files, "");
+    }
+
+    private JsonNode offerExchange(UUID requestId, ObjectNode body, String path, String files, String query) {
+        return transport.exchange(HttpMethod.POST, transport.uri(path + "?format=json" + query), body, requestId,
                 Set.of(200, 400, 422, 500, 503, 504), (status, result) -> {
                     if (status == 200) {
                         try {

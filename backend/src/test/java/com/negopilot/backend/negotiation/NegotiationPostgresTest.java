@@ -25,6 +25,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 import static com.negopilot.backend.negotiation.NegotiationFixtures.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -79,7 +80,7 @@ class NegotiationPostgresTest {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
             return proposalResponse(call.getArgument(0));
         });
-        when(gateway.render(any(), any(), anyString())).thenAnswer(call -> {
+        when(gateway.render(any(), any(), anyString(), anyBoolean())).thenAnswer(call -> {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
             return renderResponse(call.getArgument(0), call.getArgument(1), call.getArgument(2));
         });
@@ -106,6 +107,31 @@ class NegotiationPostgresTest {
         assertThat(replacement).isNotEqualTo(proposal);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM neg_proposals WHERE workspace_id=? AND status='ACTIVE'", Integer.class, workspace)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT status FROM neg_proposals WHERE id=?", String.class, proposal)).isEqualTo("SUPERSEDED");
+    }
+
+    @Test void rewrittenCoverLetterIsStoredAsACoverSyncRevisionAndSentAsIs() {
+        UUID workspace = reviewed(); UUID proposal = proposal(workspace);
+        service.patchProposal(owner, workspace, proposal, object("{\"base_revision\":1,\"changes\":{\"offer\":{\"payment_days\":45}}}"), null, UUID.randomUUID());
+        String fresh = "지급 조건은 목적물 수령일부터 45일 이내 현금 지급입니다.";
+        doAnswer(call -> {
+            ObjectNode response = renderResponse(call.getArgument(0), call.getArgument(1), call.getArgument(2));
+            ((ObjectNode) response.get("document")).put("cover_letter", fresh);
+            response.putObject("cover_letter").put("regenerated", true).put("source", "model").putArray("problems").add("입력에 없는 숫자 60");
+            return response;
+        }).when(gateway).render(any(), any(), anyString(), eq(true));
+        var checked = service.validate(owner, workspace, proposal, 2, object("{}"), null, UUID.randomUUID());
+        assertThat(checked.body().at("/cover_letter/revision").intValue()).isEqualTo(3);
+        assertThat(jdbc.queryForList("SELECT origin FROM neg_proposal_revisions WHERE proposal_id=? ORDER BY revision", String.class, proposal))
+                .containsExactly("GENERATED", "USER_EDIT", "COVER_SYNC");
+        assertThat(jdbc.queryForObject("SELECT external_body->>'cover_letter' FROM neg_proposal_revisions WHERE proposal_id=? AND revision=3", String.class, proposal))
+                .isEqualTo(fresh);
+        assertThat(jdbc.queryForObject("SELECT head_revision FROM neg_proposals WHERE id=?", Integer.class, proposal)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM neg_validations WHERE proposal_id=? AND revision=3 AND status='checked'", Integer.class, proposal)).isEqualTo(1);
+        var exported = service.export(owner, workspace, proposal,
+                object("{\"revision\":3,\"document_type\":\"external\",\"formats\":[\"pdf\"],\"final\":true}"), null, UUID.randomUUID());
+        assertThat(exported.status()).isEqualTo(201);
+        assertThat(jdbc.queryForObject("SELECT rendered_document->>'cover_letter' FROM neg_export_bundles WHERE proposal_id=? AND status='ready'", String.class, proposal))
+                .isEqualTo(fresh);
     }
 
     @Test void concurrentPatchAllowsExactlyOneWriter() throws Exception {
