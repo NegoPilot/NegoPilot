@@ -21,11 +21,24 @@ export interface ReviewRow {
   action: { label: string; url: string | null }
 }
 
+/** 엑셀에서 고른 협력사의 행 하나. 같은 협력사 행이 RFQ별로 여러 개면 화면에서 고른다 */
+export interface OfferUploadRow { row_number: number; rfq_id: string | null; status: string }
+
+export interface OfferUpload {
+  upload_id: string
+  supplier_name: string
+  file_name: string
+  rows: OfferUploadRow[]
+}
+
 export interface OfferReview {
   review_id: string
   supplier_name: string
   file_name: string
+  row_number: number
   rows: ReviewRow[]
+  /** 어느 항목에 붙일 수 없는 반려 사유(조건 검사 오류, 생성 불가 판정). 있으면 협상안을 만들 수 없다 */
+  notice: string | null
 }
 
 // ── ③ 협상안 ──
@@ -112,9 +125,19 @@ export type FileFormat = 'pdf' | 'docx'
 
 // ── 공개 함수 ──
 
-/** ① 엑셀을 올려 ② 항목별 승인·반려를 받는다 */
-export function reviewOfferExcel(supplierName: string, file: File): Promise<OfferReview> {
-  return LIVE ? live.review(supplierName, file) : mock.review(supplierName, file)
+/** ① 엑셀을 올리고 이 회사의 행 목록을 받는다. 행이 여러 개면 화면에서 하나를 고른다 */
+export function uploadOfferExcel(supplierName: string, file: File, signal?: AbortSignal): Promise<OfferUpload> {
+  return LIVE ? live.upload(supplierName, file, signal) : mock.upload(supplierName, file, signal)
+}
+
+/** ② 고른 행의 검토가 끝날 때까지 기다려 항목별 승인·반려를 받는다. 실행에 실패하면 ROW_FAILED */
+export function loadOfferReview(upload: OfferUpload, rowNumber: number, signal?: AbortSignal): Promise<OfferReview> {
+  return LIVE ? live.load(upload, rowNumber, signal) : mock.load(upload, rowNumber, signal)
+}
+
+/** 실행에 실패한 행(ROW_FAILED, retryable)을 같은 입력으로 다시 검토한다 */
+export function retryOfferReview(upload: OfferUpload, rowNumber: number, signal?: AbortSignal): Promise<OfferReview> {
+  return LIVE ? live.retry(upload, rowNumber, signal) : mock.load(upload, rowNumber, signal)
 }
 
 /** ② 모든 항목이 승인된 검토로 협상안을 만든다. 발신 정보는 서버가 로그인 회원으로 채운다 */
@@ -163,6 +186,7 @@ const idempotent = () => ({ 'Idempotency-Key': crypto.randomUUID() })
 const SLOW = 330_000
 const POLL_MS = 2_000
 const nego = (id: string) => `${API_PATHS.negotiations}/${encodeURIComponent(id)}`
+const uploadPath = (upload: OfferUpload) => `${API_PATHS.legalReviewUploads}/${encodeURIComponent(upload.upload_id)}`
 
 interface ReviewRef { negotiationId: string; revision: number; summaries: Record<string, string> }
 interface ProposalRef {
@@ -181,50 +205,64 @@ function proposalRef(document: OfferDocument) {
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 
 const live = {
-  // ① 엑셀을 #284 업로드 API로 올리고, 행별 검토가 끝날 때까지 기다린 뒤 이 회사의 행을 ② 표로 바꾼다
-  async review(supplierName: string, file: File): Promise<OfferReview> {
+  // ① 엑셀을 #284 업로드 API로 올리고 이 회사의 행 목록을 돌려준다. 검토는 행마다 서버에서 이어서 돈다
+  async upload(supplierName: string, file: File, signal?: AbortSignal): Promise<OfferUpload> {
     if (!/\.xlsx$/i.test(file.name)) throw new ApiError(400, 'NOT_XLSX', '엑셀(.xlsx) 파일만 불러올 수 있습니다.', false)
-    const supplierId = await resolveSupplier(supplierName)
+    const supplierId = await resolveSupplier(supplierName, signal)
     const form = new FormData()
     form.append('file', file)
     // 이 회사의 행만 검토를 요청한다. 다른 회사 행은 SKIPPED로 남고 Agent를 부르지 않는다
     form.append('supplier_id', supplierId)
-    let upload = await request<Json>(API_PATHS.legalReviewUploads, { method: 'POST', body: form }, SLOW)
-    const mine = (rows: Json[]) => rows.filter(r => r.supplier_id === supplierId)
-    if (!mine(upload.rows ?? []).length) {
+    const upload = await request<Json>(API_PATHS.legalReviewUploads, { method: 'POST', body: form, signal }, SLOW)
+    const mine: Json[] = (upload.rows ?? []).filter((r: Json) => r.supplier_id === supplierId)
+    if (!mine.length) {
       throw new ApiError(422, 'SUPPLIER_NOT_IN_FILE', `엑셀에 ${supplierName}(${supplierId}) 행이 없습니다. 공급자 ID 열을 확인해 주세요.`, false)
     }
-    const uploadPath = `${API_PATHS.legalReviewUploads}/${encodeURIComponent(String(upload.upload_id))}`
+    return { upload_id: String(upload.upload_id), supplier_name: supplierName, file_name: file.name,
+      rows: mine.map(r => ({ row_number: Number(r.row_number), rfq_id: r.rfq_id ?? null, status: String(r.status) })) }
+  },
+
+  // ② 고른 행의 검토가 끝날 때까지 기다린 뒤 ② 표로 바꾼다. signal이 끊기면(화면 이탈, 새 업로드) 조회를 멈춘다
+  async load(upload: OfferUpload, rowNumber: number, signal?: AbortSignal): Promise<OfferReview> {
+    const rowPath = `${uploadPath(upload)}/rows/${rowNumber}`
+    let row = await request<Json>(rowPath, { signal })
     const deadline = Date.now() + SLOW
-    while (mine(upload.rows ?? []).some(r => r.status === 'QUEUED' || r.status === 'RUNNING')) {
+    while (row.status === 'QUEUED' || row.status === 'RUNNING') {
       if (Date.now() > deadline) throw new ApiError(504, 'REVIEW_TIMEOUT', 'Legal review is taking too long.', true)
-      await wait(POLL_MS)
-      upload = await request<Json>(uploadPath)
+      await wait(POLL_MS, signal)
+      row = await request<Json>(rowPath, { signal })
     }
-    // 같은 회사 행이 여러 개면 엑셀 순서대로 첫 행을 쓴다
-    const row = mine(upload.rows ?? [])[0]
-    if (!row) throw new ApiError(422, 'SUPPLIER_NOT_IN_FILE', `엑셀에 ${supplierName}(${supplierId}) 행이 없습니다.`, false)
     if (row.status === 'INVALID') {
       const found = (row.input_errors ?? []).map((e: Json) => `${e.column}: ${e.message}`).join(' / ')
       throw new ApiError(400, 'ROW_INVALID', `엑셀 ${row.row_number}행 입력 오류 · ${found}`, false)
     }
-    if (row.status === 'FAILED') throw new ApiError(502, 'REVIEW_FAILED', String(row.error?.code ?? 'Legal review failed.'), !!row.error?.retryable)
-    const detail = await request<Json>(`${uploadPath}/rows/${row.row_number}`)
-    const stored: Json = detail.response ?? {}
+    // 실행 실패는 원인 코드를 details.cause로 넘긴다. REVISION_CONFLICT처럼 협상안 수정과 같은 코드가 섞이지 않게 ROW_FAILED로 감싼다
+    if (row.status === 'FAILED' || row.status === 'SKIPPED') {
+      const cause = row.status === 'SKIPPED' ? 'SKIPPED' : String(row.error?.code ?? 'INTERNAL_ERROR')
+      throw new ApiError(502, 'ROW_FAILED', 'Legal review failed.', row.status === 'SKIPPED' || !!row.error?.retryable, null,
+        { cause, negotiation_id: row.negotiation_id ?? null })
+    }
     const id = String(row.negotiation_id)
+    const revision = Number(row.review_revision)
+    const head = Number(row.review_head_revision ?? revision)
+    // 협상안은 최신 검토 버전으로만 만들 수 있다. 업로드 뒤 재검토가 쌓였으면 표도 그 버전으로 그려 둘을 맞춘다
+    const stored: Json = head > revision ? await request<Json>(`${nego(id)}/reviews/${head}`, { signal }) : row.response ?? {}
+    const eligibility = head > revision ? stored.eligibility : row.eligibility ?? stored.eligibility
     const findings: Json[] = stored.legal_review?.assessment?.findings ?? []
     const summaries = Object.fromEntries(findings.map(f => [String(f.id), String(f.summary ?? f.id)]))
-    // 협상안은 그 작업의 최신 검토 버전으로만 만들 수 있다
-    reviewRefs.set(id, { negotiationId: id, revision: Number(row.review_head_revision ?? row.review_revision), summaries })
-    const rows = reviewRows(stored)
-    // check_offer가 조건 자체를 거절했거나(공급자·RFQ 없음, 값 범위) 서버 판정이 생성 불가면 화면도 반려로 둔다
-    const blocked = row.check_error_code
-      ? `조건을 검사하지 못했습니다 (${row.check_error_code}). 공급자 ID·RFQ ID·값 범위를 확인해 주세요.`
-      : (row.eligibility ?? stored.eligibility) === 'blocked' ? '법규 검토에서 협상안 생성이 막혔습니다. 조건을 확인해 주세요.' : null
-    if (blocked && !rows.some(r => r.verdict === 'rejected') && rows[0]) {
-      rows[0] = { ...rows[0], verdict: 'rejected', reason: rows[0].reason ?? blocked }
+    reviewRefs.set(id, { negotiationId: id, revision: head, summaries })
+    const { rows, notice } = reviewView(stored, eligibility)
+    const label = `${upload.file_name} · ${rowNumber}행${head > revision ? ` · 재검토 v${head} 기준` : ''}`
+    return { review_id: id, supplier_name: upload.supplier_name, file_name: label, row_number: rowNumber, rows, notice }
+  },
+
+  async retry(upload: OfferUpload, rowNumber: number, signal?: AbortSignal): Promise<OfferReview> {
+    try { await request<Json>(`${uploadPath(upload)}/rows/${rowNumber}/retry`, { method: 'POST', body: '{}', signal }) }
+    catch (e) {
+      // 이미 다시 검토 중이거나 검토가 저장된 행은 그 결과를 기다려 보여 준다
+      if (!(e instanceof ApiError && (e.code === 'REVIEW_IN_PROGRESS' || e.code === 'ROW_ALREADY_REVIEWED'))) throw e
     }
-    return { review_id: id, supplier_name: supplierName, file_name: `${file.name} · ${row.row_number}행`, rows }
+    return live.load(upload, rowNumber, signal)
   },
 
   async create(review: OfferReview): Promise<OfferProposal> {
@@ -400,6 +438,37 @@ function reviewRows(stored: Json): ReviewRow[] {
   })
 }
 
+// check_offer가 조건 자체를 거절한 오류 코드마다 검사하지 못한 항목. 없는 코드(VALUE_OUT_OF_RANGE 등)는 표 위 안내로 보여 준다
+const CHECK_ERRORS: Record<string, { rows: string[]; reason: string }> = {
+  RFQ_NOT_FOUND: { rows: ['market', 'capability'], reason: 'RFQ를 찾지 못해 검사하지 못했습니다. 엑셀의 RFQ ID를 확인해 주세요.' },
+  SUPPLIER_NOT_FOUND: { rows: ['size', 'capability'], reason: '협력사를 찾지 못해 검사하지 못했습니다. 엑셀의 공급자 ID를 확인해 주세요.' },
+}
+
+// 행 요약의 check_error_code와 같은 규칙(LegalReviewRowView.checkError)으로, 화면에 그리는 검토에서 직접 읽는다
+function checkOfferError(stored: Json): string | null {
+  for (const outcome of stored.routing?.outcomes ?? []) {
+    for (const call of outcome.calls ?? []) if (call.tool === 'check_offer' && typeof call.error_code === 'string') return call.error_code
+  }
+  return null
+}
+
+// 표와 표 위 안내. 조건 검사 오류는 그 오류로 검사하지 못한 항목에 반려로 붙이고, 붙일 항목이 없거나
+// 서버 판정만 생성 불가(blocked)이고 반려 항목이 없으면 다른 행을 빌리지 않고 안내로 둔다
+function reviewView(stored: Json, eligibility: unknown): { rows: ReviewRow[]; notice: string | null } {
+  const code = checkOfferError(stored)
+  const known = code ? CHECK_ERRORS[code] : undefined
+  const rows = reviewRows(stored).map(row => known?.rows.includes(row.id)
+    ? { ...row, verdict: 'rejected' as const, result: `검사하지 못함 (${code})`, reason: known.reason } : row)
+  const notice = code && !known
+    ? code === 'VALUE_OUT_OF_RANGE'
+      ? '조건을 검사하지 못했습니다 (VALUE_OUT_OF_RANGE). 단가·일수는 0보다 크게, 비중은 0~1, 날짜는 YYYY-MM-DD로 고친 엑셀을 다시 불러와 주세요.'
+      : `조건을 검사하지 못했습니다 (${code}). 엑셀의 공급자 ID·RFQ ID·값 범위를 확인해 주세요.`
+    : eligibility === 'blocked' && !rows.some(r => r.verdict === 'rejected')
+      ? '법규 검토에서 협상안 생성이 막혔습니다. 항목별 결과와 추가 확인 사항을 보고 조건을 고친 엑셀을 다시 불러와 주세요.'
+      : null
+  return { rows, notice }
+}
+
 const warningsOf = (raw: unknown): OfferWarning[] =>
   Array.isArray(raw) ? raw.map((w: Json) => ({ code: String(w.code ?? ''), message: String(w.message ?? w.code ?? '') })) : []
 
@@ -415,9 +484,9 @@ function decodeHeader(value: string) {
   return value.replace(/=\?utf-8\?b\?([^?]+)\?=/gi, (_, b64: string) => new TextDecoder().decode(Uint8Array.from(atob(b64), c => c.charCodeAt(0))))
 }
 
-async function resolveSupplier(name: string) {
+async function resolveSupplier(name: string, signal?: AbortSignal) {
   const list = await request<{ data: { items: Array<{ supplier_id: string; name: string }> } }>(
-    `${API_PATHS.suppliers}?${new URLSearchParams({ q: name, limit: '10' })}`)
+    `${API_PATHS.suppliers}?${new URLSearchParams({ q: name, limit: '10' })}`, { signal })
   const exact = list.data.items.filter(s => s.name === name)
   const found = exact.length === 1 ? exact[0] : list.data.items.length === 1 ? list.data.items[0] : null
   if (!found) throw new ApiError(422, 'SUPPLIER_AMBIGUOUS', exact.length > 1 || list.data.items.length > 1
@@ -448,6 +517,7 @@ export function describeOfferError(error: ApiError): string | null {
     REVISION_CONFLICT: '다른 곳에서 먼저 고쳤습니다. 화면을 새로 고친 뒤 다시 수정해 주세요.',
     NOT_XLSX: error.message, SUPPLIER_AMBIGUOUS: error.message, SUPPLIER_NOT_IN_FILE: error.message, ROW_INVALID: error.message,
     REVIEW_TIMEOUT: '법규 검토가 오래 걸리고 있습니다. 잠시 뒤 다시 불러와 주세요.', NO_OFFER: `협상안을 만들 수 없습니다: ${error.message}`,
+    ROW_FAILED: rowFailure(error),
     // 업로드 한도 초과는 Spring과 nginx 모두 413 CONTENT_TOO_LARGE다. JSON이 아닌 413(HTTP_413)도 같은 안내로 본다
     CONTENT_TOO_LARGE: '파일이 1MB를 넘습니다. 1MB 이하로 줄여 다시 올려 주세요.',
     HTTP_413: '파일이 1MB를 넘습니다. 1MB 이하로 줄여 다시 올려 주세요.',
@@ -459,9 +529,34 @@ export function describeOfferError(error: ApiError): string | null {
   return known[error.code] ?? null
 }
 
+// 엑셀 행 검토 실패 원인 (legal-review-upload.md 5절). 다시 시도할 수 있는 실패는 [다시 검토]를 안내한다
+const ROW_CAUSES: Record<string, string> = {
+  SKIPPED: '이 행은 아직 검토를 요청하지 않았습니다.',
+  STALE_REVIEW: '검토가 응답 없이 오래 멈춰 정리됐습니다.',
+  UPSTREAM_TIMEOUT: '법규 검토 응답이 제한 시간 안에 오지 않았습니다.',
+  UPSTREAM_UNAVAILABLE: '법규 검토 서버에 연결하지 못했습니다.',
+  UPSTREAM_INVALID_RESPONSE: '법규 검토 응답 형식이 올바르지 않습니다. 관리자에게 알려 주세요.',
+  REVISION_CONFLICT: '이 행의 협상 작업은 이미 조건을 바꿔 재검토했습니다. 엑셀 조건으로는 다시 검토하지 않으니 엑셀을 새로 불러와 주세요.',
+  IDEMPOTENCY_CONFLICT: '같은 행의 앞선 검토가 아직 처리 중입니다.',
+  QUEUE_FULL: '검토 대기열이 가득 찼습니다.',
+  SUPPLIER_NOT_FOUND: '협력사를 찾지 못해 협상 작업을 만들지 못했습니다. 엑셀의 공급자 ID를 확인해 주세요.',
+  INTERNAL_ERROR: '서버 오류로 검토하지 못했습니다.',
+}
+function rowFailure(error: ApiError) {
+  const cause = String(error.details?.cause ?? '')
+  const text = ROW_CAUSES[cause] ?? `법규 검토에 실패했습니다 (${cause || error.code}).`
+  return error.retryable ? `${text} [다시 검토]를 눌러 다시 시도할 수 있어요.` : text
+}
+
 // ── mock: 피그마 08-2 시안 값 ──
 
-const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+// signal이 끊기면 request와 같은 REQUEST_CANCELLED로 멈춘다
+const wait = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
+  const cancel = () => { clearTimeout(timer); reject(new ApiError(0, 'REQUEST_CANCELLED', 'Request was cancelled.', false)) }
+  const timer = setTimeout(() => { signal?.removeEventListener('abort', cancel); resolve() }, ms)
+  if (signal?.aborted) cancel()
+  else signal?.addEventListener('abort', cancel, { once: true })
+})
 const today = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' })
 function addDays(date: string, days: number) {
   const d = new Date(`${date}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10)
@@ -469,10 +564,18 @@ function addDays(date: string, days: number) {
 const LAW = (article: string) => `https://www.law.go.kr/법령/하도급거래공정화에관한법률/${article}`
 
 const mock = {
-  async review(supplierName: string, file: File): Promise<OfferReview> {
-    await wait(600)
+  async upload(supplierName: string, file: File, signal?: AbortSignal): Promise<OfferUpload> {
+    await wait(300, signal)
+    // 파일 이름에 "여러"가 있으면 행 고르기를 확인할 수 있게 같은 협력사 행을 두 개로 본다
+    const rows = [{ row_number: 2, rfq_id: 'RFQ-2026-001', status: 'COMPLETED' }]
+    if (/여러|multi/i.test(file.name)) rows.push({ row_number: 3, rfq_id: 'RFQ-2026-002', status: 'COMPLETED' })
+    return { upload_id: `mock-${Date.now()}`, supplier_name: supplierName, file_name: file.name, rows }
+  },
+
+  async load(upload: OfferUpload, rowNumber: number, signal?: AbortSignal): Promise<OfferReview> {
+    await wait(600, signal)
     // 파일 이름에 "반려"가 있으면 반려 화면을 확인할 수 있게 지급기한을 75일로 본다
-    const reject = /반려|reject/i.test(file.name)
+    const reject = /반려|reject/i.test(upload.file_name)
     const rows: ReviewRow[] = [
       reject
         ? { id: 'payment', verdict: 'rejected', item: '대금 지급기한', result: '75일 · 수령일부터 60일 초과', basis: '하도급법 제13조①',
@@ -484,7 +587,8 @@ const mock = {
       { id: 'market', verdict: 'approved', item: '시장가 하한', result: '시장 중앙값 4,050원의 93.8% (하한 90%)', basis: 'rules.py', reason: null, action: { label: '정보 조회', url: null } },
       { id: 'capability', verdict: 'approved', item: '생산능력 / 인증', result: '월 25,000 EA · IATF 16949 · RFQ 필수조건 충족', basis: 'business-mcp', reason: null, action: { label: '정보 조회', url: null } },
     ]
-    return { review_id: `mock-${Date.now()}`, supplier_name: supplierName, file_name: file.name, rows }
+    return { review_id: `mock-${Date.now()}`, supplier_name: upload.supplier_name, file_name: `${upload.file_name} · ${rowNumber}행`,
+      row_number: rowNumber, rows, notice: null }
   },
 
   async create(review: OfferReview, member: Member | null): Promise<OfferProposal> {
