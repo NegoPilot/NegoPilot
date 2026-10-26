@@ -43,7 +43,7 @@ final class LegalReviewUploadService {
         ReviewWorkbookParser.Parsed parsed = ReviewWorkbookParser.parse(data, requestId);
         UUID id = UUID.randomUUID();
         List<LegalReviewUploadStore.Key> queued = new ArrayList<>();
-        store.expireRunning(false);
+        store.expireRunning();
         transaction.executeWithoutResult(status -> {
             store.lockOwner(owner);
             checkPending(owner, parsed.rows().stream().filter(row -> row.valid() && wanted(row, supplierId)).count(), requestId);
@@ -73,7 +73,7 @@ final class LegalReviewUploadService {
     }
 
     ObjectNode list(UUID owner, int limit) {
-        store.expireRunning(false);
+        store.expireRunning();
         ObjectNode body = object();
         var items = body.putArray("items");
         for (ObjectNode upload : store.uploads(owner, limit)) items.add(uploadView(upload, false));
@@ -81,12 +81,12 @@ final class LegalReviewUploadService {
     }
 
     ObjectNode get(UUID owner, UUID id, UUID requestId) {
-        store.expireRunning(false);
+        store.expireRunning();
         return uploadView(owned(owner, id, requestId), true);
     }
 
     ObjectNode row(UUID owner, UUID id, int rowNumber, UUID requestId) {
-        store.expireRunning(false);
+        store.expireRunning();
         owned(owner, id, requestId);
         ObjectNode row = store.row(new LegalReviewUploadStore.Key(id, rowNumber));
         if (row == null) throw notFound(requestId);
@@ -98,7 +98,7 @@ final class LegalReviewUploadService {
      * 이미 만든 협상 작업이 있으면 그 작업에 검토를 저장한다.
      */
     ObjectNode retry(UUID owner, UUID id, int rowNumber, UUID requestId) {
-        store.expireRunning(false);
+        store.expireRunning();
         owned(owner, id, requestId);
         var key = new LegalReviewUploadStore.Key(id, rowNumber);
         ObjectNode row = store.row(key);

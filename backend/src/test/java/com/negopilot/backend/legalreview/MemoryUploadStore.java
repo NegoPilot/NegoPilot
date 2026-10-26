@@ -105,11 +105,11 @@ final class MemoryUploadStore extends LegalReviewUploadStore {
                 && List.of("QUEUED", "RUNNING").contains(r.get("status").stringValue())).count();
     }
 
-    @Override int expireRunning(boolean all) {
+    @Override int expireRunning() {
         int count = 0;
         for (ObjectNode row : rows.values()) {
             if (!row.get("status").stringValue().equals("RUNNING")) continue;
-            if (!all && OffsetDateTime.parse(row.get("lease_until").stringValue()).isAfter(OffsetDateTime.now())) continue;
+            if (OffsetDateTime.parse(row.get("lease_until").stringValue()).isAfter(OffsetDateTime.now())) continue;
             row.put("status", "FAILED").put("error_code", "STALE_REVIEW").put("error_retryable", true);
             row.remove("lease_until");
             count++;

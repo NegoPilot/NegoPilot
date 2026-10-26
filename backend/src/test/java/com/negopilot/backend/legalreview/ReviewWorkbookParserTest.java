@@ -2,6 +2,7 @@ package com.negopilot.backend.legalreview;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 
 import com.negopilot.backend.common.api.ApiException;
 import java.util.ArrayList;
@@ -81,6 +82,29 @@ class ReviewWorkbookParserTest {
 
         assertThat(row.source().get("지급기한(일)").stringValue()).isEqualTo("60일");
         assertThat(row.source().get("최초 계약일").doubleValue()).isEqualTo(46318);
+    }
+
+    @Test void textRatiosArePercentsAndNumberCellsFollowExcelPercentFormat() {
+        Object[][] cases = {{"40%", 0.4}, {"40", 0.4}, {"1", 0.01}, {"0.5", 0.005}, {0.45, 0.45}, {1.0, 1.0}, {45.0, 0.45}};
+        for (Object[] c : cases) {
+            List<Object> values = new ArrayList<>(validRow());
+            values.set(7, c[0]);
+            var row = ReviewWorkbookParser.parse(TestXlsx.of(List.of(headers(), values)), ID).rows().getFirst();
+            assertThat(row.valid()).as("원재료 비중 %s", c[0]).isTrue();
+            assertThat(row.offer().get("raw_material_ratio").doubleValue()).as("원재료 비중 %s", c[0]).isCloseTo((double) c[1], within(1e-12));
+        }
+    }
+
+    @Test void isoDateCellsAreReadAsDates() {
+        List<Object> values = new ArrayList<>(validRow());
+        values.set(2, new TestXlsx.IsoDate("2026-10-23T00:00:00"));
+        var row = ReviewWorkbookParser.parse(TestXlsx.of(List.of(headers(), values)), ID).rows().getFirst();
+        assertThat(row.valid()).isTrue();
+        assertThat(row.offer().get("as_of").stringValue()).isEqualTo("2026-10-23");
+
+        values.set(2, new TestXlsx.IsoDate("2026-02-30T00:00:00"));
+        var invalid = ReviewWorkbookParser.parse(TestXlsx.of(List.of(headers(), values)), ID).rows().getFirst();
+        assertThat(invalid.errors()).extracting(e -> e.get("column")).containsExactly("검토 기준일");
     }
 
     @Test void badRowsAreRejectedOneByOneAndGoodRowsStay() {

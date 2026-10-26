@@ -14,6 +14,9 @@ import java.util.zip.ZipOutputStream;
 final class TestXlsx {
     private TestXlsx() { }
 
+    /** ISO 8601 날짜 칸(t="d"). 일부 도구가 날짜를 이렇게 저장한다. */
+    record IsoDate(String value) { }
+
     static byte[] of(List<List<Object>> rows) {
         Map<String, List<List<Object>>> sheets = new LinkedHashMap<>();
         sheets.put("거래조건", rows);
@@ -54,7 +57,8 @@ final class TestXlsx {
                 Object value = row.get(c);
                 if (value == null) continue;
                 String ref = column(c) + (r + 1);
-                if (value instanceof Boolean flag) sheet.append("<c r=\"").append(ref).append("\" t=\"b\"><v>").append(flag ? 1 : 0).append("</v></c>");
+                if (value instanceof IsoDate date) sheet.append("<c r=\"").append(ref).append("\" t=\"d\"><v>").append(escape(date.value())).append("</v></c>");
+                else if (value instanceof Boolean flag) sheet.append("<c r=\"").append(ref).append("\" t=\"b\"><v>").append(flag ? 1 : 0).append("</v></c>");
                 else if (value instanceof Number number) sheet.append("<c r=\"").append(ref).append("\"><v>").append(number).append("</v></c>");
                 else {
                     shared.add(value.toString());

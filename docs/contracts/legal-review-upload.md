@@ -56,12 +56,12 @@ Spring 업로드 한도(`max-file-size` 1MB, `max-request-size` 2MB)에서 거�
 | --- | --- | --- |
 | 공급자 ID* (공급자, 협력사, 협력사 ID) | `supplier` | `SUP-0001` |
 | RFQ ID* (RFQ) | `rfq_id` | `RFQ-2026-001` |
-| 검토 기준일* (기준일) | `as_of` | 날짜 칸 또는 `YYYY-MM-DD`. 없는 날짜는 오류 |
+| 검토 기준일* (기준일) | `as_of` | 날짜 칸, ISO 날짜 칸(`t="d"`, 시각은 버림) 또는 `YYYY-MM-DD`. 없는 날짜는 오류 |
 | 제안 단가* (단가) | `unit_price` | 원. 0보다 큰 정수. `3,900원`도 된다 |
 | 지급기한* (지급일수) | `payment_days` | 일. `60일`도 된다 |
 | 계약 기간* (거래기간) | `contract_days` | 일 |
 | 연동 약정 포함* (연동, 연동 약정) | `price_linkage` | 예/아니오 |
-| 원재료 비중 / 에너지 비중 | `raw_material_ratio` / `energy_ratio` | `40%`, `40`, `0.4`는 모두 API `0.4`. `%`가 없으면 1 이하는 비율, 1 초과는 퍼센트 |
+| 원재료 비중 / 에너지 비중 | `raw_material_ratio` / `energy_ratio` | 글자로 적은 값은 퍼센트다: `40%`, `40` → `0.4`, `1` → `0.01`. 숫자 칸은 엑셀 백분율 서식을 따라 1 이하는 비율(`0.4` → `0.4`), 1 초과는 퍼센트(`40` → `0.4`) |
 | 미연동 합의 | `linkage_waived_by_agreement` | 예/아니오. 비우면 아니오 |
 
 **기업 정보** — 머리글 앞에 `공급자`(또는 `협력사`)나 `구매자`를 붙인다. 예: `공급자 평균매출액(억원)`. `/review` 화면과 같은 규칙으로 보낸다.
@@ -108,7 +108,7 @@ Spring 업로드 한도(`max-file-size` 1MB, `max-request-size` 2MB)에서 거�
 | 대상 이름* (대상, 원가 대상) | `name` | 텍스트 |
 | 원가 비중 (비중) | `cost_ratio` | 비율. 거래조건의 비중과 같은 규칙 |
 | 기준 지표 / 조정 산식 / 조정 주기 | `indicator` / `formula` / `frequency` | 텍스트 |
-| 조정요건 (조정요건 변동률) | `trigger_ratio` | 0~10%. `3%`, `3`, `0.03`은 모두 `0.03` |
+| 조정요건 (조정요건 변동률) | `trigger_ratio` | 0~10%. 비중과 같은 규칙: 글자 `3%`, `3`과 숫자 칸 `0.03`은 모두 `0.03` |
 | 기준·비교 시점 / 조정 반영일 | `reference_period` / `reflection_date` | 텍스트 |
 | 증빙 (증빙 자료) | `evidence_references` | 목록 |
 
@@ -226,12 +226,13 @@ COMPLETED 행은 협상 작업 API를 그대로 쓴다.
 | `IDEMPOTENCY_CONFLICT` | 같은 행의 앞선 실행이 아직 작업 생성이나 검토를 처리 중이다 | true |
 | `VALIDATION_ERROR` / `ACCOUNT_NOT_ACTIVE` 등 | 협상 작업 생성·검토 API가 돌려준 오류 코드 그대로 | 그 오류의 값 |
 | Agent `error.code` (예: `GENERATION_FAILED`) | `execution_status`가 FAILED다. 협상 작업에는 저장되지 않는다 | true |
-| `STALE_REVIEW` | RUNNING이 Agent 응답 제한 + 60초를 넘겼거나 서버가 다시 시작됐다 | true |
+| `STALE_REVIEW` | RUNNING이 Agent 응답 제한 + 60초를 넘겼다 | true |
 | `QUEUE_FULL` | 실행기 대기열이 가득 찼다 | true |
 | `INTERNAL_ERROR` | 그 밖의 서버 오류 | true |
 
 - 공식 자료 일부를 조회하지 못한 부분 조회는 실패가 아니다. 검토를 저장하고 `sources_complete: false`, `assessment_status: needs_information`, `missing_fields`의 `official_source_retrieval`로 알린다.
-- 서버가 다시 시작되면 RUNNING 행은 `STALE_REVIEW` 실패로 바꾸고 QUEUED 행은 다시 실행기에 넣는다. 백엔드 한 대 실행을 전제로 한다.
+- 서버가 다시 시작되면 임대가 끝난 RUNNING 행만 `STALE_REVIEW` 실패로 바꾸고 QUEUED 행은 다시 실행기에 넣는다. 임대가 남은 행은 다른 서버가 처리 중일 수 있어 그대로 둔다. 재시작 전에 죽은 실행은 임대가 끝나면 조회할 때 실패로 정리된다. 같은 행을 두 서버가 함께 실행하지 않도록 QUEUED → RUNNING 전환은 한 서버만 성공한다.
+- `started_at`과 `finished_at`은 DB 시계로 적는다.
 - 임대가 끝나 STALE로 정리된 행에 늦게 도착한 결과는 행에 쓰지 않는다. 그 사이 협상 작업에 검토가 저장됐다면 재시도할 때 새 버전을 쌓지 않고 그 검토를 연결한다(4절).
 
 ## 6. 저장

@@ -22,7 +22,7 @@ import org.xml.sax.SAXException;
 
 /**
  * .xlsx 시트를 JDK만으로 읽는다 (zip + DOM). 칸 값은 String, Double, Boolean 또는 null이다.
- * 서식은 읽지 않으므로 날짜 칸은 엑셀 일련번호(Double)로 온다.
+ * 서식은 읽지 않으므로 날짜 칸은 엑셀 일련번호(Double)로 온다. ISO 날짜 칸(t="d")은 글자로 온다.
  */
 final class XlsxReader {
     private static final String MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
@@ -99,6 +99,8 @@ final class XlsxReader {
                 return shared.get(index);
             }
             case "str" -> { return raw; }
+            // ISO 8601 날짜 칸. 일부 도구가 날짜를 이렇게 저장한다. 날짜 열에서 글자로 읽는다
+            case "d" -> { return raw == null || raw.isBlank() ? null : raw.trim(); }
             case "b" -> { return raw == null ? null : raw.trim().equals("1"); }
             case "e" -> { return new CellError(raw == null ? "#ERROR" : raw.trim()); }
             default -> {

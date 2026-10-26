@@ -240,6 +240,19 @@ class LegalReviewUploadServiceTest {
         verifyNoInteractions(negotiations);
     }
 
+    @Test void restartRecoveryLeavesRowsAnotherServerIsStillRunning() {
+        UUID id = uploadId(service.upload(owner, "조건.xlsx", workbook(row("SUP-0034"), row("SUP-0060")), null, UUID.randomUUID()));
+        pending.clear();
+        store.claim(new LegalReviewUploadStore.Key(id, 2), OffsetDateTime.now().plusMinutes(5), UUID.randomUUID());
+        store.claim(new LegalReviewUploadStore.Key(id, 3), OffsetDateTime.now().minusSeconds(1), UUID.randomUUID());
+        new LegalReviewRunner(store, negotiations, new AgentProperties(URI.create("http://127.0.0.1:9200"), "", Duration.ofSeconds(2), Duration.ofSeconds(35)), pending::add).recover();
+        JsonNode rows = service.get(owner, id, UUID.randomUUID()).get("rows");
+        // 임대가 남은 행은 다른 서버가 처리 중일 수 있어 그대로 두고, 임대가 끝난 행만 다시 시도할 수 있는 실패로 바꾼다
+        assertThat(rows.get(0).get("status").stringValue()).isEqualTo("RUNNING");
+        assertThat(rows.get(1).get("status").stringValue()).isEqualTo("FAILED");
+        assertThat(rows.get(1).get("error").get("code").stringValue()).isEqualTo("STALE_REVIEW");
+    }
+
     @Test void onlyRequestedSupplierRowsAreReviewedAndSkippedRowsCanBeRequested() {
         reviewsSucceed("ready");
         List<Object> bad = row("SUP-0060");
