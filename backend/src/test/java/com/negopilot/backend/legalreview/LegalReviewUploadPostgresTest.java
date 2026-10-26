@@ -174,7 +174,7 @@ class LegalReviewUploadPostgresTest {
         UUID source = LegalReviewRunner.source(key);
         UUID workspace = negotiations.reviews.create(owner, "SUP-0034", "RFQ-2026-001", "조건.xlsx 2행", source, UUID.randomUUID());
         store.attachWorkspace(key, workspace);
-        assertThat(store.expireRunning(false)).isEqualTo(1);
+        assertThat(store.expireRunning()).isEqualTo(1);
         assertThat(negotiations.reviews.review(owner, workspace, offer(id, 2), source, UUID.randomUUID()).status()).isEqualTo(201);
 
         // 재시도는 저장된 검토를 연결하고 Agent를 다시 부르지 않는다
@@ -218,6 +218,15 @@ class LegalReviewUploadPostgresTest {
                 .containsExactly(45);
     }
 
+    @Test void finishedAtUsesTheDatabaseClock() {
+        when(gateway.review(any(), any())).thenAnswer(inv -> NegotiationTestSupport.reviewResponseFor(inv.getArgument(0), "ready"));
+        byte[] file = TestXlsx.of(List.of(ReviewWorkbookParserTest.headers(), row("SUP-0034")));
+        UUID id = UUID.fromString(service.upload(owner, "조건.xlsx", file, UUID.randomUUID()).get("upload_id").stringValue());
+        runPending();
+        assertThat(jdbc.queryForObject("SELECT finished_at >= started_at AND finished_at <= clock_timestamp() FROM legal_review_rows WHERE upload_id=?",
+                Boolean.class, id)).isTrue();
+    }
+
     @Test void stateTransitionsAndConstraints() {
         when(gateway.review(any(), any())).thenAnswer(inv -> NegotiationTestSupport.reviewResponseFor(inv.getArgument(0), "needs_information"));
         byte[] file = TestXlsx.of(List.of(ReviewWorkbookParserTest.headers(), row("SUP-0034")));
@@ -226,7 +235,7 @@ class LegalReviewUploadPostgresTest {
 
         assertThat(store.claim(key, OffsetDateTime.now().minusSeconds(1), UUID.randomUUID())).isTrue();
         assertThat(store.claim(key, OffsetDateTime.now().plusMinutes(1), UUID.randomUUID())).isFalse();
-        assertThat(store.expireRunning(false)).isEqualTo(1);
+        assertThat(store.expireRunning()).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT error_code FROM legal_review_rows WHERE upload_id=?", String.class, id)).isEqualTo("STALE_REVIEW");
         assertThat(store.finish(key, JSON.createObjectNode().put("status", "FAILED").put("error_code", "X"))).isFalse();
         runPending();

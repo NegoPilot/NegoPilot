@@ -67,9 +67,10 @@ class LegalReviewUploadStore {
 
     /** RUNNING 행에만 결과를 쓴다. 임대가 끝나 STALE로 정리된 행은 바꾸지 않는다. */
     boolean finish(Key key, ObjectNode result) {
-        result.put("finished_at", OffsetDateTime.now().toString());
         result.putNull("lease_until");
-        String assignments = String.join(", ", result.propertyNames().stream().map(k -> column(k) + " = v." + k).toList());
+        // 다른 시각과 같이 DB 시계로 적는다
+        String assignments = String.join(", ", result.propertyNames().stream().map(k -> column(k) + " = v." + k).toList())
+                + ", finished_at = clock_timestamp()";
         return jdbc.update("UPDATE legal_review_rows t SET " + assignments
                 + " FROM jsonb_populate_record(NULL::legal_review_rows, ?::jsonb) v"
                 + " WHERE t.upload_id=? AND t.row_number=? AND t.status='RUNNING'",
@@ -83,11 +84,10 @@ class LegalReviewUploadStore {
                 key.uploadId(), key.rowNumber()) == 1;
     }
 
-    /** 임대가 끝난 RUNNING을 다시 시도할 수 있는 실패로 정리한다. all이면 서버 재시작처럼 실행 중인 행 전부. */
-    int expireRunning(boolean all) {
+    /** 임대가 끝난 RUNNING을 다시 시도할 수 있는 실패로 정리한다. 임대가 남은 행은 다른 서버가 처리 중일 수 있어 그대로 둔다. */
+    int expireRunning() {
         return jdbc.update("UPDATE legal_review_rows SET status='FAILED', error_code='STALE_REVIEW', error_retryable=true,"
-                + " finished_at=clock_timestamp(), lease_until=NULL WHERE status='RUNNING'"
-                + (all ? "" : " AND lease_until < clock_timestamp()"));
+                + " finished_at=clock_timestamp(), lease_until=NULL WHERE status='RUNNING' AND lease_until < clock_timestamp()");
     }
 
     List<Key> queued() {

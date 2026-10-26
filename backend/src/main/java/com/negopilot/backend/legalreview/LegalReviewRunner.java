@@ -24,7 +24,7 @@ import tools.jackson.databind.node.ObjectNode;
 
 /**
  * QUEUED 행마다 협상 작업을 새로 만들고 그 작업에 법규 검토를 저장한다(POST /api/negotiations → …/reviews와 같은 규칙).
- * 한 행이 실패해도 다른 행은 계속 처리한다. 서버가 다시 뜨면 실행 중이던 행은 다시 시도할 수 있는 실패로 바꾸고 대기 행은 다시 넣는다.
+ * 한 행이 실패해도 다른 행은 계속 처리한다. 서버가 다시 뜨면 임대가 끝난 실행 중 행은 다시 시도할 수 있는 실패로 바꾸고 대기 행은 다시 넣는다.
  */
 @Component
 class LegalReviewRunner {
@@ -113,7 +113,8 @@ class LegalReviewRunner {
 
     @EventListener(ApplicationReadyEvent.class)
     void recover() {
-        int stale = store.expireRunning(true);
+        // 서버가 여러 대일 수 있으므로 다른 서버가 처리 중인 행은 건드리지 않는다. 죽은 실행은 임대가 끝나면 실패로 정리된다
+        int stale = store.expireRunning();
         var queued = store.queued();
         if (stale > 0 || !queued.isEmpty()) log.info("법규 검토 재시작 정리: 실행 중 {}건 실패 처리, 대기 {}건 다시 넣음", stale, queued.size());
         queued.forEach(this::submit);

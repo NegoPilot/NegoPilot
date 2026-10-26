@@ -354,11 +354,13 @@ final class ReviewWorkbookParser {
         return (long) number;
     }
 
-    /** 40%, 40, 0.4 모두 40%다. %가 없으면 1 이하는 비율, 1 초과는 퍼센트로 읽는다. */
+    /**
+     * 글자로 적은 값은 퍼센트다: "40%", "40"은 40%, "1"은 1%, "0.5"는 0.5%.
+     * 숫자 칸은 엑셀 백분율 서식(40% → 0.4)을 따라 1 이하는 비율, 1 초과는 퍼센트로 읽는다.
+     */
     private static double ratio(Object cell, double max) {
-        boolean percent = cell instanceof String text && text.endsWith("%");
         double number = number(cell, "%");
-        double ratio = percent || number > 1 ? number / 100 : number;
+        double ratio = cell instanceof Double && number <= 1 ? number : number / 100;
         if (ratio < 0 || ratio > max) throw new IllegalArgumentException("0~" + Math.round(max * 100) + "% 사이로 입력해 주세요.");
         return ratio;
     }
@@ -399,7 +401,10 @@ final class ReviewWorkbookParser {
             if (serial < 1 || serial > 2_958_465 || serial != Math.rint(serial)) throw new IllegalArgumentException("날짜로 입력해 주세요.");
             return EXCEL_EPOCH.plusDays(serial.longValue()).toString();
         }
-        try { return LocalDate.parse(cell.toString().strip().replace('.', '-').replace('/', '-')).toString(); }
+        String text = cell.toString().strip();
+        // ISO 날짜 칸(t="d")은 "2026-10-23T00:00:00"처럼 시각이 붙어 올 수 있다. 날짜 부분만 쓴다
+        if (text.matches("\\d{4}-\\d{2}-\\d{2}T.*")) text = text.substring(0, 10);
+        try { return LocalDate.parse(text.replace('.', '-').replace('/', '-')).toString(); }
         catch (DateTimeParseException e) { throw new IllegalArgumentException("YYYY-MM-DD 형식의 실제 날짜로 입력해 주세요."); }
     }
 
