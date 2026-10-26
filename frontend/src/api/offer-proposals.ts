@@ -187,6 +187,8 @@ const live = {
     const supplierId = await resolveSupplier(supplierName)
     const form = new FormData()
     form.append('file', file)
+    // 이 회사의 행만 검토를 요청한다. 다른 회사 행은 SKIPPED로 남고 Agent를 부르지 않는다
+    form.append('supplier_id', supplierId)
     let upload = await request<Json>(API_PATHS.legalReviewUploads, { method: 'POST', body: form }, SLOW)
     const mine = (rows: Json[]) => rows.filter(r => r.supplier_id === supplierId)
     if (!mine(upload.rows ?? []).length) {
@@ -449,6 +451,7 @@ export function describeOfferError(error: ApiError): string | null {
     // 업로드 한도 초과는 Spring과 nginx 모두 413 CONTENT_TOO_LARGE다. JSON이 아닌 413(HTTP_413)도 같은 안내로 본다
     CONTENT_TOO_LARGE: '파일이 1MB를 넘습니다. 1MB 이하로 줄여 다시 올려 주세요.',
     HTTP_413: '파일이 1MB를 넘습니다. 1MB 이하로 줄여 다시 올려 주세요.',
+    TOO_MANY_PENDING_REVIEWS: '앞서 올린 엑셀의 검토가 아직 진행 중입니다. 검토가 끝난 뒤 다시 올려 주세요.',
     VALIDATION_ERROR: Array.isArray(error.details?.errors)
       ? `엑셀 형식 오류 · ${(error.details!.errors as Array<{ column?: string; message?: string }>).map(e => [e.column, e.message].filter(Boolean).join(': ')).join(' / ')}`
       : '입력값을 확인해 주세요.',
