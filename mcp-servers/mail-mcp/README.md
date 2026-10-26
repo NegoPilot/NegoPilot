@@ -36,7 +36,7 @@ uv run python -m pytest -q            # DB 테스트는 DATABASE_URL에 연결�
 | `MAIL_TRANSPORT` | `dry_run` | `dry_run`: 보내지 않고 보낼 메일을 돌려준다. `smtp`: 실제 발송 |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY` | -, 587, `starttls` | `starttls`(587), `ssl`(465), `none`(로컬 Mailpit 1025) |
 | `SMTP_USERNAME`, `SMTP_PASSWORD` | | 비밀 설정으로 주입한다. 저장소에 넣지 않는다 |
-| `MAIL_FROM`, `MAIL_FROM_NAME`, `MAIL_BUYER_NAME`, `MAIL_REPLY_TO` | | 보내는 주소·이름, 제목의 회사명, 회신 주소 |
+| `MAIL_FROM`, `MAIL_FROM_NAME`, `MAIL_BUYER_NAME`, `MAIL_REPLY_TO` | | 보내는 주소·이름, 제목의 회사명, 기본 회신 주소 (문서 `sender.email`이 있으면 그 주소를 Reply-To로 쓴다) |
 | `MAIL_CONFIRM_TTL_SECONDS` | 900 | 토큰 유효 시간 |
 | `MAIL_RUNTIME_DIR` | `./runtime` | 발송 기록 SQLite 위치 (Compose는 `mail-data` 볼륨) |
 | `DATABASE_URL` | `dbname=negopilot_business` | 담당자 조회. Compose는 `negopilot_mail_reader` 계정 |
