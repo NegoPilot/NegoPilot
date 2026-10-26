@@ -244,7 +244,7 @@ const effectiveDate = computed(() => {
                   <tbody>
                     <tr v-for="r in fieldRows" :key="r.key">
                       <td class="item">{{ r.label }}</td>
-                      <td>{{ r.value }}</td>
+                      <td class="field-value">{{ r.value }}</td>
                       <td>{{ provenanceLabel(r.source) }}</td>
                     </tr>
                   </tbody>
@@ -357,6 +357,9 @@ const effectiveDate = computed(() => {
 }
 .item {
   font-weight: 600;
+}
+.field-value {
+  white-space: pre-line;
 }
 .raw-text {
   margin: 0;

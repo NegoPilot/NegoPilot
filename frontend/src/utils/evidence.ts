@@ -209,6 +209,47 @@ const FIELD_LABELS: Record<string, string> = {
   item: '품목',
   quantity: '수량',
   target_price: '목표 단가',
+  oem_id: '완성차',
+  vehicle: '차종',
+  part_name: '품목',
+  annual_volume: '연간 물량',
+  required_cert: '필수 인증',
+  due_date: '납기',
+  weights: '가중치',
+  needed_monthly_capacity: '필요 월 생산능력',
+  candidate_count: '후보 수',
+  excluded: '제외 협력사',
+  rank: '순위',
+  total_score: '종합 점수',
+  scores: '항목별 점수',
+  last_price: '최근 견적 단가',
+  gap_to_target_pct: '목표 단가 대비',
+  audit_grade: '감사 등급',
+  years_dealing: '거래 연수',
+  payment_days: '대금 지급 기한(일)',
+  price_linkage: '납품대금 연동',
+  notes: '참고 사항',
+  flags: '법규 점검',
+}
+
+const SCORE_LABELS: Record<string, string> = { price: '가격', quality: '품질', delivery: '납기' }
+
+/** 중첩 값(가중치, 제외 목록, flags 등)을 JSON 대신 읽을 수 있는 문장으로. 여러 항목은 줄을 나눈다 */
+function nestedDisplay(key: string, item: object): string {
+  if (Array.isArray(item)) {
+    return item.map((row) => {
+      if (!record(row)) return String(row)
+      if (key === 'excluded') return `${row.name ?? row.supplier_id}(${row.supplier_id}): ${row.reason ?? '사유 없음'}`
+      if (key === 'flags') return `${row.message ?? row.code}${row.law_refs ? ` (${row.law_refs})` : ''}`
+      return nestedDisplay(key, row)
+    }).join('\n') || '없음'
+  }
+  return Object.entries(item).map(([k, v]) => {
+    const label = SCORE_LABELS[k] ?? FIELD_LABELS[k] ?? k
+    if (key === 'weights' && number(v) !== null) return `${label} ${(Number(v) * 100).toLocaleString('ko-KR', { maximumFractionDigits: 1 })}%`
+    if (typeof v === 'number') return `${label} ${v.toLocaleString('ko-KR')}`
+    return `${label} ${v === null || v === undefined ? '정보 없음' : typeof v === 'object' ? nestedDisplay(k, v) : String(v)}`
+  }).join(' · ')
 }
 
 /**
@@ -230,15 +271,22 @@ export function parseEvidenceFields(evidence: Evidence): { key: string; label: s
     if (['payment_days', 'price_linkage', 'raw_material_ratio', 'auto_renewal'].includes(key)) return groups.contracts
     return 'UNKNOWN'
   }
-  return Object.entries(value).filter(([key]) => key !== 'stub').map(([key, item]) => {
+  function row(key: string, item: unknown, source: string) {
     let display: string
     if (item === null || item === undefined) display = '정보 없음'
     else if (['on_time_rate', 'debt_ratio', 'operating_margin', 'raw_material_ratio'].includes(key) && number(item) !== null) {
       display = `${(Number(item) * 100).toLocaleString('ko-KR', { maximumFractionDigits: 1 })}%`
+    } else if (key === 'gap_to_target_pct' && number(item) !== null) {
+      display = `${Number(item) > 0 ? '+' : ''}${Number(item).toLocaleString('ko-KR', { maximumFractionDigits: 1 })}%`
     } else if (typeof item === 'boolean') display = item ? '예' : '아니오'
     else if (typeof item === 'number') display = item.toLocaleString('ko-KR')
-    else if (typeof item === 'object') display = JSON.stringify(item)
+    else if (typeof item === 'object') display = nestedDisplay(key, item)
     else display = String(item)
-    return { key, label: FIELD_LABELS[key] ?? key, value: display, source: fieldSource(key) }
-  })
+    return { key, label: FIELD_LABELS[key] ?? key, value: display, source }
+  }
+  return Object.entries(value).filter(([key]) => key !== 'stub').flatMap(([key, item]) =>
+    // 순위 계산 조건의 RFQ는 한 칸에 몰지 않고 항목별 행으로 펼친다. 출처 필드가 없어 출처는 정보 없음
+    key === 'rfq' && record(item)
+      ? Object.entries(item).map(([k, v]) => row(k, v, 'UNKNOWN'))
+      : [row(key, item, fieldSource(key))])
 }

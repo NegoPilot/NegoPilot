@@ -143,6 +143,24 @@ assert.equal(fields.find(row => row.key === 'on_time_rate').value, '98%')
 assert.equal(fields.find(row => row.key === 'debt_ratio').value, '150%')
 assert.equal(fields.find(row => row.key === 'unit_price').value, '12,345')
 assert.equal(fields.find(row => row.key === 'unit_price').source, 'UNKNOWN')
+const rankingSummary = evidence.parseEvidenceFields({ ...supplierEvidence, kind: 'ranking_summary', text: JSON.stringify({
+  rfq: { rfq_id: 'RFQ-2026-001', part_name: '알루미늄 브래킷', target_price: 3900 },
+  weights: { price: 0.5, quality: 0.3, delivery: 0.2 },
+  excluded: [{ supplier_id: 'SUP-0020', name: '우리산업', reason: 'IATF 16949 인증 없음' }, { supplier_id: 'SUP-0031', name: '가온', reason: '월 생산능력 부족' }],
+}) })
+assert.deepEqual(rankingSummary.map(row => row.label), ['RFQ', '품목', '목표 단가', '가중치', '제외 협력사'])
+assert.equal(rankingSummary.find(row => row.key === 'target_price').value, '3,900')
+assert.equal(rankingSummary.find(row => row.key === 'weights').value, '가격 50% · 품질 30% · 납기 20%')
+assert.equal(rankingSummary.find(row => row.key === 'excluded').value, '우리산업(SUP-0020): IATF 16949 인증 없음\n가온(SUP-0031): 월 생산능력 부족')
+const ranked = evidence.parseEvidenceFields({ ...supplierEvidence, kind: 'ranked_supplier', text: JSON.stringify({
+  scores: { price: 0.83, quality: 0.7, delivery: 1 }, gap_to_target_pct: 5.2, notes: ['신규 후보'],
+  flags: [{ severity: 'high', code: 'PAY', message: '지급 기한 초과', law_refs: '하도급법 제13조' }],
+}) })
+assert.equal(ranked.find(row => row.key === 'scores').value, '가격 0.83 · 품질 0.7 · 납기 1')
+assert.equal(ranked.find(row => row.key === 'gap_to_target_pct').value, '+5.2%')
+assert.equal(ranked.find(row => row.key === 'notes').value, '신규 후보')
+assert.equal(ranked.find(row => row.key === 'flags').value, '지급 기한 초과 (하도급법 제13조)')
+assert.ok(ranked.every(row => !row.value.includes('{')))
 assert.equal(provenance.provenanceLabel('STUB'), 'STUB 테스트 응답')
 assert.equal(provenance.provenanceLabel('MANUAL'), '관리자 입력')
 assert.equal(provenance.provenanceLabel('UNKNOWN'), '출처 정보 없음')
