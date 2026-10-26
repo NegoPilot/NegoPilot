@@ -129,6 +129,8 @@ linkage_terms는 `기준 지표`와 `조정 요건(변동률)` 및 `조정 주�
 
 제시가와 목표 합의가 및 최대 수용가는 오름차순이어야 한다. notes는 최대 500자다. cover_letter는 최대 1500자이며 title은 최대 200자다. reply_by는 실제 ISO 날짜다. 단가 수정 시 opening도 같은 값으로 맞춘다. 파생 금액과 비율 및 과거 가격 판정은 다시 계산하지 않으며 `derived_stale`이 true가 된다. 위험 조건도 사용자가 저장한 값을 유지한다.
 
+사용자 수정 revision의 origin은 `USER_EDIT`다. 재검사가 인사말을 맞춰 저장한 revision은 `COVER_SYNC`다(5절).
+
 TERMS 변경은 세 카운터를 모두 올린다. PRICE_RANGE와 INTERNAL_TEXT 변경은 internal_content_rev를 올린다. EXTERNAL_TEXT 변경은 external_content_rev를 올린다. notes 변경은 내부와 외부 카운터를 모두 올린다. impacts는 문서별 content_revision과 재검사가 필요한 `conditions` 또는 `price_range` 또는 `text`를 알려 준다.
 
 검사 상태는 저장된 revision과 검사 실행 행으로 계산한다.
@@ -152,6 +154,18 @@ checked_revision은 실제 검사한 revision이다. 현재 revision과 다른 �
 
 재검사는 해당 revision의 draft 문서를 기존 Agent render에 전달한다. 살아 있는 checking이 있으면 409 `VALIDATION_IN_PROGRESS`다. 임대가 끝난 실행은 `failed`와 `STALE_CHECK`로 정리한다. OFFER_VIOLATION도 검사 실행은 성공했으므로 200으로 반환한다. 이때 conclusion은 risk_identified다. 다른 상류 오류는 실행을 failed로 기록하고 원래 오류로 응답한다.
 
+**인사말 맞추기(#306).** 재검사는 `?include_cover_status=true`로 render를 부른다. 고친 조건과 맞지 않아 Agent가 인사말을 다시 쓰면(`cover_letter.source`가 `model` 또는 `fallback`) 다음과 같이 처리한다.
+
+- 검사한 revision이 head이고 협상안이 ACTIVE이며 문장이 실제로 바뀌었으면, 다시 쓴 인사말만 바꾼 새 revision을 같은 트랜잭션에 저장한다. origin은 `COVER_SYNC`, 변경 범위는 EXTERNAL_TEXT, change_set 경로는 `/external/cover_letter`다. 조건 값은 그대로다.
+- 검사 실행 행은 그 새 revision에 기록한다. 조건이 같으므로 검사 결과도 그 revision의 결과다.
+- 응답에 `cover_letter: {refreshed, source, revision}`을 넣는다. refreshed가 true면 revision은 새로 저장한 번호이고, 아니면 null이다.
+- 화면은 refreshed가 true면 확정을 멈추고 새 인사말을 보여 준 뒤 다시 확정받는다. 사용자가 보지 않은 문장이 협력사에게 나가지 않게 하기 위해서다.
+
+```json
+{"execution": {"revision": 3, "status": "checked"}, "validation": {"status": "checked", "checked_revision": 3},
+ "cover_letter": {"refreshed": true, "source": "model", "revision": 3}}
+```
+
 재검사는 선택한 협상안의 조건만 검사한다. 가격 범위와 문구는 검사하지 않는다. scope와 limitations에 이 범위를 적고 text_findings는 null로 둔다. 생성 시에는 협상 범위 가격 검사도 포함하지만 모든 양보 조합을 검사한 것은 아니다.
 
 ```json
@@ -160,7 +174,9 @@ checked_revision은 실제 검사한 revision이다. 현재 revision과 다른 �
 
 document_type은 external만 지원한다. formats는 pdf 한 개 또는 docx 한 개 또는 둘 다다. 내부 문서 요청은 422 `UNSUPPORTED_EXPORT_FORMAT`이다. include_review_details는 400이다.
 
-final은 요청 revision이 head이며 협상안이 ACTIVE이고 기반 검토가 검토 head일 때만 허용한다. 위반하면 422 `EXPORT_NOT_ALLOWED`와 reasons를 반환한다. 같은 협상안 revision과 문서 상태 및 정렬한 formats의 ready 묶음은 재사용한다. 재사용 전에 파일이 모두 있고 sha256이 맞는지 확인하며, 아니면 묶음을 failed(`FILE_MISSING`)로 바꾸고 새로 렌더한다. processing 묶음이 있으면 retryable인 409 `IDEMPOTENCY_CONFLICT`다. Agent 응답 제한 + 30초가 지난 processing 묶음은 failed(`STALE_EXPORT`)로 정리한다.
+final은 요청 revision이 head이며 협상안이 ACTIVE이고 기반 검토가 검토 head일 때만 허용한다. 위반하면 422 `EXPORT_NOT_ALLOWED`와 reasons를 반환한다.
+
+내보내기는 `?include_cover_status=true&writing=false`로 render를 불러 인사말을 고치지 않는다. 저장된 인사말이 조건과 맞지 않아 Agent가 바꾸려 하면(`regenerated` true) 파일을 저장하지 않고 묶음을 failed로 남긴 뒤 422 `EXPORT_NOT_ALLOWED`와 reasons `["COVER_LETTER_STALE"]`을 반환한다. 다시 재검사하면 인사말이 새 revision으로 맞춰진다. 그래서 확정본 묶음의 `rendered_document`, 메일 첨부와 협상안 본문(`external_body`)의 인사말은 항상 같다. 같은 협상안 revision과 문서 상태 및 정렬한 formats의 ready 묶음은 재사용한다. 재사용 전에 파일이 모두 있고 sha256이 맞는지 확인하며, 아니면 묶음을 failed(`FILE_MISSING`)로 바꾸고 새로 렌더한다. processing 묶음이 있으면 retryable인 409 `IDEMPOTENCY_CONFLICT`다. Agent 응답 제한 + 30초가 지난 processing 묶음은 failed(`STALE_EXPORT`)로 정리한다.
 
 묶음 응답에는 `bundle_id`와 `status` 및 `final`과 `document_type` 및 `proposal_revision`과 `content_hash` 및 `render_check`와 `validation_snapshot` 및 `files`가 있다. files는 파일마다 `file_id`와 `format` 및 `file_name`과 `content_type` 및 `byte_size`와 `sha256` 및 `download_url`을 담는다. 파일 이름은 Agent 렌더 응답 그대로다.
 

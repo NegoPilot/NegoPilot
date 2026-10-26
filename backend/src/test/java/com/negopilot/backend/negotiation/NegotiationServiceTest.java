@@ -63,7 +63,7 @@ class NegotiationServiceTest {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
             return proposalResponse(call.getArgument(0));
         });
-        when(gateway.render(any(), any(), anyString())).thenAnswer(call -> {
+        when(gateway.render(any(), any(), anyString(), anyBoolean())).thenAnswer(call -> {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
             return renderResponse(call.getArgument(0), call.getArgument(1), call.getArgument(2));
         });
@@ -169,11 +169,11 @@ class NegotiationServiceTest {
         patch(workspace, proposal, 1, "{\"offer\":{\"unit_price\":1900}}");
         var second = export(workspace, proposal, 2, false);
         assertThat(first.status()).isEqualTo(201); assertThat(second.status()).isEqualTo(201);
-        verify(gateway).render(any(), argThat(doc -> doc.path("unit_price").intValue() == 1948 && doc.path("version").intValue() == 1), eq("pdf"));
-        verify(gateway).render(any(), argThat(doc -> doc.path("unit_price").intValue() == 1900 && doc.path("version").intValue() == 2), eq("pdf"));
+        verify(gateway).render(any(), argThat(doc -> doc.path("unit_price").intValue() == 1948 && doc.path("version").intValue() == 1), eq("pdf"), eq(false));
+        verify(gateway).render(any(), argThat(doc -> doc.path("unit_price").intValue() == 1900 && doc.path("version").intValue() == 2), eq("pdf"), eq(false));
         var reused = export(workspace, proposal, 1, false);
         assertThat(reused.status()).isEqualTo(200); assertThat(reused.body()).isEqualTo(first.body());
-        verify(gateway, times(2)).render(any(), any(), anyString());
+        verify(gateway, times(2)).render(any(), any(), anyString(), anyBoolean());
         error(() -> export(workspace, proposal, 1, true), 422, "EXPORT_NOT_ALLOWED");
     }
 
@@ -181,13 +181,73 @@ class NegotiationServiceTest {
         UUID workspace = reviewed(); UUID proposal = id(proposal(workspace), "proposal_id");
         patch(workspace, proposal, 1, "{\"offer\":{\"payment_days\":90}}");
         doThrow(ApiException.of(UUID.randomUUID(), 422, "OFFER_VIOLATION", "위반 조건", false,
-                object("{\"findings\":[{\"code\":\"PAYMENT_DAYS_OVER_60\"}]}"))).when(gateway).render(any(), any(), anyString());
+                object("{\"findings\":[{\"code\":\"PAYMENT_DAYS_OVER_60\"}]}"))).when(gateway).render(any(), any(), anyString(), anyBoolean());
         var validation = service.validate(owner, workspace, proposal, 2, object("{}"), null, UUID.randomUUID());
         assertThat(validation.status()).isEqualTo(200);
         assertThat(validation.body().at("/validation/conclusion").asText()).isEqualTo("risk_identified");
         assertThat(validation.body().at("/execution/violations/0/code").asText()).isEqualTo("PAYMENT_DAYS_OVER_60");
         error(() -> export(workspace, proposal, 2, false), 422, "OFFER_VIOLATION");
         assertThat(repository.table("neg_export_bundles").getFirst().path("status").asText()).isEqualTo("failed");
+    }
+
+    @Test void recheckStoresARewrittenCoverLetterAsTheNewHeadRevision() {
+        UUID workspace = reviewed(); UUID proposal = id(proposal(workspace), "proposal_id");
+        patch(workspace, proposal, 1, "{\"offer\":{\"payment_days\":45}}");
+        String fresh = "지급 조건은 목적물 수령일부터 45일 이내 현금 지급입니다.";
+        doAnswer(call -> coverRewritten(renderResponse(call.getArgument(0), call.getArgument(1), call.getArgument(2)), fresh, "model"))
+                .when(gateway).render(any(), any(), anyString(), eq(true));
+        var checked = service.validate(owner, workspace, proposal, 2, object("{}"), null, UUID.randomUUID());
+        assertThat(checked.body().at("/cover_letter/refreshed").booleanValue()).isTrue();
+        assertThat(checked.body().at("/cover_letter/source").asText()).isEqualTo("model");
+        assertThat(checked.body().at("/cover_letter/revision").intValue()).isEqualTo(3);
+        assertThat(checked.body().at("/execution/revision").intValue()).isEqualTo(3);
+        assertThat(checked.body().at("/validation/status").asText()).isEqualTo("checked");
+        assertThat(checked.body().at("/validation/checked_revision").intValue()).isEqualTo(3);
+        ObjectNode synced = repository.table("neg_proposal_revisions").stream()
+                .filter(row -> row.path("revision").intValue() == 3).findFirst().orElseThrow();
+        assertThat(synced.path("origin").asText()).isEqualTo("COVER_SYNC");
+        assertThat(synced.path("base_revision").intValue()).isEqualTo(2);
+        assertThat(synced.at("/external_body/cover_letter").asText()).isEqualTo(fresh);
+        assertThat(synced.path("payment_days").intValue()).isEqualTo(45);
+        assertThat(synced.at("/change_set/0/path").asText()).isEqualTo("/external/cover_letter");
+        JsonNode external = JSON.valueToTree(service.external(owner, workspace, proposal, null, UUID.randomUUID()));
+        assertThat(external.at("/proposal_revision").intValue()).isEqualTo(3);
+        assertThat(external.at("/external_document/cover_letter").asText()).isEqualTo(fresh);
+        assertThat(external.at("/validation/status").asText()).isEqualTo("checked");
+        assertThat(export(workspace, proposal, 3, true).status()).isEqualTo(201);
+    }
+
+    @Test void recheckKeepsTheRevisionWhenTheCoverLetterStillMatches() {
+        UUID workspace = reviewed(); UUID proposal = id(proposal(workspace), "proposal_id");
+        patch(workspace, proposal, 1, "{\"offer\":{\"payment_days\":45}}");
+        var checked = service.validate(owner, workspace, proposal, 2, object("{}"), null, UUID.randomUUID());
+        assertThat(checked.body().at("/cover_letter/refreshed").booleanValue()).isFalse();
+        assertThat(checked.body().at("/cover_letter/revision").isNull()).isTrue();
+        assertThat(checked.body().at("/execution/revision").intValue()).isEqualTo(2);
+        assertThat(repository.table("neg_proposal_revisions")).hasSize(2);
+    }
+
+    @Test void exportRefusesADocumentWhoseCoverLetterNoLongerMatches() {
+        UUID workspace = reviewed(); UUID proposal = id(proposal(workspace), "proposal_id");
+        patch(workspace, proposal, 1, "{\"offer\":{\"payment_days\":45}}");
+        service.validate(owner, workspace, proposal, 2, object("{}"), null, UUID.randomUUID());
+        doAnswer(call -> coverRewritten(renderResponse(call.getArgument(0), call.getArgument(1), call.getArgument(2)), "귀사의 무궁한 발전을 기원합니다.", "fallback"))
+                .when(gateway).render(any(), any(), anyString(), eq(false));
+        assertThatThrownBy(() -> export(workspace, proposal, 2, true)).isInstanceOfSatisfying(ApiException.class, failure -> {
+            assertThat(failure.status.value()).isEqualTo(422);
+            assertThat(failure.code).isEqualTo("EXPORT_NOT_ALLOWED");
+            assertThat(JSON.valueToTree(failure.details).at("/reasons/0").asText()).isEqualTo("COVER_LETTER_STALE");
+        });
+        ObjectNode bundle = repository.table("neg_export_bundles").getFirst();
+        assertThat(bundle.path("status").asText()).isEqualTo("failed");
+        assertThat(bundle.path("error_code").asText()).isEqualTo("EXPORT_NOT_ALLOWED");
+        assertThat(repository.table("neg_export_files")).isEmpty();
+    }
+
+    private static ObjectNode coverRewritten(ObjectNode response, String cover, String source) {
+        ((ObjectNode) response.get("document")).put("cover_letter", cover);
+        response.putObject("cover_letter").put("regenerated", true).put("source", source).putArray("problems").add("입력에 없는 숫자 60");
+        return response;
     }
 
     @Test void recheckExpiresStaleExecutionsAndReturnsTheHeadState() {
@@ -251,7 +311,7 @@ class NegotiationServiceTest {
         error(() -> service.external(owner, workspace, proposal, null, UUID.randomUUID()), 422, "NO_OFFER");
         error(() -> service.validate(owner, workspace, proposal, 1, object("{}"), null, UUID.randomUUID()), 422, "NO_OFFER");
         error(() -> export(workspace, proposal, 1, false), 422, "NO_OFFER");
-        verify(gateway, never()).render(any(), any(), anyString());
+        verify(gateway, never()).render(any(), any(), anyString(), anyBoolean());
     }
 
     UUID workspace() {

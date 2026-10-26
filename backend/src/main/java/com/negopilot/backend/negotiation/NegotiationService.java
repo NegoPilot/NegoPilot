@@ -302,9 +302,13 @@ class NegotiationService {
                 ObjectNode proposal = proposal(id, pid, false, requestId);
                 ObjectNode review = reviewRow(id, proposal.path("review_revision").intValue(), requestId);
                 ObjectNode finished;
+                JsonNode cover = null;
+                String coverText = null;
                 try {
-                    JsonNode rendered = gateway.render(requestId, NegotiationDocumentAssembler.assemble(work, proposal, revision(pid, number, requestId), "draft"), "pdf");
+                    JsonNode rendered = gateway.render(requestId, NegotiationDocumentAssembler.assemble(work, proposal, revision(pid, number, requestId), "draft"), "pdf", true);
                     finished = checked(pid, number, "RECHECK", owner, requestId, rendered.path("check"), review.path("eligibility").asText(), unresolved(review));
+                    cover = rendered.path("cover_letter");
+                    if (cover.path("regenerated").asBoolean(false)) coverText = rendered.path("document").path("cover_letter").asText(null);
                 } catch (ApiException failure) {
                     if (!"OFFER_VIOLATION".equals(failure.code) || failure.status.value() != 422) throw failure;
                     finished = checked(pid, number, "RECHECK", owner, requestId, object().put("verdict_code", "VIOLATION"), review.path("eligibility").asText(), unresolved(review));
@@ -314,14 +318,22 @@ class NegotiationService {
                 finished.remove(List.of("id", "proposal_id", "revision", "origin", "requested_by", "agent_request_id"));
                 finished.putNull("lease_until");
                 ObjectNode update = finished;
+                JsonNode coverResult = cover;
+                String rewritten = coverText;
                 return transaction.execute(tx -> {
                     member(owner, requestId);
                     workspace(owner, id, true, requestId);
+                    // 고친 조건과 맞지 않아 Agent가 인사말을 다시 썼으면, 그 문장을 새 버전으로 저장하고 검사 결과도 그 버전에 남긴다 (#306)
+                    Integer synced = syncCoverLetter(owner, id, pid, number, rewritten, coverResult, requestId);
+                    if (synced != null) update.put("revision", synced);
                     int changed = repository.update("neg_validations", update, "t.id=? AND t.status='checking' AND t.lease_until>clock_timestamp()", uuid(started, "id"));
                     if (changed != 1) throw ApiException.of(requestId, 409, "VALIDATION_IN_PROGRESS", "검사 임대가 만료되었습니다", true);
                     ObjectNode response = object();
                     response.set("execution", repository.one("SELECT to_jsonb(v) FROM neg_validations v WHERE id=?", uuid(started, "id")));
                     response.set("validation", validationView(pid, proposal(id, pid, false, requestId).path("head_revision").intValue()));
+                    ObjectNode coverView = response.putObject("cover_letter").put("refreshed", synced != null);
+                    coverView.put("source", coverResult == null ? "kept" : coverResult.path("source").asText("kept"));
+                    if (synced != null) coverView.put("revision", synced); else coverView.putNull("revision");
                     return requests.complete(200, response, requestId);
                 });
             } catch (RuntimeException failure) {
@@ -379,7 +391,12 @@ class NegotiationService {
             if (claim.cached() != null) return claim.cached();
             UUID bundleId = uuid(claim.bundle(), "id");
             try {
-                JsonNode rendered = gateway.render(requestId, claim.document(), formats.size() == 2 ? "both" : formats.getFirst());
+                JsonNode rendered = gateway.render(requestId, claim.document(), formats.size() == 2 ? "both" : formats.getFirst(), false);
+                // 내보내기는 인사말을 고치지 않는다. 맞지 않으면 재검사에서 새 버전으로 고친 뒤 다시 내보낸다 (#306)
+                if (rendered.path("cover_letter").path("regenerated").asBoolean(false)) {
+                    throw ApiException.of(requestId, 422, "EXPORT_NOT_ALLOWED", "인사말이 지금 조건과 맞지 않습니다. 다시 검사하세요", false,
+                            object().set("reasons", mapper.createArrayNode().add("COVER_LETTER_STALE")));
+                }
                 List<ObjectNode> files = new ArrayList<>();
                 Set<String> seen = new java.util.HashSet<>();
                 for (JsonNode attachment : rendered.path("attachments")) {
@@ -449,6 +466,30 @@ class NegotiationService {
             view.put("download_url", "/api/negotiation-exports/" + file.path("id").asText() + "/file"); files.add(view);
         });
         return result;
+    }
+
+    /**
+     * 재검사에서 Agent가 다시 쓴 인사말을 협상안의 새 버전(origin COVER_SYNC)으로 저장한다.
+     * 검사한 버전이 지금 최신이고 문장이 실제로 바뀐 경우에만 저장하며, 저장한 버전 번호를 돌려준다.
+     */
+    private Integer syncCoverLetter(UUID owner, UUID id, UUID pid, int number, String rewritten, JsonNode cover, UUID requestId) {
+        if (rewritten == null || rewritten.isBlank()) return null;
+        ObjectNode proposal = proposal(id, pid, true, requestId);
+        if (!"ACTIVE".equals(proposal.path("status").asText()) || proposal.path("head_revision").intValue() != number) return null;
+        ObjectNode base = revision(pid, number, requestId);
+        if (rewritten.equals(base.path("external_body").path("cover_letter").asText(null))) return null;
+        ObjectNode changes = object();
+        changes.putObject("external").put("cover_letter", rewritten);
+        var edit = NegotiationProposalEditor.edit(requestId, base, changes);
+        if (!edit.changed()) return null;
+        ObjectNode row = edit.revision();
+        String source = cover.path("source").asText();
+        row.put("origin", "COVER_SYNC").put("created_by", owner.toString()).put("created_at", now())
+                .put("change_note", "model".equals(source) ? "고친 조건에 맞게 인사말을 다시 썼습니다" : "고친 조건과 맞지 않는 인사말을 기본 인사말로 바꿨습니다");
+        repository.insert("neg_proposal_revisions", row);
+        repository.update("neg_proposals", object().put("head_revision", row.path("revision").intValue()).put("updated_at", now()), "t.id=?", pid);
+        repository.update("neg_workspaces", object().put("updated_at", now()), "t.id=?", id);
+        return row.path("revision").intValue();
     }
 
     private void finalPolicy(ObjectNode work, ObjectNode proposal, int number, UUID requestId) {

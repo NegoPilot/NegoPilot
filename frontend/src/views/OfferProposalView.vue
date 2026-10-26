@@ -3,7 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { ApiError } from '@/api/client'
 import {
   createOfferProposal, describeOfferError, previewOfferMail, renderOfferDocument, reviewOfferExcel, saveAttachment, sendOfferMail,
-  type FileFormat, type MailPreview, type MailSendResult, type OfferProposal, type OfferReview, type RenderedOffer,
+  type FileFormat, type MailPreview, type MailSendResult, type OfferDocument, type OfferProposal, type OfferReview, type RenderedOffer,
 } from '@/api/offer-proposals'
 import MailPreviewDialog from '@/components/offer/MailPreviewDialog.vue'
 import OfferDocumentEditor from '@/components/offer/OfferDocumentEditor.vue'
@@ -91,7 +91,13 @@ async function confirmDocument() {
     proposal.value.document = { ...result.document }
     proposal.value.check = result.check
   }
-  catch (e) { errors.value.render = message(e, '제안서를 확정하지 못했습니다.') }
+  catch (e) {
+    // 서버가 인사말을 고친 조건에 맞게 다시 썼으면 편집기에 그 문장을 넣고 다시 확정받는다 (#306)
+    if (proposal.value && e instanceof ApiError && e.code === 'COVER_LETTER_REFRESHED' && e.details?.document) {
+      proposal.value.document = { ...(e.details.document as OfferDocument) }
+    }
+    errors.value.render = message(e, '제안서를 확정하지 못했습니다.')
+  }
   finally { busy.value = '' }
 }
 function editAgain() {
