@@ -183,6 +183,8 @@ async function loadOlder() {
   finally { if (token === epoch) olderLoading.value = false }
 }
 const suggestions = computed(() => messages.value.length || loading.value || !loaded.value ? [] : SUGGESTED_QUESTIONS)
+// 결과가 없을 때의 options는 Agent 검토 루프가 권하는 넓힌 검색이다 (agent/README.md 검토 루프)
+const optionsTitle = (kind: string) => kind === 'no_result' ? '다른 조건으로 찾아보기' : '추천 답변'
 const suggestionsDisabled = computed(() => sending.value || loading.value || olderLoading.value || !loaded.value)
 const latestAssistantKey = computed(() => {
   const last = messages.value.at(-1)
@@ -404,8 +406,8 @@ function supplierSummary(res: GenerationResponse) {
             </a>
           </div>
 
-          <section v-if="m.response.answer.options.length" class="reply-suggestions" aria-label="추천 답변">
-            <h3>추천 답변</h3>
+          <section v-if="m.response.answer.options.length" class="reply-suggestions" :aria-label="optionsTitle(m.response.answer.kind)">
+            <h3>{{ optionsTitle(m.response.answer.kind) }}</h3>
             <div v-if="m.key === latestAssistantKey" class="options">
               <button v-for="(o, index) in m.response.answer.options" :key="index" class="option" type="button" :disabled="suggestionsDisabled" @click="fillDraft(o, m.key)">
                 {{ o }}

@@ -34,7 +34,7 @@ mail-mcp가 읽는 필드만 정한다. 나머지 필드는 그대로 해시에 
 | `rfq_id` | O | 제목·본문에 쓴다 |
 | `content_hash` | O | 아래 3의 해시 (`sha256:` + 16진수 64자) |
 | `title` | | 메일 제목에 쓴다. RFQ 번호가 없으면 앞에 `RFQ 품목 건`을 붙인다. 기본 "단가 및 거래조건 제안서" |
-| `sender` | | `{company, department, contact_name, phone, email}`. 인사말·서명에 쓴다. 값이 비었거나 `[구매사명]` 같은 자리표시면 `[SENDER_INCOMPLETE]`로 보내지 않는다 (#236 `NEGOPILOT_BUYER_*` 설정) |
+| `sender` | | `{company, department, contact_name, phone, email}`. 인사말·서명에 쓴다. 값이 비었거나 `[구매사명]` 같은 자리표시면 `[SENDER_INCOMPLETE]`로 보내지 않는다 (#236 `NEGOPILOT_BUYER_*` 설정). `sender.email`이 올바른 주소면 메일의 **Reply-To**로 써서 협력사 회신이 그 담당자에게 간다 (From은 공용 주소 그대로) |
 | `part_name` | | 품목명. 제목·본문에 쓴다 |
 | `reply_by` | | 회신 기한 (`YYYY-MM-DD`). 본문에 쓴다 |
 | `verdict_code` | | `VIOLATION`이면 거절 |
@@ -66,7 +66,7 @@ content_hash = "sha256:" + hashlib.sha256(payload).hexdigest()
 {
   "to": {"contact_id": 7, "name": "김영업", "email": "sales.sup-0060@example.test",
          "supplier_id": "SUP-0060", "supplier_name": "온새프레스"},
-  "from": "NegoPilot 구매팀 <purchasing@negopilot.local>", "reply_to": null,
+  "from": "NegoPilot 구매팀 <purchasing@negopilot.local>", "reply_to": "김가연 <gayeon@skala.example.test>",
   "subject": "[NegoPilot] 단가 및 거래조건 제안서 (RFQ-2026-002 시트 레일 보강판)",
   "body": "온새프레스 김영업님께\n\n…",
   "attachments": [{"filename": "제안서.pdf", "content_type": "application/pdf", "bytes": 52311, "sha256": "…"}],
@@ -76,6 +76,7 @@ content_hash = "sha256:" + hashlib.sha256(payload).hexdigest()
 ```
 
 - `contact_id`를 생략하면 그 협력사의 활성 기본 담당자. 다른 협력사의 담당자 ID는 받지 않는다.
+- `reply_to`: 문서 `sender.email`(담당자 이름 포함). 없거나 형식이 틀리면 `MAIL_REPLY_TO`, 그것도 없으면 `null`(Reply-To 헤더 없음). `sender`는 해시에 들어가므로 토큰이 회신 주소까지 묶는다.
 - 확인 토큰은 문서 번호·버전·해시·수신자·제목·본문에 서명한 값이다 (HMAC-SHA256, `MAIL_CONFIRM_SECRET`). 15분 동안 유효하고 한 번만 쓴다.
 
 ### `send_offer_mail(document, confirmation_token, requested_by, attachments?, contact_id?, message?, client_ref?)`

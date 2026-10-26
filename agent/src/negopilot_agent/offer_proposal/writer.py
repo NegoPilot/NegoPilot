@@ -154,7 +154,12 @@ def fallback(proposal: Proposal, document: OfferDocument) -> NegotiationDraft:
 
 class NegotiationWriter:
     def __init__(self, backend: Backend | None = None, max_attempts: int = 2):
-        self.backend = backend or default_backend()
+        if backend is None:
+            try:
+                backend = default_backend()
+            except openai.OpenAIError as exc:   # 키가 없으면(stub 테스트 스택 등) 모델 없이 대체 문구로 만든다
+                log.warning('협상 문구 모델을 만들지 못함: %s', type(exc).__name__)
+        self.backend = backend
         self.max_attempts = max_attempts
 
     async def write(self, proposal: Proposal, document: OfferDocument) -> Writing:
@@ -167,7 +172,7 @@ class NegotiationWriter:
             prompt = user if not problems else (
                 user + '\n\n이전 출력이 검사에 걸렸다. 아래를 고쳐 다시 써라:\n- ' + '\n- '.join(problems))
             try:
-                raw = await self.backend.generate(SYSTEM, prompt)
+                raw = await self.backend.generate(SYSTEM, prompt) if self.backend else None
                 draft = NegotiationDraft.model_validate_json(raw) if raw else None
             except (ValidationError, openai.OpenAIError, ValueError) as exc:
                 log.warning('협상 문구 생성 실패: %s', type(exc).__name__)

@@ -400,6 +400,8 @@ async def test_reference_lookup_error_does_not_fail_successful_answer(caplog):
 
 async def test_generator_receives_sanitized_copy_and_business_evidence_is_preserved(monkeypatch, caplog):
     business = {"supplier_id": "SUP-0034", "name": "가상 기업", "source": "MOCK", "business_note": "보존할 업무 정보"}
+    # 생성기 입력을 한 번만 보려고 검토 루프를 끈다. 루프가 켜지면 q2 오류를 다시 실행한다 (test_review_loop.py)
+    monkeypatch.setenv("NEGOPILOT_REVIEW_ROUNDS", "0")
     source = RouteResult.model_validate({
         "status": "routed", "halted": True, "halt_reason": SECRET,
         "outcomes": [
