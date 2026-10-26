@@ -46,7 +46,7 @@ class LegalReviewUploadServiceTest {
             public void rollback(TransactionStatus status) { }
         });
         service = new LegalReviewUploadService(store, runner, transactions, JSON);
-        when(negotiations.create(any(), any(), any(), any(), any())).thenAnswer(inv -> UUID.randomUUID());
+        when(negotiations.create(any(), any(), any(), any(), any(), any())).thenAnswer(inv -> UUID.randomUUID());
     }
 
     /** /internal/legal-reviews 공개 응답 (review_token은 협상 작업 저장 때 빠진다). */
@@ -68,7 +68,7 @@ class LegalReviewUploadServiceTest {
 
     /** NegotiationService.review처럼 작업에 검토 버전을 쌓고 201 검토 응답을 돌려준다. */
     private void reviewsSucceed(String assessment) {
-        when(negotiations.review(any(), any(), any(), any())).thenAnswer(inv -> saveReview(inv.getArgument(1), assessment));
+        when(negotiations.review(any(), any(), any(), any(), any())).thenAnswer(inv -> saveReview(inv.getArgument(1), assessment));
     }
 
     private NegotiationReviews.Outcome saveReview(UUID workspace, String assessment) {
@@ -136,10 +136,12 @@ class LegalReviewUploadServiceTest {
         assertThat(first.get("error").isNull()).isTrue();
         assertThat(done.get("rows").get(1).get("negotiation_id").isNull()).isTrue();
 
-        verify(negotiations).create(eq(owner), eq("SUP-0034"), eq("RFQ-2026-001"), eq("조건.xlsx 2행"), any());
-        verify(negotiations).create(eq(owner), eq("SUP-0034"), eq("RFQ-2026-001"), eq("조건.xlsx 4행"), any());
+        verify(negotiations).create(eq(owner), eq("SUP-0034"), eq("RFQ-2026-001"), eq("조건.xlsx 2행"),
+                eq(LegalReviewRunner.source(new LegalReviewUploadStore.Key(id, 2))), any());
+        verify(negotiations).create(eq(owner), eq("SUP-0034"), eq("RFQ-2026-001"), eq("조건.xlsx 4행"),
+                eq(LegalReviewRunner.source(new LegalReviewUploadStore.Key(id, 4))), any());
         ArgumentCaptor<ObjectNode> offer = ArgumentCaptor.forClass(ObjectNode.class);
-        verify(negotiations, times(2)).review(eq(owner), any(), offer.capture(), any());
+        verify(negotiations, times(2)).review(eq(owner), any(), offer.capture(), any(), any());
         // 엑셀에서 읽은 조건을 그대로 보낸다
         assertThat(offer.getAllValues().getFirst()).isEqualTo(store.rows.get(new LegalReviewUploadStore.Key(id, 2)).get("offer"));
         assertThat(offer.getAllValues().getFirst().get("transaction").get("transaction_type").stringValue()).isEqualTo("manufacturing");
@@ -150,10 +152,10 @@ class LegalReviewUploadServiceTest {
     }
 
     @Test void failuresStayOnTheirRowAndRetryReusesTheWorkspace() {
-        when(negotiations.create(any(), eq("SUP-0070"), any(), any(), any()))
+        when(negotiations.create(any(), eq("SUP-0070"), any(), any(), any(), any()))
                 .thenThrow(ApiException.of(UUID.randomUUID(), 422, "SUPPLIER_NOT_FOUND", "x", false));
         UUID[] failedWorkspace = new UUID[1];
-        when(negotiations.review(any(), any(), any(), any()))
+        when(negotiations.review(any(), any(), any(), any(), any()))
                 .thenThrow(ApiException.timeout(UUID.randomUUID()))
                 .thenAnswer(inv -> {
                     failedWorkspace[0] = inv.getArgument(1);
@@ -188,7 +190,9 @@ class LegalReviewUploadServiceTest {
         assertThat(row.get("status").stringValue()).isEqualTo("COMPLETED");
         assertThat(row.get("negotiation_id").stringValue()).isEqualTo(failedWorkspace[0].toString());
         assertThat(row.get("attempts").intValue()).isEqualTo(2);
-        verify(negotiations, times(4)).create(any(), any(), any(), any(), any());
+        verify(negotiations, times(4)).create(any(), any(), any(), any(), any(), any());
+        // 실행마다 request_id는 달라도 검토 저장은 같은 행 기준(source)으로 요청한다
+        verify(negotiations, times(2)).review(any(), eq(failedWorkspace[0]), any(), eq(LegalReviewRunner.source(new LegalReviewUploadStore.Key(id, 3))), any());
     }
 
     @Test void rejectedCheckOfferInputIsShownSeparately() {

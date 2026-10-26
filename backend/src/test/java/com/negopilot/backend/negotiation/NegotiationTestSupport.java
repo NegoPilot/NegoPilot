@@ -22,14 +22,20 @@ public final class NegotiationTestSupport {
                                   SupplierLookupGateway suppliers, AgentProperties properties, Path exportDirectory) {
         var repository = new NegotiationRepository(jdbc, JSON);
         var transaction = new TransactionTemplate(new DataSourceTransactionManager(datasource));
+        var requests = new NegotiationRequests(repository, transaction, JSON, properties);
         service = new NegotiationService(repository, transaction, gateway, suppliers, new LegalReviewRequestFactory(JSON), JSON,
-                new NegotiationRequests(repository, transaction, JSON, properties), new LocalNegotiationExportStore(exportDirectory), properties);
-        reviews = new NegotiationReviews(service, JSON);
+                requests, new LocalNegotiationExportStore(exportDirectory), properties);
+        reviews = new NegotiationReviews(service, requests, JSON);
     }
 
     public static JsonNode reviewResponseFor(UUID requestId, String assessment) { return reviewResponse(requestId, assessment); }
 
     public static JsonNode proposalResponseFor(UUID requestId) { return proposalResponse(requestId); }
+
+    /** 공개 API POST /api/negotiations/{id}/reviews와 같은 서비스 호출(사용자가 조건을 바꾼 재검토). 응답 상태 코드를 돌려준다. */
+    public int review(UUID owner, UUID workspace, tools.jackson.databind.node.ObjectNode body) {
+        return service.review(owner, workspace, body, null, UUID.randomUUID()).status();
+    }
 
     /** 공개 API POST /api/negotiations/{id}/proposals와 같은 서비스 호출. 응답 상태 코드를 돌려준다. */
     public int propose(UUID owner, UUID workspace, int reviewRevision) {
