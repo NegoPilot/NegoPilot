@@ -16,7 +16,8 @@
   --warning: #b55a00;
   --success: #2f7d3a;
   --radius: 6px;
-  font-family: 'Noto Sans KR', 'Apple SD Gothic Neo', 'Pretendard', system-ui, sans-serif;
+  /* Pretendard는 main.ts에서 npm 패키지(동적 서브셋)로 불러온다 */
+  font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
   color: var(--text);
   background: var(--bg);
   font-size: 14px;
