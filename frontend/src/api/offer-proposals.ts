@@ -130,9 +130,14 @@ export function uploadOfferExcel(supplierName: string, file: File, signal?: Abor
   return LIVE ? live.upload(supplierName, file, signal) : mock.upload(supplierName, file, signal)
 }
 
-/** ② 고른 행의 검토가 끝날 때까지 기다려 항목별 승인·반려를 받는다 */
+/** ② 고른 행의 검토가 끝날 때까지 기다려 항목별 승인·반려를 받는다. 실행에 실패하면 ROW_FAILED */
 export function loadOfferReview(upload: OfferUpload, rowNumber: number, signal?: AbortSignal): Promise<OfferReview> {
   return LIVE ? live.load(upload, rowNumber, signal) : mock.load(upload, rowNumber, signal)
+}
+
+/** 실행에 실패한 행(ROW_FAILED, retryable)을 같은 입력으로 다시 검토한다 */
+export function retryOfferReview(upload: OfferUpload, rowNumber: number, signal?: AbortSignal): Promise<OfferReview> {
+  return LIVE ? live.retry(upload, rowNumber, signal) : mock.load(upload, rowNumber, signal)
 }
 
 /** ② 모든 항목이 승인된 검토로 협상안을 만든다. 발신 정보는 서버가 로그인 회원으로 채운다 */
@@ -231,7 +236,12 @@ const live = {
       const found = (row.input_errors ?? []).map((e: Json) => `${e.column}: ${e.message}`).join(' / ')
       throw new ApiError(400, 'ROW_INVALID', `엑셀 ${row.row_number}행 입력 오류 · ${found}`, false)
     }
-    if (row.status === 'FAILED') throw new ApiError(502, 'REVIEW_FAILED', String(row.error?.code ?? 'Legal review failed.'), !!row.error?.retryable)
+    // 실행 실패는 원인 코드를 details.cause로 넘긴다. REVISION_CONFLICT처럼 협상안 수정과 같은 코드가 섞이지 않게 ROW_FAILED로 감싼다
+    if (row.status === 'FAILED' || row.status === 'SKIPPED') {
+      const cause = row.status === 'SKIPPED' ? 'SKIPPED' : String(row.error?.code ?? 'INTERNAL_ERROR')
+      throw new ApiError(502, 'ROW_FAILED', 'Legal review failed.', row.status === 'SKIPPED' || !!row.error?.retryable, null,
+        { cause, negotiation_id: row.negotiation_id ?? null })
+    }
     const id = String(row.negotiation_id)
     const revision = Number(row.review_revision)
     const head = Number(row.review_head_revision ?? revision)
@@ -244,6 +254,15 @@ const live = {
     const { rows, notice } = reviewView(stored, eligibility)
     const label = `${upload.file_name} · ${rowNumber}행${head > revision ? ` · 재검토 v${head} 기준` : ''}`
     return { review_id: id, supplier_name: upload.supplier_name, file_name: label, row_number: rowNumber, rows, notice }
+  },
+
+  async retry(upload: OfferUpload, rowNumber: number, signal?: AbortSignal): Promise<OfferReview> {
+    try { await request<Json>(`${uploadPath(upload)}/rows/${rowNumber}/retry`, { method: 'POST', body: '{}', signal }) }
+    catch (e) {
+      // 이미 다시 검토 중이거나 검토가 저장된 행은 그 결과를 기다려 보여 준다
+      if (!(e instanceof ApiError && (e.code === 'REVIEW_IN_PROGRESS' || e.code === 'ROW_ALREADY_REVIEWED'))) throw e
+    }
+    return live.load(upload, rowNumber, signal)
   },
 
   async create(review: OfferReview): Promise<OfferProposal> {
@@ -497,7 +516,9 @@ export function describeOfferError(error: ApiError): string | null {
     MAIL_RESULT_UNKNOWN: '발송 결과를 아직 알 수 없습니다. 잠시 뒤 발송 기록을 확인해 주세요. 자동으로 다시 보내지 않습니다.',
     REVISION_CONFLICT: '다른 곳에서 먼저 고쳤습니다. 화면을 새로 고친 뒤 다시 수정해 주세요.',
     NOT_XLSX: error.message, SUPPLIER_AMBIGUOUS: error.message, SUPPLIER_NOT_IN_FILE: error.message, ROW_INVALID: error.message,
-    REVIEW_TIMEOUT: '법규 검토가 오래 걸리고 있습니다. 잠시 뒤 다시 불러와 주세요.', NO_OFFER: `협상안을 만들 수 없습니다: ${error.message}`,    // 업로드 한도 초과는 Spring과 nginx 모두 413 CONTENT_TOO_LARGE다. JSON이 아닌 413(HTTP_413)도 같은 안내로 본다
+    REVIEW_TIMEOUT: '법규 검토가 오래 걸리고 있습니다. 잠시 뒤 다시 불러와 주세요.', NO_OFFER: `협상안을 만들 수 없습니다: ${error.message}`,
+    ROW_FAILED: rowFailure(error),
+    // 업로드 한도 초과는 Spring과 nginx 모두 413 CONTENT_TOO_LARGE다. JSON이 아닌 413(HTTP_413)도 같은 안내로 본다
     CONTENT_TOO_LARGE: '파일이 1MB를 넘습니다. 1MB 이하로 줄여 다시 올려 주세요.',
     HTTP_413: '파일이 1MB를 넘습니다. 1MB 이하로 줄여 다시 올려 주세요.',
     TOO_MANY_PENDING_REVIEWS: '앞서 올린 엑셀의 검토가 아직 진행 중입니다. 검토가 끝난 뒤 다시 올려 주세요.',
@@ -506,6 +527,25 @@ export function describeOfferError(error: ApiError): string | null {
       : '입력값을 확인해 주세요.',
   }
   return known[error.code] ?? null
+}
+
+// 엑셀 행 검토 실패 원인 (legal-review-upload.md 5절). 다시 시도할 수 있는 실패는 [다시 검토]를 안내한다
+const ROW_CAUSES: Record<string, string> = {
+  SKIPPED: '이 행은 아직 검토를 요청하지 않았습니다.',
+  STALE_REVIEW: '검토가 응답 없이 오래 멈춰 정리됐습니다.',
+  UPSTREAM_TIMEOUT: '법규 검토 응답이 제한 시간 안에 오지 않았습니다.',
+  UPSTREAM_UNAVAILABLE: '법규 검토 서버에 연결하지 못했습니다.',
+  UPSTREAM_INVALID_RESPONSE: '법규 검토 응답 형식이 올바르지 않습니다. 관리자에게 알려 주세요.',
+  REVISION_CONFLICT: '이 행의 협상 작업은 이미 조건을 바꿔 재검토했습니다. 엑셀 조건으로는 다시 검토하지 않으니 엑셀을 새로 불러와 주세요.',
+  IDEMPOTENCY_CONFLICT: '같은 행의 앞선 검토가 아직 처리 중입니다.',
+  QUEUE_FULL: '검토 대기열이 가득 찼습니다.',
+  SUPPLIER_NOT_FOUND: '협력사를 찾지 못해 협상 작업을 만들지 못했습니다. 엑셀의 공급자 ID를 확인해 주세요.',
+  INTERNAL_ERROR: '서버 오류로 검토하지 못했습니다.',
+}
+function rowFailure(error: ApiError) {
+  const cause = String(error.details?.cause ?? '')
+  const text = ROW_CAUSES[cause] ?? `법규 검토에 실패했습니다 (${cause || error.code}).`
+  return error.retryable ? `${text} [다시 검토]를 눌러 다시 시도할 수 있어요.` : text
 }
 
 // ── mock: 피그마 08-2 시안 값 ──

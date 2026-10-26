@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ApiError } from '@/api/client'
 import {
-  createOfferProposal, describeOfferError, loadOfferReview, previewOfferMail, renderOfferDocument, saveAttachment,
+  createOfferProposal, describeOfferError, loadOfferReview, previewOfferMail, renderOfferDocument, retryOfferReview, saveAttachment,
   sendOfferMail, uploadOfferExcel,
   type FileFormat, type MailPreview, type MailSendResult, type OfferDocument, type OfferProposal, type OfferReview, type OfferUpload,
   type RenderedOffer,
@@ -20,6 +20,7 @@ const supplierName = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
 const upload = ref<OfferUpload | null>(null)
 const selectedRow = ref<number | null>(null)
+const canRetry = ref(false)
 const review = ref<OfferReview | null>(null)
 const proposal = ref<OfferProposal | null>(null)
 const rendered = ref<RenderedOffer | null>(null)
@@ -65,7 +66,7 @@ const cancelled = (e: unknown) => e instanceof ApiError && e.code === 'REQUEST_C
 watch(supplierName, name => {
   if (!upload.value || name.trim() === upload.value.supplier_name) return
   controller?.abort()
-  upload.value = null; selectedRow.value = null; errors.value.review = ''
+  upload.value = null; selectedRow.value = null; canRetry.value = false; errors.value.review = ''
   resetFrom(1)
 })
 
@@ -76,7 +77,7 @@ async function onFile(event: Event) {
   input.value = ''
   if (!file || busy.value) return
   resetFrom(1)
-  upload.value = null; selectedRow.value = null
+  upload.value = null; selectedRow.value = null; canRetry.value = false
   const signal = restart()
   busy.value = 'review'; errors.value.review = ''
   let uploaded: OfferUpload
@@ -92,15 +93,19 @@ async function onFile(event: Event) {
   if (only && uploaded.rows.length === 1) await pickRow(only.row_number)
 }
 
-// 고른 행의 검토 결과를 받는다
-async function pickRow(rowNumber: number) {
+// 고른 행의 검토 결과를 받는다. retry면 실패한 행을 같은 입력으로 다시 검토한다
+async function pickRow(rowNumber: number, retry = false) {
   if (!upload.value || busy.value) return
   resetFrom(1)
-  selectedRow.value = rowNumber
+  selectedRow.value = rowNumber; canRetry.value = false
   const signal = restart()
   busy.value = 'review'; errors.value.review = ''
-  try { review.value = await loadOfferReview(upload.value, rowNumber, signal) }
-  catch (e) { if (!cancelled(e)) errors.value.review = message(e, '엑셀을 검토하지 못했습니다.') }
+  try { review.value = await (retry ? retryOfferReview : loadOfferReview)(upload.value, rowNumber, signal) }
+  catch (e) {
+    if (cancelled(e)) return
+    errors.value.review = message(e, '엑셀을 검토하지 못했습니다.')
+    canRetry.value = e instanceof ApiError && e.code === 'ROW_FAILED' && e.retryable
+  }
   finally { busy.value = '' }
 }
 
@@ -218,7 +223,10 @@ async function sendMail(note: string) {
           </button>
         </div>
       </div>
-      <p v-if="errors.review" role="alert" class="field-error">{{ errors.review }}</p>
+      <div v-if="errors.review" class="error-row">
+        <p role="alert" class="field-error">{{ errors.review }}</p>
+        <button v-if="canRetry && selectedRow !== null" type="button" class="btn" :disabled="busy === 'review'" @click="pickRow(selectedRow, true)">다시 검토</button>
+      </div>
     </section>
 
     <!-- ② 법규 검토 결과: ①이 끝나야 보인다 -->
@@ -292,7 +300,7 @@ async function sendMail(note: string) {
 .input-row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px}.name{width:min(360px,100%)}.file{align-self:center}
 .hint{margin:8px 0 0}.row-pick{margin:12px 0 0}.row-pick p{margin:0 0 8px}
 .row-pick-list{display:flex;flex-wrap:wrap;gap:8px}.row-pick-list .active{border-color:var(--primary);color:var(--primary);font-weight:600}
-.notice{margin:0 0 12px}.counts{margin:0;display:flex;gap:10px;font-size:12px}
+.error-row{display:flex;flex-wrap:wrap;align-items:center;gap:12px}.notice{margin:0 0 12px}.counts{margin:0;display:flex;gap:10px;font-size:12px}
 .ok{color:var(--success)}.ng{color:var(--danger)}.strong{margin:0 0 4px;font-weight:600;font-size:13px}
 .create-row,.confirm-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin:18px 0 10px}
 .confirm-row p{margin:0}.wide{min-width:170px}
