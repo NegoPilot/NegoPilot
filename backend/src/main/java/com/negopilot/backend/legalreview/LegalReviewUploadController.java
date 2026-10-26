@@ -36,13 +36,16 @@ final class LegalReviewUploadController {
     @PostMapping(value = BASE, consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     ResponseEntity<JsonNode> upload(@RequestParam(name = "file", required = false) MultipartFile file, HttpServletRequest request) {
         UUID owner = currentUser.requireActive().userId();
-        UUID id = begin(request, Set.of());
+        UUID id = begin(request, Set.of("supplier_id"));
         String fileName = fileName(file);
         if (fileName == null || file.isEmpty() || file.getSize() > MAX_FILE_BYTES) throw ApiException.validation(id);
+        // 주면 그 협력사의 행만 검토한다(08-2 화면은 한 협력사의 행만 쓴다)
+        String supplierId = request.getParameter("supplier_id");
+        if (supplierId != null && !supplierId.matches("SUP-[0-9]{4}")) throw ApiException.validation(id);
         byte[] data;
         try { data = file.getBytes(); }
         catch (IOException e) { throw ApiException.validation(id); }
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(service.upload(owner, fileName, data, id));
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(service.upload(owner, fileName, data, supplierId, id));
     }
 
     @GetMapping(value = BASE, produces = MediaType.APPLICATION_JSON_VALUE)

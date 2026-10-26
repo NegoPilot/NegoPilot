@@ -9,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
@@ -16,43 +17,50 @@ import tools.jackson.databind.node.JsonNodeFactory;
 import tools.jackson.databind.node.ObjectNode;
 
 /**
- * 엑셀 업로드 → 행별 저장·검토 요청, 소유자 조회, 실패 행 재시도.
+ * 엑셀 업로드 → 행별 저장·검토 요청, 소유자 조회, 실패·건너뛴 행 재시도.
+ * supplier_id를 주면 그 협력사의 정상 행만 검토하고 나머지는 SKIPPED로 둔다. 사용자마다 대기 행 수에 한도가 있다.
  * 조건을 바꾼 재검토는 행에 연결한 협상 작업의 POST /api/negotiations/{id}/reviews로 한다.
  */
 @Service
 final class LegalReviewUploadService {
-    private static final List<String> STATUSES = List.of("INVALID", "QUEUED", "RUNNING", "COMPLETED", "FAILED");
+    private static final List<String> STATUSES = List.of("INVALID", "SKIPPED", "QUEUED", "RUNNING", "COMPLETED", "FAILED");
     private final LegalReviewUploadStore store;
     private final LegalReviewRunner runner;
     private final TransactionTemplate transaction;
     private final JsonMapper mapper;
+    private final int maxPending;
 
     LegalReviewUploadService(LegalReviewUploadStore store, LegalReviewRunner runner, TransactionTemplate transaction,
-                             JsonMapper mapper) {
+                             JsonMapper mapper, @Value("${legal-review-upload.max-pending-per-user:30}") int maxPending) {
         this.store = store;
         this.runner = runner;
         this.transaction = transaction;
         this.mapper = mapper;
+        this.maxPending = maxPending;
     }
 
-    ObjectNode upload(UUID owner, String fileName, byte[] data, UUID requestId) {
+    ObjectNode upload(UUID owner, String fileName, byte[] data, String supplierId, UUID requestId) {
         ReviewWorkbookParser.Parsed parsed = ReviewWorkbookParser.parse(data, requestId);
         UUID id = UUID.randomUUID();
         List<LegalReviewUploadStore.Key> queued = new ArrayList<>();
+        store.expireRunning(false);
         transaction.executeWithoutResult(status -> {
+            store.lockOwner(owner);
+            checkPending(owner, parsed.rows().stream().filter(row -> row.valid() && wanted(row, supplierId)).count(), requestId);
             ObjectNode upload = object().put("id", id.toString()).put("owner_id", owner.toString()).put("file_name", fileName)
                     .put("file_sha256", sha256(data)).put("row_count", parsed.rows().size());
             upload.set("sheet_errors", mapper.valueToTree(parsed.sheetErrors()));
             store.insertUpload(upload);
             for (ReviewWorkbookParser.Row row : parsed.rows()) {
+                String state = !row.valid() ? "INVALID" : wanted(row, supplierId) ? "QUEUED" : "SKIPPED";
                 ObjectNode saved = object().put("upload_id", id.toString()).put("row_number", row.rowNumber())
-                        .put("status", row.valid() ? "QUEUED" : "INVALID").put("created_by", owner.toString());
+                        .put("status", state).put("created_by", owner.toString());
                 saved.set("source_cells", row.source());
                 if (row.supplierId() != null) saved.put("supplier_id", row.supplierId());
                 if (row.rfqId() != null) saved.put("rfq_id", row.rfqId());
                 if (row.valid()) {
                     saved.set("offer", row.offer());
-                    queued.add(new LegalReviewUploadStore.Key(id, row.rowNumber()));
+                    if (state.equals("QUEUED")) queued.add(new LegalReviewUploadStore.Key(id, row.rowNumber()));
                 } else {
                     saved.set("input_errors", mapper.valueToTree(row.errors()));
                 }
@@ -85,7 +93,10 @@ final class LegalReviewUploadService {
         return LegalReviewRowView.detail(row, mapper);
     }
 
-    /** 실행에 실패한 행을 같은 입력으로 다시 검토한다. 이미 만든 협상 작업이 있으면 그 작업에 검토를 저장한다. */
+    /**
+     * 실행에 실패한 행을 같은 입력으로 다시 검토하고, 건너뛴(SKIPPED) 행은 검토를 시작한다.
+     * 이미 만든 협상 작업이 있으면 그 작업에 검토를 저장한다.
+     */
     ObjectNode retry(UUID owner, UUID id, int rowNumber, UUID requestId) {
         store.expireRunning(false);
         owned(owner, id, requestId);
@@ -100,10 +111,28 @@ final class LegalReviewUploadService {
                     Map.of("negotiation_id", row.get("negotiation_id").stringValue()));
             default -> { }
         }
-        // 동시에 두 번 요청하면 한쪽만 대기열로 되돌린다
-        if (!store.requeue(key)) throw ApiException.of(requestId, 409, "REVIEW_IN_PROGRESS", "이 행의 검토가 아직 진행 중입니다", true);
+        transaction.executeWithoutResult(status -> {
+            store.lockOwner(owner);
+            checkPending(owner, 1, requestId);
+            // 동시에 두 번 요청하면 한쪽만 대기열로 되돌린다
+            if (!store.requeue(key)) throw ApiException.of(requestId, 409, "REVIEW_IN_PROGRESS", "이 행의 검토가 아직 진행 중입니다", true);
+        });
         runner.submit(key);
         return LegalReviewRowView.detail(store.row(key), mapper);
+    }
+
+    /** supplier_id를 주지 않았으면 모든 정상 행을, 주었으면 그 협력사 행만 검토한다. */
+    private static boolean wanted(ReviewWorkbookParser.Row row, String supplierId) {
+        return supplierId == null || supplierId.equals(row.supplierId());
+    }
+
+    /** 한 사용자가 대기열을 채워 다른 사람의 검토가 밀리지 않게 QUEUED + RUNNING 행 수를 제한한다. */
+    private void checkPending(UUID owner, long adding, UUID requestId) {
+        if (adding > 0 && store.pending(owner) + adding > maxPending) {
+            throw ApiException.of(requestId, 429, "TOO_MANY_PENDING_REVIEWS",
+                    "검토를 기다리는 행이 너무 많습니다. 앞선 검토가 끝난 뒤 다시 시도해 주세요", true,
+                    Map.of("pending", store.pending(owner), "limit", maxPending));
+        }
     }
 
     private ObjectNode uploadView(ObjectNode upload, boolean withRows) {
